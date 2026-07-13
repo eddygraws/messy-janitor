@@ -14,7 +14,7 @@ var _particles: ParticleBurst
 var _stress: StressComponent
 var _router: CursorClickRouter
 var _tempo: TempoDirector
-var _portrait: Sprite2D
+var _portrait: CharacterPortraitUI
 var _scrub_cooldown: float = 0.0
 
 
@@ -24,7 +24,7 @@ func _ready() -> void:
 	_stress = get_node(stress_path) as StressComponent
 	_router = get_node(router_path) as CursorClickRouter
 	_tempo = get_node_or_null(tempo_path) as TempoDirector
-	_portrait = get_node(portrait_path) as Sprite2D
+	_portrait = get_node(portrait_path) as CharacterPortraitUI
 
 	_stress.mistake_registered.connect(_on_mistake)
 	_stress.stress_critical.connect(_on_stress_critical)

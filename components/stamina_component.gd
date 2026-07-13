@@ -6,9 +6,10 @@ signal stamina_depleted
 signal stamina_recovered
 
 @export var max_stamina: float = 100.0
-@export var drain_rate: float = 18.0
-@export var passive_regen: float = 6.0
-@export var min_control_stamina: float = 25.0
+@export var drain_rate: float = 32.0
+@export var passive_regen: float = 2.8
+@export var min_control_stamina: float = 40.0
+@export var control_curve_power: float = 1.7
 
 var current_stamina: float = 100.0
 var _was_depleted: bool = false
@@ -31,7 +32,8 @@ func get_ratio() -> float:
 func get_control_factor() -> float:
 	if current_stamina >= min_control_stamina:
 		return 1.0
-	return clampf(current_stamina / min_control_stamina, 0.05, 1.0)
+	var ratio := current_stamina / min_control_stamina
+	return clampf(pow(ratio, control_curve_power), 0.04, 1.0)
 
 
 func drain_instant(amount: float) -> void:

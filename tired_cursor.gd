@@ -5,6 +5,8 @@ signal cursor_clicked(position: Vector2)
 
 @export var stamina_path: NodePath = ^"../StaminaComponent"
 @export var stress_path: NodePath = ^"../StressComponent"
+@export var mop_path: NodePath = ^"../MopComponent"
+@export var dirty_control_penalty: float = 0.38
 @export var follow_speed: float = 14.0
 @export var max_shake: float = 6.0
 @export var noise_frequency: float = 3.0
@@ -13,6 +15,7 @@ signal cursor_clicked(position: Vector2)
 
 var _stamina: StaminaComponent
 var _stress: StressComponent
+var _mop: MopComponent
 var _noise := FastNoiseLite.new()
 var _time: float = 0.0
 var _panic: bool = false
@@ -21,6 +24,7 @@ var _panic: bool = false
 func _ready() -> void:
 	_stamina = get_node(stamina_path) as StaminaComponent
 	_stress = get_node_or_null(stress_path) as StressComponent
+	_mop = get_node_or_null(mop_path) as MopComponent
 	if _stress != null:
 		_stress.panic_mode_entered.connect(_on_panic_entered)
 		_stress.panic_mode_exited.connect(_on_panic_exited)
@@ -34,11 +38,14 @@ func _process(delta: float) -> void:
 
 	var target := _get_world_mouse_pos()
 	var control := _stamina.get_control_factor() if _stamina else 1.0
-	var lag := lerpf(4.0, 18.0, 1.0 - control)
+	if _mop != null:
+		var charge := _mop.get_charge()
+		control *= lerpf(1.0, dirty_control_penalty, pow(charge, 1.45))
+	var lag := lerpf(3.0, 20.0, 1.0 - control)
 
 	global_position = global_position.lerp(target, lag * delta)
 
-	var shake_strength := lerpf(0.5, max_shake, 1.0 - control)
+	var shake_strength := lerpf(0.8, max_shake * 1.35, 1.0 - control)
 	var freq := noise_frequency
 	if _panic:
 		shake_strength *= panic_shake_multiplier

@@ -1,7 +1,7 @@
 class_name CharacterPortraitUI
-extends Sprite2D
+extends TextureRect
 
-# Pre-rendered portre — sağ üst köşede (PortraitDock içinde).
+# Pre-rendered portre — sol alt köşede (PortraitDock içinde).
 # facial-features-complete.png atlas sırası (768×128, 6 kare):
 #   0 Nötr | 1 Mutlu | 2 Şaşkın | 3 Endişeli | 4 Şişmiş | 5 Max şişmiş
 
@@ -53,10 +53,14 @@ var _exploded: bool = false
 
 func _ready() -> void:
 	z_index = 1
-	_base_scale = scale
+	stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_setup_texture()
-	_center_in_parent()
 	_set_emotion(Emotion.NEUTRAL, true)
+	call_deferred("_cache_layout")
+	if not resized.is_connected(_cache_layout):
+		resized.connect(_cache_layout)
 
 	_stress = get_node_or_null(stress_path) as StressComponent
 	if _stress != null:
@@ -78,11 +82,9 @@ func _ready() -> void:
 		room_manager.room_cleared.connect(func(_i: int, _r: Dictionary) -> void: _on_happy_burst(0))
 
 
-func _center_in_parent() -> void:
-	var dock := get_parent() as Control
-	if dock == null:
-		return
-	position = dock.size * 0.5
+func _cache_layout() -> void:
+	pivot_offset = size * 0.5
+	_base_scale = scale
 
 
 func _process(delta: float) -> void:

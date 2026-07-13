@@ -20,6 +20,13 @@ extends Node2D
 @onready var _risk_label: Label = $UI/RiskLabel
 @onready var _save: SaveManager = $SaveManager
 @onready var _tutorial_label: Label = $UI/TutorialLabel
+@onready var _run_timer: RunTimerComponent = $RunTimer
+@onready var _time_label: Label = $UI/TimeLabel
+@onready var _skill_check: MopSkillCheckDirector = $MopSkillCheckDirector
+@onready var _run_modifiers: RunModifierDirector = $RunModifierDirector
+
+var _timer_started: bool = false
+var _game_over_pending: bool = false
 
 
 func _ready() -> void:
@@ -45,10 +52,21 @@ func _ready() -> void:
 	_room_manager.level_completed.connect(_on_level_completed)
 	_room_manager.tutorial_requested.connect(_show_tutorial)
 
+	if _run_timer != null:
+		_run_timer.time_changed.connect(_on_time_changed)
+		_run_timer.time_expired.connect(_on_time_expired)
+	if _skill_check != null:
+		_skill_check.check_resolved.connect(_on_skill_check_resolved)
+	if _run_modifiers != null:
+		_run_modifiers.card_acquired.connect(_on_card_acquired)
+
 	_screens.mode_selected.connect(_on_mode_selected)
 	_screens.level_selected.connect(_on_level_selected)
 	_screens.back_pressed.connect(_on_back_pressed)
 	_screens.restart_pressed.connect(_on_restart_pressed)
+	_screens.pause_resume_pressed.connect(_on_pause_resume)
+	_screens.pause_main_menu_pressed.connect(_on_pause_main_menu)
+	_screens.pause_shown.connect(_on_pause_shown)
 
 	_on_stamina_changed(_stamina.current_stamina, _stamina.max_stamina)
 	_on_stress_changed(_stress.current_stress, _stress.max_stress)
@@ -72,9 +90,12 @@ func _enter_playing_state() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	if _cursor:
 		_cursor.visible = true
+	if _run_timer != null and _timer_started and not _game_over_pending:
+		_run_timer.resume_after_menu()
 
 
 func _on_mode_selected(mode: int) -> void:
+	_reset_run_timer_state()
 	if mode == 0:
 		# Macera: seviye seçim ekranını aç.
 		_screens.show_level_select(_save.get_highest_unlocked(), _level_best_array())
@@ -86,6 +107,7 @@ func _on_mode_selected(mode: int) -> void:
 
 
 func _on_level_selected(idx: int) -> void:
+	_reset_run_timer_state()
 	_screens.hide_level_select()
 	_enter_playing_state()
 	_room_manager.start_adventure_level(idx)
@@ -93,9 +115,35 @@ func _on_level_selected(idx: int) -> void:
 
 
 func _on_back_pressed() -> void:
+	_reset_run_timer_state()
+	if _run_modifiers != null:
+		_run_modifiers.reset_run()
+	_screens.hide_pause()
 	_enter_menu_state()
 	_screens.set_records_text(_build_menu_records())
 	_screens.show_start()
+
+
+func _on_pause_shown() -> void:
+	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if _cursor:
+		_cursor.visible = false
+	if _run_timer != null and _timer_started:
+		_run_timer.pause_for_menu()
+	if _skill_check != null:
+		_skill_check.set_rinsing(false)
+
+
+func _on_pause_resume() -> void:
+	if not _screens.is_pause_open():
+		return
+	_screens.hide_pause()
+	_enter_playing_state()
+
+
+func _on_pause_main_menu() -> void:
+	_on_back_pressed()
 
 
 func _level_best_array() -> Array:
@@ -108,6 +156,10 @@ func _level_best_array() -> Array:
 func _on_restart_pressed() -> void:
 	get_tree().paused = false
 	get_tree().reload_current_scene()
+
+
+func _on_card_acquired(card: CardData) -> void:
+	_show_tutorial("Kart alındı: %s %s" % [card.icon, card.title])
 
 
 func _show_tutorial(text: String) -> void:
@@ -141,6 +193,11 @@ func _on_stress_critical() -> void:
 
 
 func _on_stress_exploded() -> void:
+	if _game_over_pending:
+		return
+	_game_over_pending = true
+	if _run_timer != null:
+		_run_timer.stop()
 	print("GAME OVER — Gargoyle patladı!")
 	var records := _record_current_run(false)
 	# Patlama partikülü ve sarsıntısının oynaması için pause'u kısa geciktir.
@@ -153,6 +210,8 @@ func _on_stress_exploded() -> void:
 
 
 func _on_level_completed(total: int, _average: int) -> void:
+	if _run_timer != null:
+		_run_timer.stop()
 	var lvl := _room_manager.get_level_index()
 	var records: Array[String] = []
 	if _save != null:
@@ -269,7 +328,7 @@ func _on_combo_changed(combo: int) -> void:
 func _on_combo_milestone(combo: int) -> void:
 	if _combo_label == null:
 		return
-	_combo_label.text = "COMBO x%d  +ENERJİ!" % combo
+	_combo_label.text = "COMBO x%d  +SÜRE +ENERJİ!" % combo
 	_combo_label.modulate = Color(0.5, 1.0, 0.6)
 	_combo_label.scale = Vector2(1.6, 1.6)
 	_combo_label.pivot_offset = _combo_label.size * 0.5
@@ -323,6 +382,95 @@ func _on_equipment_changed(type: int) -> void:
 
 func _on_room_transition_finished() -> void:
 	_update_room_counter()
+	if not _timer_started and _run_timer != null:
+		_run_timer.start_run(_room_manager.get_mode())
+		_timer_started = true
+
+
+func _on_time_changed(seconds_left: float) -> void:
+	if _time_label == null:
+		return
+	var total := int(ceilf(seconds_left))
+	var mins := total / 60
+	var secs := total % 60
+	_time_label.text = "⏱ %d:%02d" % [mins, secs]
+	if seconds_left <= 30.0:
+		_time_label.modulate = Color(1.0, 0.35, 0.3)
+	elif seconds_left <= 60.0:
+		_time_label.modulate = Color(1.0, 0.75, 0.35)
+	else:
+		_time_label.modulate = Color(0.85, 0.9, 1.0)
+
+
+func _on_time_expired() -> void:
+	if _game_over_pending:
+		return
+	_game_over_pending = true
+	if _run_timer != null:
+		_run_timer.stop()
+	await get_tree().create_timer(0.35).timeout
+	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if _cursor:
+		_cursor.visible = false
+	var records := _record_current_run(false)
+	_screens.show_game_over("SÜRE DOLDU!", _build_time_up_info(records))
+
+
+func _build_time_up_info(records: Array[String]) -> String:
+	var line: String
+	if _room_manager.get_mode() == RoomManager.Mode.ENDLESS:
+		line = "Süre bitti!\n%d tur temizlendi · En yüksek combo x%d" % [
+			_room_manager.get_rooms_cleared(), _room_manager.get_run_max_combo()
+		]
+	else:
+		line = "Süre bitti!\nSeviye %d · Oda %d/%d · %d puan" % [
+			_room_manager.get_level_index() + 1,
+			_room_manager.current_room_index + 1,
+			_room_manager.total_rooms,
+			_room_manager.get_level_score()
+		]
+	return line + _records_or_best(records)
+
+
+func _on_skill_check_resolved(tier: int) -> void:
+	if _mop_charge_label == null:
+		return
+	match tier:
+		2:
+			_mop_charge_label.text = "MÜKEMMEL DURULAMA! +SÜRE"
+			_mop_charge_label.modulate = Color(0.45, 1.0, 0.55)
+		1:
+			_mop_charge_label.text = "İYİ DURULAMA"
+			_mop_charge_label.modulate = Color(0.65, 0.95, 0.7)
+		0:
+			_mop_charge_label.text = "ISLAK PASPAS KAÇTI! -SÜRE"
+			_mop_charge_label.modulate = Color(1.0, 0.35, 0.3)
+	var tween := create_tween()
+	tween.tween_interval(1.1)
+	tween.tween_callback(_refresh_mop_label)
+
+
+func _refresh_mop_label() -> void:
+	if _mop == null or _mop_charge_label == null:
+		return
+	if _mop.is_overheated():
+		_on_mop_overheated()
+	elif _mop.get_charge() > 0.15:
+		_mop_charge_label.text = "PASPAS KİRLİ! → KOVADA DURULA"
+		_mop_charge_label.modulate = Color(1.0, 0.55, 0.35)
+	else:
+		_on_mop_rinsed()
+
+
+func _reset_run_timer_state() -> void:
+	_timer_started = false
+	_game_over_pending = false
+	if _run_timer != null:
+		_run_timer.stop()
+	if _time_label != null:
+		_time_label.text = "⏱ --:--"
+		_time_label.modulate = Color(0.85, 0.9, 1.0)
 
 
 func _on_objective_changed(remaining: int, total: int) -> void:

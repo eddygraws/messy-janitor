@@ -19,6 +19,7 @@ enum Mode { ADVENTURE, ENDLESS }
 @export var equipment_path: NodePath = ^"../EquipmentComponent"
 @export var tempo_path: NodePath = ^"../TempoDirector"
 @export var commission_path: NodePath = ^"../CommissionDirector"
+@export var run_modifier_path: NodePath = ^"../RunModifierDirector"
 
 @export var viewport_height: float = 1080.0
 @export var slide_duration: float = 1.15
@@ -45,6 +46,7 @@ var _stamina: StaminaComponent
 var _equipment: EquipmentComponent
 var _tempo: TempoDirector
 var _commission: CommissionDirector
+var _run_modifiers: RunModifierDirector
 
 
 func _ready() -> void:
@@ -57,6 +59,7 @@ func _ready() -> void:
 	_equipment = get_node_or_null(equipment_path) as EquipmentComponent
 	_tempo = get_node_or_null(tempo_path) as TempoDirector
 	_commission = get_node_or_null(commission_path) as CommissionDirector
+	_run_modifiers = get_node_or_null(run_modifier_path) as RunModifierDirector
 
 	# Güvenlik: RoomManager altına yanlışlıkla eklenmiş "Room" çocuklarını temizle.
 	# Odalar seviye sahnelerinden (Adventure) veya EndlessGenerator'dan gelir.
@@ -75,6 +78,8 @@ func start_run(selected_mode: int) -> void:
 	position = Vector2.ZERO
 	if _commission != null:
 		_commission.clear()
+	if mode == Mode.ENDLESS and _run_modifiers != null:
+		_run_modifiers.reset_run()
 	if mode == Mode.ENDLESS:
 		_begin_endless()
 	else:
@@ -315,6 +320,9 @@ func _start_room_transition() -> void:
 	await _feedback_ui.show_rating(result)
 
 	if mode == Mode.ENDLESS:
+		if _run_modifiers != null:
+			var room_combo := int(result.get("max_combo", 0))
+			await _run_modifiers.present_draft(room_combo)
 		await _advance_endless()
 		return
 

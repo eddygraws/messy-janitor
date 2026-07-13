@@ -17,9 +17,9 @@
 [ext_resource type="Script" uid="uid://dxvy8ub7u48fk" path="res://components/mop_bucket.gd" id="17_bucket"]
 [ext_resource type="Script" uid="uid://e3v5brs5cda5" path="res://systems/combo_component.gd" id="18_combo"]
 [ext_resource type="Script" uid="uid://b32r4gxbk6afa" path="res://systems/mold_spawner.gd" id="19_mold"]
-[ext_resource type="Texture2D" uid="uid://tgexjmcosit" path="res://assets/facial-features-complete.png" id="22_1fr6y"]
 [ext_resource type="Script" uid="uid://t2g0yl1ekftq" path="res://systems/equipment_component.gd" id="22_equip"]
 [ext_resource type="Script" uid="uid://cmqhgoa4t0cd8" path="res://ui/equipment_bar.gd" id="23_eqbar"]
+[ext_resource type="Texture2D" uid="uid://mcjwu8vp3dyr" path="res://assets/janitor-export.png" id="24_2u7jv"]
 [ext_resource type="Script" uid="uid://bx7rt3pjwxs62" path="res://ui/character_portrait.gd" id="24_portrait"]
 [ext_resource type="Script" uid="uid://clvphum1xnthc" path="res://ui/character_reaction_ui.gd" id="24_react"]
 [ext_resource type="Script" uid="uid://4tvx3nhc24hx" path="res://systems/tempo_director.gd" id="25_tempo"]
@@ -27,6 +27,12 @@
 [ext_resource type="Script" uid="uid://c3oc1umb1lgvl" path="res://systems/commission_director.gd" id="27_commdir"]
 [ext_resource type="Script" uid="uid://47s4wbrhu2m3" path="res://ui/commission_card_ui.gd" id="28_commcard"]
 [ext_resource type="Script" uid="uid://ra8gfjqa25qs" path="res://systems/save_manager.gd" id="29_save"]
+[ext_resource type="Script" uid="uid://b4ccx6cbmnv0v" path="res://systems/run_timer.gd" id="30_timer"]
+[ext_resource type="Script" uid="uid://3bb66b47piyh" path="res://systems/mop_skill_check.gd" id="31_skill"]
+[ext_resource type="Script" uid="uid://ddr8126pja6ct" path="res://ui/mop_skill_check_ui.gd" id="32_skillui"]
+[ext_resource type="Script" uid="uid://d1x6urvqsdbdd" path="res://systems/run_modifier_director.gd" id="33_mods"]
+[ext_resource type="Script" uid="uid://wbhdio03m6n3" path="res://ui/draft_card_ui.gd" id="34_draft"]
+[ext_resource type="Script" uid="uid://dxtrowymkl4kg" path="res://ui/active_cards_strip.gd" id="35_strip"]
 
 [node name="Main" type="Node2D" unique_id=1997389448]
 script = ExtResource("1_main")
@@ -113,6 +119,15 @@ script = ExtResource("27_commdir")
 [node name="SaveManager" type="Node" parent="." unique_id=742815096]
 script = ExtResource("29_save")
 
+[node name="RunTimer" type="Node" parent="." unique_id=742815097]
+script = ExtResource("30_timer")
+
+[node name="MopSkillCheckDirector" type="Node" parent="." unique_id=742815098]
+script = ExtResource("31_skill")
+
+[node name="RunModifierDirector" type="Node" parent="." unique_id=742815099]
+script = ExtResource("33_mods")
+
 [node name="MoldSpawner" type="Node" parent="." unique_id=1531069809]
 script = ExtResource("19_mold")
 child_spread_time = 3.5
@@ -147,19 +162,20 @@ offset_bottom = 47.0
 value = 100.0
 
 [node name="PortraitDock" type="Control" parent="UI" unique_id=350438036]
-z_index = 10
+z_index = 30
 layout_mode = 3
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -188.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = 188.0
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -300.0
+offset_right = 296.0
+offset_bottom = -16.0
 grow_horizontal = 0
+grow_vertical = 0
 mouse_filter = 2
 
-[node name="Frame" type="ColorRect" parent="UI/PortraitDock" unique_id=350438038]
+[node name="FrameBorder" type="ColorRect" parent="UI/PortraitDock" unique_id=350438039]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -167,7 +183,37 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.1, 0.08, 0.14, 0.88)
+color = Color(0.45, 0.38, 0.55, 0.65)
+
+[node name="Frame" type="ColorRect" parent="UI/PortraitDock" unique_id=350438038]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 3.0
+offset_top = 3.0
+offset_right = -3.0
+offset_bottom = -3.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.1, 0.08, 0.14, 0.95)
+
+[node name="KarakterPortresi" type="TextureRect" parent="UI/PortraitDock" unique_id=350438037]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -32.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("24_portrait")
+portrait_atlas = ExtResource("24_2u7jv")
+use_placeholder = false
 
 [node name="Caption" type="Label" parent="UI/PortraitDock" unique_id=350438040]
 layout_mode = 1
@@ -175,21 +221,13 @@ anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = -22.0
+offset_top = -28.0
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_colors/font_color = Color(0.75, 0.7, 0.85, 0.8)
-theme_override_font_sizes/font_size = 11
+theme_override_colors/font_color = Color(0.82, 0.78, 0.92, 0.95)
+theme_override_font_sizes/font_size = 14
 text = "TEMİZLEYİCİ"
 horizontal_alignment = 1
-
-[node name="KarakterPortresi" type="Sprite2D" parent="UI/PortraitDock" unique_id=350438037]
-position = Vector2(88, 82)
-scale = Vector2(1.35, 1.35)
-script = ExtResource("24_portrait")
-portrait_atlas = ExtResource("22_1fr6y")
-use_placeholder = false
-apply_tint = false
 
 [node name="StersYuzdeLAbel" type="Label" parent="UI" unique_id=1896669479]
 offset_left = 20.0
@@ -225,6 +263,20 @@ offset_bottom = 43.0
 grow_horizontal = 0
 theme_override_font_sizes/font_size = 20
 text = "Room 1 / 5"
+horizontal_alignment = 2
+
+[node name="TimeLabel" type="Label" parent="UI" unique_id=1631618212]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -200.0
+offset_top = 48.0
+offset_right = -20.0
+offset_bottom = 78.0
+grow_horizontal = 0
+theme_override_colors/font_color = Color(0.85, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 26
+text = "⏱ --:--"
 horizontal_alignment = 2
 
 [node name="ObjectiveLabel" type="Label" parent="UI" unique_id=219732668]
@@ -285,6 +337,51 @@ theme_override_colors/font_color = Color(1, 0.45, 0.4, 1)
 theme_override_font_sizes/font_size = 24
 text = "⚡ RİSKLİ TEMİZLİK (R)"
 horizontal_alignment = 1
+
+[node name="MopSkillCheckUI" type="Control" parent="UI" unique_id=940912661]
+z_index = 12
+layout_mode = 3
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -210.0
+offset_right = 220.0
+offset_bottom = -130.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("32_skillui")
+
+[node name="DraftCardUI" type="Control" parent="UI" unique_id=940912662]
+z_index = 25
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("34_draft")
+
+[node name="ActiveCardsStrip" type="Control" parent="UI" unique_id=940912663]
+z_index = 8
+layout_mode = 3
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -420.0
+offset_top = -148.0
+offset_right = -16.0
+offset_bottom = -108.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("35_strip")
 
 [node name="CharacterReactionUI" type="Control" parent="UI" unique_id=940912655]
 layout_mode = 3
@@ -632,3 +729,88 @@ grow_horizontal = 2
 grow_vertical = 0
 theme_override_font_sizes/font_size = 28
 text = "TEKRAR DENE"
+
+[node name="PauseScreen" type="Control" parent="GameScreens" unique_id=715423065]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BG" type="ColorRect" parent="GameScreens/PauseScreen" unique_id=715423066]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.06, 0.05, 0.1, 0.82)
+
+[node name="Center" type="Control" parent="GameScreens/PauseScreen" unique_id=715423067]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -180.0
+offset_right = 280.0
+offset_bottom = 180.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="GameScreens/PauseScreen/Center" unique_id=715423068]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 72.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.88, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 52
+text = "DURAKLATILDI"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HintLabel" type="Label" parent="GameScreens/PauseScreen/Center" unique_id=715423069]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 72.0
+offset_bottom = 108.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.65, 0.62, 0.72, 1)
+theme_override_font_sizes/font_size = 18
+text = "ESC — Devam Et"
+horizontal_alignment = 1
+
+[node name="ResumeButton" type="Button" parent="GameScreens/PauseScreen/Center" unique_id=715423070]
+custom_minimum_size = Vector2(320, 64)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -160.0
+offset_top = -20.0
+offset_right = 160.0
+offset_bottom = 44.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 26
+text = "DEVAM ET"
+
+[node name="MainMenuButton" type="Button" parent="GameScreens/PauseScreen/Center" unique_id=715423071]
+custom_minimum_size = Vector2(320, 64)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -160.0
+offset_top = 64.0
+offset_right = 160.0
+offset_bottom = 128.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 26
+text = "ANA MENÜ"

@@ -7,11 +7,13 @@ signal room_finalized(result: Dictionary)
 @export var router_path: NodePath = ^"../CursorClickerRouter"
 @export var combo_path: NodePath = ^"../ComboComponent"
 @export var risk_path: NodePath = ^"../RiskModeComponent"
+@export var modifier_path: NodePath = ^"../RunModifierDirector"
 
 var _stress: StressComponent
 var _router: CursorClickRouter
 var _combo: ComboComponent
 var _risk: RiskModeComponent
+var _modifiers: RunModifierDirector
 var _risk_used: bool = false
 
 var _mistakes: int = 0
@@ -35,6 +37,7 @@ func _ready() -> void:
 	if _combo != null:
 		_combo.combo_changed.connect(_on_combo_changed)
 	_risk = get_node_or_null(risk_path) as RiskModeComponent
+	_modifiers = get_node_or_null(modifier_path) as RunModifierDirector
 	if _risk != null:
 		_risk.risk_changed.connect(_on_risk_changed)
 	begin_room()
@@ -93,7 +96,10 @@ func finalize_room() -> Dictionary:
 # Combo yükseldiğinde (yani doğru temizlik olduğunda) puan biriktir.
 func _on_combo_changed(combo: int) -> void:
 	if combo > _prev_combo:
-		_combo_points += mini(combo, 8) * 25
+		var pts := mini(combo, 8) * 25
+		if _modifiers != null:
+			pts = int(round(float(pts) * _modifiers.get_mult(&"score_combo_mult", 1.0)))
+		_combo_points += pts
 		_max_combo = maxi(_max_combo, combo)
 	_prev_combo = combo
 

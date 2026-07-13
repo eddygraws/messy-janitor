@@ -17,6 +17,9 @@ signal wrong_tool(position: Vector2)
 @export var equipment_path: NodePath = ^"../EquipmentComponent"
 @export var risk_path: NodePath = ^"../RiskModeComponent"
 @export var room_manager_path: NodePath = ^"../RoomManager"
+@export var skill_check_path: NodePath = ^"../MopSkillCheckDirector"
+@export var modifier_path: NodePath = ^"../RunModifierDirector"
+@export var combo_path: NodePath = ^"../ComboComponent"
 @export var panic_hitbox_scale: float = 0.68   # panikte hitbox daralır (yanlış tıklama artar)
 @export var wrong_tool_stress: float = 4.0     # yanlış alet: hafif ceza
 @export var dangerous_wrong_stress: float = 14.0  # cımbız objesine yanlış alet: sert ceza
@@ -32,6 +35,9 @@ var _equipment: EquipmentComponent
 var _risk: RiskModeComponent
 # NOT: Döngüsel class bağımlılığını kırmak için RoomManager tipini kullanmıyoruz.
 var _room_manager: Node
+var _skill_check: MopSkillCheckDirector
+var _modifiers: RunModifierDirector
+var _combo: ComboComponent
 
 var _is_scrubbing: bool = false
 var _scrubbing_active: bool = false
@@ -52,10 +58,15 @@ func _ready() -> void:
 	_equipment = get_node_or_null(equipment_path) as EquipmentComponent
 	_risk = get_node_or_null(risk_path) as RiskModeComponent
 	_room_manager = get_node_or_null(room_manager_path)
+	_skill_check = get_node_or_null(skill_check_path) as MopSkillCheckDirector
+	_modifiers = get_node_or_null(modifier_path) as RunModifierDirector
+	_combo = get_node_or_null(combo_path) as ComboComponent
 	_last_mouse_screen = get_viewport().get_mouse_position()
 	if _stress != null:
 		_stress.panic_mode_entered.connect(_on_panic_entered)
 		_stress.panic_mode_exited.connect(_on_panic_exited)
+	if _equipment != null:
+		_equipment.equipment_changed.connect(_on_equipment_changed)
 
 
 func _can_interact() -> bool:
@@ -91,6 +102,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			_is_scrubbing = false
 			_reloading = false
+			if _skill_check != null:
+				_skill_check.set_rinsing(false)
 			if _dragging != null:
 				on_drag_end.emit(_get_aim_pos())
 				_dragging = null
@@ -105,19 +118,30 @@ func _process(delta: float) -> void:
 		_is_scrubbing = false
 		_scrubbing_active = false
 		_reloading = false
+		if _skill_check != null:
+			_skill_check.set_rinsing(false)
 		_dragging = null
 		return
 
 	var aim := _get_aim_pos()
 
-	# 1) Kovada durulama
+	# 1) Kovada durulama + skill check (sadece paspas)
 	if _reloading:
+		if _current_eq() != CleanableObject.EQ_MOP:
+			_reloading = false
+			if _skill_check != null:
+				_skill_check.set_rinsing(false)
+			return
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _is_over_bucket(aim):
-			if _mop != null:
-				_mop.reload(delta)
+			if _skill_check != null:
+				_skill_check.set_rinsing(true)
+			if _mop != null and (_skill_check == null or not _skill_check.is_active()):
+				_mop.reload(delta * _mop.passive_reload_scale)
 			reload_tick.emit(aim)
 		else:
 			_reloading = false
+			if _skill_check != null:
+				_skill_check.set_rinsing(false)
 		return
 
 	# 2) Sürükleme (slime -> gider / süpürülen çöp -> çöp kovası) (duck-typing)
@@ -149,6 +173,8 @@ func _process(delta: float) -> void:
 	var eq := _current_eq()
 	var effort := motion.length()
 	var effectiveness := _mop.get_effectiveness() if (_mop != null and eq == CleanableObject.EQ_MOP) else 1.0
+	if _modifiers != null and _combo != null:
+		effectiveness *= _modifiers.get_scrub_speed_multiplier(_combo.get_combo())
 	if _risk != null:
 		effectiveness *= _risk.get_clean_speed_multiplier()
 	var over_stain := false
@@ -161,7 +187,10 @@ func _process(delta: float) -> void:
 
 	_scrubbing_active = over_stain and effort > 1.5
 	if _scrubbing_active:
-		_stamina.drain(delta)
+		var drain_mult := 1.0
+		if _mop != null and eq == CleanableObject.EQ_MOP:
+			drain_mult = _mop.get_stamina_drain_multiplier()
+		_stamina.drain(delta, drain_mult)
 		if _mop != null and eq == CleanableObject.EQ_MOP:
 			_mop.add_heat(effort)
 		scrub_tick.emit(aim)
@@ -176,9 +205,10 @@ func _handle_press(pos: Vector2) -> void:
 	if _equipment != null and _equipment.is_switching():
 		return
 
-	# Kova: durulama moduna gir (her aletle erişilebilir - durulama)
+	# Kovada durulama — yalnızca paspas ekipmanı ve kir varken
 	if _is_over_bucket(pos):
-		_reloading = true
+		if _current_eq() == CleanableObject.EQ_MOP and _mop != null and _mop.get_charge() > 0.001:
+			_reloading = true
 		return
 
 	var eq := _current_eq()
@@ -233,6 +263,8 @@ func _handle_press(pos: Vector2) -> void:
 		CleanableObject.EQ_BRUSH:
 			scrub_tick.emit(pos)
 			var mash_mult := _risk.get_clean_speed_multiplier() if _risk != null else 1.0
+			if _modifiers != null:
+				mash_mult *= _modifiers.get_mult(&"mash_mult", 1.0)
 			if obj.mash(mash_mult):
 				object_cleaned.emit(pos)
 		CleanableObject.EQ_SPRAY:
@@ -335,6 +367,15 @@ func _on_panic_entered() -> void:
 
 func _on_panic_exited() -> void:
 	_hitbox_scale = 1.0
+
+
+func _on_equipment_changed(_type: int) -> void:
+	if _reloading:
+		_reloading = false
+	if _skill_check != null:
+		_skill_check.set_rinsing(false)
+	_is_scrubbing = false
+	_scrubbing_active = false
 
 
 func _get_world_mouse_pos() -> Vector2:

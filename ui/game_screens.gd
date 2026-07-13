@@ -5,6 +5,9 @@ signal mode_selected(mode: int)
 signal level_selected(index: int)
 signal back_pressed
 signal restart_pressed
+signal pause_resume_pressed
+signal pause_shown
+signal pause_hidden
 
 @onready var _start_screen: Control = $StartScreen
 @onready var _over_screen: Control = $GameOverScreen
@@ -17,6 +20,9 @@ signal restart_pressed
 @onready var _over_info: Label = $GameOverScreen/Center/InfoLabel
 @onready var _over_title: Label = $GameOverScreen/Center/TitleLabel
 @onready var _records_label: Label = $StartScreen/Center/RecordsLabel
+@onready var _pause_screen: Control = $PauseScreen
+@onready var _pause_resume: Button = $PauseScreen/Center/ResumeButton
+@onready var _pause_menu: Button = $PauseScreen/Center/MainMenuButton
 
 
 func _ready() -> void:
@@ -25,8 +31,11 @@ func _ready() -> void:
 	_endless_button.pressed.connect(func() -> void: mode_selected.emit(1))
 	_restart_button.pressed.connect(func() -> void: restart_pressed.emit())
 	_level_back.pressed.connect(func() -> void: back_pressed.emit())
+	_pause_resume.pressed.connect(func() -> void: pause_resume_pressed.emit())
+	_pause_menu.pressed.connect(func() -> void: pause_main_menu_pressed.emit())
 	_over_screen.visible = false
 	_level_screen.visible = false
+	_pause_screen.visible = false
 	show_start()
 
 
@@ -38,6 +47,7 @@ func set_records_text(text: String) -> void:
 func show_start() -> void:
 	_level_screen.visible = false
 	_over_screen.visible = false
+	_pause_screen.visible = false
 	_start_screen.visible = true
 	_start_screen.modulate.a = 0.0
 	var tween := create_tween()
@@ -51,6 +61,58 @@ func hide_start() -> void:
 	tween.tween_property(_start_screen, "modulate:a", 0.0, 0.25)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	tween.tween_callback(func() -> void: _start_screen.visible = false)
+
+
+func is_in_active_game() -> bool:
+	return (
+		not _start_screen.visible
+		and not _level_screen.visible
+		and not _over_screen.visible
+		and not _pause_screen.visible
+	)
+
+
+func is_pause_open() -> bool:
+	return _pause_screen.visible
+
+
+func show_pause() -> void:
+	if not is_in_active_game():
+		return
+	pause_shown.emit()
+	_pause_screen.visible = true
+	_pause_screen.modulate.a = 0.0
+	var center: Control = _pause_screen.get_node("Center")
+	center.pivot_offset = center.size * 0.5
+	center.scale = Vector2(0.92, 0.92)
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(_pause_screen, "modulate:a", 1.0, 0.2)
+	tween.tween_property(center, "scale", Vector2.ONE, 0.25)\
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+
+func hide_pause() -> void:
+	if not _pause_screen.visible:
+		return
+	_pause_screen.visible = false
+	pause_hidden.emit()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventKey):
+		return
+	var key := event as InputEventKey
+	if not key.pressed or key.echo:
+		return
+	if key.keycode != KEY_ESCAPE and key.keycode != KEY_PAUSE:
+		return
+	if _over_screen.visible or _start_screen.visible or _level_screen.visible:
+		return
+	if is_pause_open():
+		pause_resume_pressed.emit()
+	else:
+		show_pause()
+	get_viewport().set_input_as_handled()
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +169,7 @@ func _build_level_buttons(unlocked: int, best_scores: Array) -> void:
 func show_game_over(title: String, info: String) -> void:
 	_start_screen.visible = false
 	_level_screen.visible = false
+	_pause_screen.visible = false
 	_over_title.text = title
 	_over_info.text = info
 
