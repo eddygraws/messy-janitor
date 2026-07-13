@@ -19,6 +19,7 @@ extends Node2D
 @onready var _tempo: TempoDirector = $TempoDirector
 @onready var _risk: RiskModeComponent = $RiskModeComponent
 @onready var _risk_label: Label = $UI/RiskLabel
+@onready var _save: SaveManager = $SaveManager
 
 
 func _ready() -> void:
@@ -41,6 +42,8 @@ func _ready() -> void:
 	_risk.risk_changed.connect(_on_risk_changed)
 	_on_risk_changed(_risk.is_active())
 
+	_room_manager.level_completed.connect(_on_level_completed)
+
 	_screens.mode_selected.connect(_on_mode_selected)
 	_screens.restart_pressed.connect(_on_restart_pressed)
 
@@ -48,6 +51,7 @@ func _ready() -> void:
 	_on_stress_changed(_stress.current_stress, _stress.max_stress)
 	_update_room_counter()
 	_room_manager.emit_current_objective()
+	_screens.set_records_text(_build_menu_records())
 
 	# Başlangıç ekranı açıkken oyunu duraklat ve donanım imlecini göster.
 	_enter_menu_state()
@@ -98,33 +102,86 @@ func _on_stress_critical() -> void:
 
 func _on_stress_exploded() -> void:
 	print("GAME OVER — Gargoyle patladı!")
+	var records := _record_current_run(false)
 	# Patlama partikülü ve sarsıntısının oynaması için pause'u kısa geciktir.
 	await get_tree().create_timer(0.9).timeout
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _cursor:
 		_cursor.visible = false
-	_screens.show_game_over(_build_over_title(), _build_over_info())
+	_screens.show_game_over(_build_over_title(), _build_over_info(records))
+
+
+func _on_level_completed(total: int, _average: int) -> void:
+	var records := _record_current_run(true)
+	# RoomFeedbackUI'nin level özeti oynasın diye kısa bekle.
+	await get_tree().create_timer(2.6).timeout
+	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if _cursor:
+		_cursor.visible = false
+	_screens.show_game_over("🏆 TEMİZLİK USTASI!", _build_victory_info(total, records))
+
+
+func _record_current_run(completed: bool) -> Array[String]:
+	if _save == null:
+		return []
+	return _save.record_run(
+		_room_manager.get_mode(),
+		_room_manager.get_rooms_cleared(),
+		_room_manager.get_level_score(),
+		_room_manager.get_run_max_combo(),
+		completed
+	)
 
 
 func _build_over_title() -> String:
 	return "SPLAT!"
 
 
-func _build_over_info() -> String:
+func _build_over_info(records: Array[String]) -> String:
 	var run_time := int(_room_manager.get_run_time())
+	var line: String
 	if _room_manager.get_mode() == RoomManager.Mode.ENDLESS:
 		var survived := _room_manager.get_rooms_cleared()
-		var line := "Gargoyle patladı!\n%d tur temizlendi · %ds dayandın" % [survived, run_time]
+		line = "Gargoyle patladı!\n%d tur temizlendi · %ds dayandın" % [survived, run_time]
 		line += "\nEn yüksek combo: x%d · %d puan" % [_room_manager.get_run_max_combo(), _room_manager.get_level_score()]
-		if survived >= 3:
-			line += "\nNeredeyse rekor! Bir tur daha dayanabilirdin."
-		return line
-	return "Gargoyle patladı!\n%d / %d oda · %d puan" % [
-		_room_manager.current_room_index + 1,
-		_room_manager.total_rooms,
-		_room_manager.get_level_score()
+	else:
+		line = "Gargoyle patladı!\n%d / %d oda · %d puan" % [
+			_room_manager.current_room_index + 1,
+			_room_manager.total_rooms,
+			_room_manager.get_level_score()
+		]
+	return line + _records_or_best(records)
+
+
+func _build_victory_info(total: int, records: Array[String]) -> String:
+	var line := "Tüm 10 komisyon tamamlandı!\nToplam %d puan · En yüksek combo x%d" % [
+		total, _room_manager.get_run_max_combo()
 	]
+	return line + _records_or_best(records)
+
+
+func _records_or_best(records: Array[String]) -> String:
+	if not records.is_empty():
+		return "\n\n" + "\n".join(records)
+	if _save == null:
+		return ""
+	return "\n\nEn iyi: ♾ %d tur · 🗺 %d puan" % [
+		_save.get_endless_best_rooms(), _save.get_adventure_best_score()
+	]
+
+
+func _build_menu_records() -> String:
+	if _save == null or not _save.has_any_record():
+		return "İlk koşunu yap ve rekor kır!"
+	var endless_line := "♾ Sonsuz en iyi: %d tur · %d puan" % [
+		_save.get_endless_best_rooms(), _save.get_endless_best_score()
+	]
+	var adv_line := "🗺 Macera en iyi: %d puan" % _save.get_adventure_best_score()
+	if _save.is_adventure_cleared():
+		adv_line += "  ✓"
+	return endless_line + "\n" + adv_line
 
 
 func _on_mop_charge_changed(ratio: float) -> void:

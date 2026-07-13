@@ -17,6 +17,7 @@ enum Mode { ADVENTURE, ENDLESS }
 @export var stamina_path: NodePath = ^"../StaminaComponent"
 @export var equipment_path: NodePath = ^"../EquipmentComponent"
 @export var tempo_path: NodePath = ^"../TempoDirector"
+@export var commission_path: NodePath = ^"../CommissionDirector"
 
 @export var viewport_height: float = 1080.0
 @export_range(3, 10, 1) var rooms_per_level: int = 10
@@ -41,6 +42,7 @@ var _stress: StressComponent
 var _stamina: StaminaComponent
 var _equipment: EquipmentComponent
 var _tempo: TempoDirector
+var _commission: CommissionDirector
 
 
 func _ready() -> void:
@@ -52,6 +54,7 @@ func _ready() -> void:
 	_stamina = get_node(stamina_path) as StaminaComponent
 	_equipment = get_node_or_null(equipment_path) as EquipmentComponent
 	_tempo = get_node_or_null(tempo_path) as TempoDirector
+	_commission = get_node_or_null(commission_path) as CommissionDirector
 
 	_collect_rooms()
 	_apply_equipment_unlock()
@@ -66,6 +69,8 @@ func start_run(selected_mode: int) -> void:
 	_run_max_combo = 0
 	_run_start_ms = Time.get_ticks_msec()
 	position = Vector2.ZERO
+	if _commission != null:
+		_commission.clear()
 	if mode == Mode.ENDLESS:
 		_begin_endless()
 	else:
@@ -75,8 +80,13 @@ func start_run(selected_mode: int) -> void:
 func _begin_adventure() -> void:
 	_apply_equipment_unlock()
 	_current_room_node = get_current_room()
+	_transitioning = true
+	if _commission != null:
+		await _commission.present(0, _current_room_node)
+	_transitioning = false
 	_score_tracker.begin_room()
 	emit_current_objective()
+	room_transition_finished.emit()
 
 
 func _begin_endless() -> void:
@@ -186,6 +196,8 @@ func _count_dirt(room: Node2D) -> Vector2i:
 	var remaining := 0
 	for child in room.get_children():
 		if child.is_in_group("Cleanable") and child.has_method("is_cleaned"):
+			if child.get("is_forbidden"):
+				continue
 			total += 1
 			if not child.is_cleaned():
 				remaining += 1
@@ -223,6 +235,8 @@ func _collect_rooms() -> void:
 func _start_room_transition() -> void:
 	_transitioning = true
 	room_transition_started.emit()
+	if _commission != null:
+		_commission.clear()
 
 	var result: Dictionary = _score_tracker.finalize_room()
 	_level_total_score += result.score
@@ -244,7 +258,7 @@ func _start_room_transition() -> void:
 
 	await _animate_to_next_room()
 	current_room_index += 1
-	_prepare_next_room()
+	await _enter_room()
 	_transitioning = false
 	room_transition_finished.emit()
 
@@ -258,7 +272,7 @@ func _advance_endless() -> void:
 	var old_room := _current_room_node
 	current_room_index = next_index
 	_current_room_node = next_room
-	_prepare_next_room()
+	await _enter_room()
 	if old_room != null:
 		old_room.queue_free()
 
@@ -296,9 +310,11 @@ func _animate_to_next_room() -> void:
 		_camera.zoom = Vector2.ONE
 
 
-func _prepare_next_room() -> void:
+func _enter_room() -> void:
 	_stress.reduce_stress(_stress.current_stress * 0.5)
 	_stamina.restore(_stamina.max_stamina * 0.25)
 	_apply_progression()
+	if mode == Mode.ADVENTURE and _commission != null:
+		await _commission.present(current_room_index, get_current_room())
 	_score_tracker.begin_room()
 	emit_current_objective()

@@ -11,6 +11,7 @@ signal restart_pressed
 @onready var _restart_button: Button = $GameOverScreen/Center/RestartButton
 @onready var _over_info: Label = $GameOverScreen/Center/InfoLabel
 @onready var _over_title: Label = $GameOverScreen/Center/TitleLabel
+@onready var _records_label: Label = $StartScreen/Center/RecordsLabel
 
 
 func _ready() -> void:
@@ -21,6 +22,11 @@ func _ready() -> void:
 	_restart_button.pressed.connect(func() -> void: restart_pressed.emit())
 	_over_screen.visible = false
 	show_start()
+
+
+func set_records_text(text: String) -> void:
+	if _records_label != null:
+		_records_label.text = text
 
 
 func show_start() -> void:

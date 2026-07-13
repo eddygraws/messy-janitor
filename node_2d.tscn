@@ -25,6 +25,9 @@
 [ext_resource type="Script" uid="uid://clvphum1xnthc" path="res://ui/character_reaction_ui.gd" id="24_react"]
 [ext_resource type="Script" uid="uid://4tvx3nhc24hx" path="res://systems/tempo_director.gd" id="25_tempo"]
 [ext_resource type="Script" uid="uid://bk4kx2fgbs7nw" path="res://systems/risk_mode_component.gd" id="26_risk"]
+[ext_resource type="Script" uid="uid://c3oc1umb1lgvl" path="res://systems/commission_director.gd" id="27_commdir"]
+[ext_resource type="Script" uid="uid://47s4wbrhu2m3" path="res://ui/commission_card_ui.gd" id="28_commcard"]
+[ext_resource type="Script" uid="uid://ra8gfjqa25qs" path="res://systems/save_manager.gd" id="29_save"]
 
 [node name="Main" type="Node2D" unique_id=1997389448]
 script = ExtResource("1_main")
@@ -105,6 +108,12 @@ script = ExtResource("25_tempo")
 [node name="RiskModeComponent" type="Node" parent="." unique_id=742815094]
 script = ExtResource("26_risk")
 
+[node name="CommissionDirector" type="Node" parent="." unique_id=742815095]
+script = ExtResource("27_commdir")
+
+[node name="SaveManager" type="Node" parent="." unique_id=742815096]
+script = ExtResource("29_save")
+
 [node name="MoldSpawner" type="Node" parent="." unique_id=1531069809]
 script = ExtResource("19_mold")
 child_spread_time = 3.5
@@ -151,6 +160,17 @@ position = Vector2(620, 420)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(130, 90)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_1/Leke" unique_id=924035995]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -161,6 +181,18 @@ modulate = Color(0.5, 0.55, 0.4, 1)
 position = Vector2(1180, 600)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(70, 70)
+requires_scrub = null
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_1/Cop" unique_id=197917531]
 color = Color(0.35, 0.4, 0.25, 1)
@@ -172,6 +204,17 @@ position = Vector2(960, 720)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 110)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_1/Leke2" unique_id=1807332163]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -199,6 +242,17 @@ position = Vector2(560, 400)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 80)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Leke" unique_id=1431241963]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -209,6 +263,18 @@ modulate = Color(0.5, 0.55, 0.4, 1)
 position = Vector2(1100, 440)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(70, 70)
+requires_scrub = null
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Cop" unique_id=558803018]
 color = Color(0.35, 0.4, 0.25, 1)
@@ -220,6 +286,17 @@ position = Vector2(820, 680)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(130, 100)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Leke2" unique_id=1737306459]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -231,8 +308,17 @@ position = Vector2(1320, 680)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(84, 130)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
 is_fragile = true
 fragile_threshold = 30.0
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Vazo" unique_id=1325028334]
 color = Color(0.4, 0.55, 0.85, 0.95)
@@ -259,6 +345,18 @@ modulate = Color(0.5, 0.55, 0.4, 1)
 position = Vector2(620, 440)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(70, 70)
+requires_scrub = null
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Cop" unique_id=1653492937]
 color = Color(0.35, 0.4, 0.25, 1)
@@ -270,7 +368,17 @@ position = Vector2(1050, 400)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 85)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
 spreads = true
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Kuf" unique_id=489554974]
 color = Color(0.3, 0.42, 0.22, 0.9)
@@ -281,6 +389,18 @@ modulate = Color(0.5, 0.55, 0.4, 1)
 position = Vector2(1350, 640)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(64, 64)
+requires_scrub = null
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Cop2" unique_id=2080308300]
 color = Color(0.35, 0.4, 0.25, 1)
@@ -292,6 +412,17 @@ position = Vector2(820, 720)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 110)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Leke2" unique_id=1559797209]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -319,6 +450,17 @@ position = Vector2(560, 400)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 90)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Leke" unique_id=458716454]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -342,6 +484,17 @@ position = Vector2(1250, 420)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(130, 100)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Leke2" unique_id=139538672]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -383,16 +536,25 @@ theme_override_font_sizes/font_size = 18
 text = "ÇÖP KOVASI"
 horizontal_alignment = 1
 
-[node name="GizliKir" type="Node2D" parent="RoomManager/Oda_4" unique_id=353657258]
+[node name="Leke3" type="Node2D" parent="RoomManager/Oda_4" unique_id=353657258]
 modulate = Color(0.7, 0.5, 0.75, 1)
 position = Vector2(700, 700)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 90)
 requires_scrub = true
-is_hidden = true
-reveal_radius = 150.0
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
-[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/GizliKir" unique_id=455000187]
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Leke3" unique_id=455000187]
 color = Color(0.5, 0.35, 0.6, 0.85)
 polygon = PackedVector2Array(-54, -40, 54, -34, 46, 42, -50, 38)
 
@@ -418,6 +580,17 @@ position = Vector2(580, 420)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(130, 85)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Leke" unique_id=1754018972]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -441,6 +614,17 @@ position = Vector2(1300, 440)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 120)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Leke2" unique_id=20432287]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -547,6 +731,17 @@ position = Vector2(560, 420)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 90)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_6/Leke" unique_id=600000011]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -644,6 +839,17 @@ position = Vector2(600, 720)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 90)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_7/Leke" unique_id=700000011]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -654,8 +860,18 @@ modulate = Color(0.42, 0.4, 0.36, 1)
 position = Vector2(620, 420)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(110, 100)
+requires_scrub = null
 required_equipment = 2
 mash_per_hit = 0.2
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_7/InatciKir" unique_id=700000021]
 color = Color(0.3, 0.28, 0.24, 1)
@@ -666,8 +882,18 @@ modulate = Color(0.42, 0.4, 0.36, 1)
 position = Vector2(1040, 480)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 100)
+requires_scrub = null
 required_equipment = 2
 mash_per_hit = 0.2
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_7/InatciKir2" unique_id=700000031]
 color = Color(0.3, 0.28, 0.24, 1)
@@ -678,8 +904,18 @@ modulate = Color(0.42, 0.4, 0.36, 1)
 position = Vector2(1300, 700)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(110, 96)
+requires_scrub = null
 required_equipment = 2
 mash_per_hit = 0.2
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_7/InatciKir3" unique_id=700000041]
 color = Color(0.3, 0.28, 0.24, 1)
@@ -717,6 +953,17 @@ position = Vector2(560, 420)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 90)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_8/Leke" unique_id=800000011]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -727,8 +974,18 @@ modulate = Color(0.42, 0.4, 0.36, 1)
 position = Vector2(980, 440)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(110, 96)
+requires_scrub = null
 required_equipment = 2
 mash_per_hit = 0.2
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_8/InatciKir" unique_id=800000021]
 color = Color(0.3, 0.28, 0.24, 1)
@@ -813,8 +1070,18 @@ modulate = Color(0.42, 0.4, 0.36, 1)
 position = Vector2(600, 440)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(110, 96)
+requires_scrub = null
 required_equipment = 2
 mash_per_hit = 0.2
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_9/InatciKir" unique_id=900000011]
 color = Color(0.3, 0.28, 0.24, 1)
@@ -825,8 +1092,18 @@ modulate = Color(0.42, 0.4, 0.36, 1)
 position = Vector2(1320, 460)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(110, 96)
+requires_scrub = null
 required_equipment = 2
 mash_per_hit = 0.2
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_9/InatciKir2" unique_id=900000021]
 color = Color(0.3, 0.28, 0.24, 1)
@@ -838,8 +1115,17 @@ position = Vector2(980, 640)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 85)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
 spreads = true
 spread_time = 6.0
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_9/Kuf" unique_id=900000031]
 color = Color(0.3, 0.42, 0.22, 0.9)
@@ -851,8 +1137,17 @@ position = Vector2(700, 760)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 90)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
 is_hidden = true
 reveal_radius = 150.0
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_9/GizliKir" unique_id=900000041]
 color = Color(0.5, 0.35, 0.6, 0.85)
@@ -890,6 +1185,17 @@ position = Vector2(560, 720)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 90)
 requires_scrub = true
+required_equipment = null
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_10/Leke" unique_id=1000000011]
 color = Color(0.45, 0.3, 0.2, 0.9)
@@ -902,6 +1208,16 @@ script = ExtResource("7_cleanable")
 hitbox_size = Vector2(140, 120)
 requires_scrub = true
 required_equipment = 3
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_10/CamLeke" unique_id=1000000021]
 color = Color(0.55, 0.75, 0.9, 0.5)
@@ -918,6 +1234,16 @@ script = ExtResource("7_cleanable")
 hitbox_size = Vector2(150, 120)
 requires_scrub = true
 required_equipment = 3
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_10/CamLeke2" unique_id=1000000031]
 color = Color(0.55, 0.75, 0.9, 0.5)
@@ -932,7 +1258,18 @@ modulate = Color(0.9, 0.95, 1, 1)
 position = Vector2(1320, 700)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(56, 56)
+requires_scrub = null
 required_equipment = 4
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_10/CamKirigi" unique_id=1000000041]
 color = Color(0.85, 0.92, 1, 0.9)
@@ -943,7 +1280,18 @@ modulate = Color(0.95, 0.9, 0.8, 1)
 position = Vector2(860, 640)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(50, 50)
+requires_scrub = null
 required_equipment = 4
+mash_per_hit = null
+scrub_move_factor = null
+reversal_bonus = null
+is_fragile = null
+fragile_threshold = null
+spreads = null
+spread_time = null
+is_hidden = null
+reveal_radius = null
+is_forbidden = null
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_10/CamKirigi2" unique_id=1000000051]
 color = Color(0.9, 0.85, 0.7, 0.95)
@@ -1066,6 +1414,29 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("24_react")
 
+[node name="CommissionInfoLabel" type="Label" parent="UI" unique_id=940912670]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -260.0
+offset_top = 96.0
+offset_right = 260.0
+offset_bottom = 132.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.75, 0.55, 1)
+theme_override_font_sizes/font_size = 26
+horizontal_alignment = 1
+
+[node name="CommissionCardUI" type="Control" parent="UI" unique_id=940912671]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("28_commcard")
+
 [node name="RoomFeedbackUI" type="Control" parent="UI" unique_id=940912692]
 layout_mode = 3
 anchors_preset = 15
@@ -1184,6 +1555,17 @@ grow_horizontal = 2
 theme_override_colors/font_color = Color(0.6, 0.58, 0.7, 1)
 theme_override_font_sizes/font_size = 20
 text = "MACERA: 10 komisyon · SONSUZ: skor avı  |  Aletler: 1-5 · Risk: R"
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="RecordsLabel" type="Label" parent="GameScreens/StartScreen/Center" unique_id=1081122670]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 214.0
+offset_bottom = 272.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.95, 0.8, 0.5, 1)
+theme_override_font_sizes/font_size = 20
 horizontal_alignment = 1
 autowrap_mode = 2
 

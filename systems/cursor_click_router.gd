@@ -20,6 +20,9 @@ signal wrong_tool(position: Vector2)
 @export var panic_hitbox_scale: float = 0.68   # panikte hitbox daralır (yanlış tıklama artar)
 @export var wrong_tool_stress: float = 4.0     # yanlış alet: hafif ceza
 @export var dangerous_wrong_stress: float = 14.0  # cımbız objesine yanlış alet: sert ceza
+@export var forbidden_stress: float = 22.0     # "SAKIN dokunma" objesine dokunmak
+
+var room_risk_multiplier: float = 1.0          # Commission "yüksek risk" kuralı bunu yükseltir
 
 var _cursor: Node2D
 var _stamina: StaminaComponent
@@ -203,6 +206,12 @@ func _handle_press(pos: Vector2) -> void:
 		_stress.register_mistake()
 		return
 
+	# Yasak obje ("SAKIN dokunma"): dokunmak ceza, temizlenmez.
+	for h in hits:
+		if h.is_forbidden:
+			_apply_forbidden(pos)
+			return
+
 	# Aktif ekipmana uygun ilk objeyi seç
 	var obj: CleanableObject = null
 	for h in hits:
@@ -243,7 +252,13 @@ func _apply_wrong_tool(pos: Vector2, required: int) -> void:
 		penalty = dangerous_wrong_stress   # tehlikeli obje + yanlış alet = sert ceza
 	if _risk != null and _risk.is_active():
 		penalty *= _risk.stress_multiplier
+	penalty *= room_risk_multiplier
 	_stress.add_stress(penalty)
+	wrong_tool.emit(pos)
+
+
+func _apply_forbidden(pos: Vector2) -> void:
+	_stress.add_stress(forbidden_stress * room_risk_multiplier)
 	wrong_tool.emit(pos)
 
 

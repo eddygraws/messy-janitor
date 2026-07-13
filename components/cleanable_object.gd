@@ -36,12 +36,16 @@ var spread_speed_scale: float = 1.0             # TempoDirector climax'ta hızla
 @export var is_hidden: bool = false
 @export var reveal_radius: float = 130.0        # imleç bu yarıçapa girince belirir
 
+@export_group("Commission Rules")
+@export var is_forbidden: bool = false          # "SAKIN dokunma" — temizlenemez, dokunmak ceza
+
 var _is_clean: bool = false
 var _is_broken: bool = false
 var _scrub_progress: float = 0.0
 var _last_dir_x: int = 0
 var _spread_accum: float = 0.0
-var _revealed: bool = false
+var _reveal_amount: float = 1.0   # gizli kir: imleç yakınlığına göre 0..1
+var _in_range: bool = false       # imleç şu an aydınlatma yarıçapında mı
 var _base_alpha: float = 1.0
 var _sprayed: bool = false
 
@@ -50,10 +54,12 @@ func _ready() -> void:
 	add_to_group("Cleanable")
 	_base_alpha = modulate.a
 	if is_hidden:
+		_reveal_amount = 0.0
+		_in_range = false
 		modulate.a = 0.0
-		_revealed = false
 	else:
-		_revealed = true
+		_reveal_amount = 1.0
+		_in_range = true
 
 
 func _process(delta: float) -> void:
@@ -61,9 +67,8 @@ func _process(delta: float) -> void:
 	if _is_clean or _is_broken:
 		return
 
-	if is_hidden and not _revealed:
-		_check_reveal()
-		return
+	if is_hidden:
+		_update_reveal(delta)
 
 	if spreads:
 		_spread_accum += delta * spread_speed_scale
@@ -85,7 +90,7 @@ func is_broken() -> bool:
 
 
 func is_revealed() -> bool:
-	return not is_hidden or _revealed
+	return not is_hidden or _in_range
 
 
 func get_scrub_progress() -> float:
@@ -93,7 +98,7 @@ func get_scrub_progress() -> float:
 
 
 func try_clean(click_pos: Vector2) -> bool:
-	if is_cleaned() or not is_revealed() or not get_hitbox().has_point(click_pos):
+	if is_forbidden or is_cleaned() or not is_revealed() or not get_hitbox().has_point(click_pos):
 		return false
 	if requires_scrub:
 		return false
@@ -103,7 +108,7 @@ func try_clean(click_pos: Vector2) -> bool:
 
 # Ovalama hareketiyle temizlik. motion = farenin bu karedeki gerçek hareketi.
 func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0) -> bool:
-	if is_cleaned() or not is_revealed() or not get_hitbox().has_point(pos):
+	if is_forbidden or is_cleaned() or not is_revealed() or not get_hitbox().has_point(pos):
 		_last_dir_x = 0
 		return false
 
@@ -144,7 +149,7 @@ func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0) -> boo
 
 # Fırça: hızlı tekrarlı tıklama. Her çağrı ilerleme ekler, bitince true döner.
 func mash(speed_mult: float = 1.0) -> bool:
-	if is_cleaned() or not is_revealed():
+	if is_forbidden or is_cleaned() or not is_revealed():
 		return false
 	_scrub_progress = minf(1.0, _scrub_progress + mash_per_hit * speed_mult)
 	scrub_progress_changed.emit(_scrub_progress)
@@ -170,10 +175,37 @@ func is_sprayed() -> bool:
 
 # Cımbız: tek hassas tıklamayla topla.
 func pluck() -> bool:
-	if is_cleaned() or not is_revealed():
+	if is_forbidden or is_cleaned() or not is_revealed():
 		return false
 	_finish_clean()
 	return true
+
+
+# Commission: bu objeyi "gizli kir" moduna çevir (imleçle belirir).
+func enable_hidden(radius: float = 150.0) -> void:
+	is_hidden = true
+	reveal_radius = radius
+	_reveal_amount = 0.0
+	_in_range = false
+	modulate.a = 0.0
+
+
+# Commission: bu objeyi "yasak" işaretle (kırmızı halka + temizlenemez).
+func mark_forbidden() -> void:
+	is_forbidden = true
+	var ring := Polygon2D.new()
+	ring.color = Color(1.0, 0.25, 0.2, 0.5)
+	var hw := hitbox_size.x * 0.5 + 12.0
+	var hh := hitbox_size.y * 0.5 + 12.0
+	ring.polygon = PackedVector2Array([
+		Vector2(-hw, -hh), Vector2(hw, -hh), Vector2(hw, hh), Vector2(-hw, hh)])
+	ring.z_index = -1
+	add_child(ring)
+	var warn := Label.new()
+	warn.text = "⛔"
+	warn.add_theme_font_size_override("font_size", 40)
+	warn.position = Vector2(-20, -hh - 44)
+	add_child(warn)
 
 
 func _check_reveal() -> void:
