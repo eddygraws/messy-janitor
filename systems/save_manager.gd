@@ -14,6 +14,8 @@ var data := {
 	"total_rooms_cleaned": 0,
 	"best_combo": 0,
 	"runs_played": 0,
+	"highest_level_unlocked": 1,   # 1..10 (1 = sadece 1. seviye açık)
+	"level_best": {},              # {"0": skor, "1": skor, ...}
 }
 
 
@@ -70,6 +72,44 @@ func record_run(run_mode: int, rooms_cleared: int, score: int, max_combo: int, c
 
 	_save()
 	return records
+
+
+# Bir Adventure seviyesi tamamlanınca çağrılır. Kırılan rekorları döndürür,
+# sonraki seviyeyi açar.
+func record_level_complete(level_index: int, score: int, max_combo: int) -> Array[String]:
+	var records: Array[String] = []
+	var key := str(level_index)
+	var prev := int((data["level_best"] as Dictionary).get(key, 0))
+	if score > prev:
+		(data["level_best"] as Dictionary)[key] = score
+		if prev > 0:
+			records.append("🏆 Seviye rekoru: %d puan!" % score)
+
+	if max_combo > int(data["best_combo"]):
+		data["best_combo"] = max_combo
+
+	if score > int(data["adventure_best_score"]):
+		data["adventure_best_score"] = score
+
+	# Sonraki seviyeyi aç (1 tabanlı sayı).
+	var next_level := level_index + 2
+	if next_level > int(data["highest_level_unlocked"]) and next_level <= 10:
+		data["highest_level_unlocked"] = next_level
+		records.append("🔓 Seviye %d açıldı!" % next_level)
+
+	if level_index >= 9:
+		data["adventure_cleared"] = true
+
+	_save()
+	return records
+
+
+func get_highest_unlocked() -> int:
+	return int(data["highest_level_unlocked"])
+
+
+func get_level_best(level_index: int) -> int:
+	return int((data["level_best"] as Dictionary).get(str(level_index), 0))
 
 
 func get_endless_best_rooms() -> int:

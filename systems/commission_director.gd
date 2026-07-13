@@ -53,13 +53,32 @@ func _process(delta: float) -> void:
 
 
 # RoomManager oda başında çağırır (await edilebilir).
-func present(index: int, room: Node) -> void:
+# commission boşsa (twist kural yok) kart gösterilmez.
+func present(commission: Dictionary, room: Node) -> void:
 	clear()
-	_current = CommissionData.get_commission(index)
+	if commission == null or commission.is_empty():
+		_current = {}
+		return
+	_current = commission
 	if _card != null:
 		await _card.show_card(_current)
 	_apply_rule(room)
 	_update_info()
+
+
+# Seviye başında kısa tanıtım kartı (kural uygulamaz).
+func present_level_intro(info: Dictionary) -> void:
+	if _card == null:
+		return
+	var intro := {
+		"npc": String(info.get("subtitle", "")),
+		"icon": "🧹",
+		"title": String(info.get("name", "Seviye")),
+		"desc": "Hedef: tüm odaları temizle. Yeni odalarda yeni mekanikler seni bekliyor!",
+		"rule": CommissionData.Rule.NONE,
+		"param": 0.0,
+	}
+	await _card.show_card(intro)
 
 
 func clear() -> void:

@@ -20,6 +20,7 @@ extends Node2D
 @onready var _risk: RiskModeComponent = $RiskModeComponent
 @onready var _risk_label: Label = $UI/RiskLabel
 @onready var _save: SaveManager = $SaveManager
+@onready var _tutorial_label: Label = $UI/TutorialLabel
 
 
 func _ready() -> void:
@@ -43,8 +44,11 @@ func _ready() -> void:
 	_on_risk_changed(_risk.is_active())
 
 	_room_manager.level_completed.connect(_on_level_completed)
+	_room_manager.tutorial_requested.connect(_show_tutorial)
 
 	_screens.mode_selected.connect(_on_mode_selected)
+	_screens.level_selected.connect(_on_level_selected)
+	_screens.back_pressed.connect(_on_back_pressed)
 	_screens.restart_pressed.connect(_on_restart_pressed)
 
 	_on_stamina_changed(_stamina.current_stamina, _stamina.max_stamina)
@@ -72,15 +76,55 @@ func _enter_playing_state() -> void:
 
 
 func _on_mode_selected(mode: int) -> void:
-	_screens.hide_start()
-	_room_manager.start_run(mode)
-	_update_room_counter()
+	if mode == 0:
+		# Macera: seviye seçim ekranını aç.
+		_screens.show_level_select(_save.get_highest_unlocked(), _level_best_array())
+	else:
+		_screens.hide_start()
+		_room_manager.start_run(1)
+		_update_room_counter()
+		_enter_playing_state()
+
+
+func _on_level_selected(idx: int) -> void:
+	_screens.hide_level_select()
 	_enter_playing_state()
+	_room_manager.start_adventure_level(idx)
+	_update_room_counter()
+
+
+func _on_back_pressed() -> void:
+	_enter_menu_state()
+	_screens.set_records_text(_build_menu_records())
+	_screens.show_start()
+
+
+func _level_best_array() -> Array:
+	var arr: Array = []
+	for i in 10:
+		arr.append(_save.get_level_best(i) if _save != null else 0)
+	return arr
 
 
 func _on_restart_pressed() -> void:
 	get_tree().paused = false
 	get_tree().reload_current_scene()
+
+
+func _show_tutorial(text: String) -> void:
+	if _tutorial_label == null or text == "":
+		return
+	_tutorial_label.text = "💡 " + text
+	_tutorial_label.modulate = Color(1, 0.95, 0.6, 0.0)
+	_tutorial_label.pivot_offset = _tutorial_label.size * 0.5
+	_tutorial_label.scale = Vector2(0.85, 0.85)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(_tutorial_label, "modulate:a", 1.0, 0.25)
+	tween.tween_property(_tutorial_label, "scale", Vector2.ONE, 0.3)\
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.chain().tween_interval(3.2)
+	tween.chain().tween_property(_tutorial_label, "modulate:a", 0.0, 0.6)
 
 
 func _on_stamina_changed(current: float, maximum: float) -> void:
@@ -113,14 +157,23 @@ func _on_stress_exploded() -> void:
 
 
 func _on_level_completed(total: int, _average: int) -> void:
-	var records := _record_current_run(true)
-	# RoomFeedbackUI'nin level özeti oynasın diye kısa bekle.
-	await get_tree().create_timer(2.6).timeout
-	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	if _cursor:
-		_cursor.visible = false
-	_screens.show_game_over("🏆 TEMİZLİK USTASI!", _build_victory_info(total, records))
+	var lvl := _room_manager.get_level_index()
+	var records: Array[String] = []
+	if _save != null:
+		records = _save.record_level_complete(lvl, total, _room_manager.get_run_max_combo())
+
+	if lvl >= LevelData.level_count() - 1:
+		# Tüm oyun tamamlandı.
+		get_tree().paused = true
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if _cursor:
+			_cursor.visible = false
+		_screens.show_game_over("🏆 TEMİZLİK USTASI!", _build_all_clear_info(total, records))
+	else:
+		# Seviye tamamlandı → seviye seçim ekranına dön (sonraki seviye açıldı).
+		_enter_menu_state()
+		_screens.set_records_text(_build_menu_records())
+		_screens.show_level_select(_save.get_highest_unlocked(), _level_best_array())
 
 
 func _record_current_run(completed: bool) -> Array[String]:
@@ -147,7 +200,8 @@ func _build_over_info(records: Array[String]) -> String:
 		line = "Gargoyle patladı!\n%d tur temizlendi · %ds dayandın" % [survived, run_time]
 		line += "\nEn yüksek combo: x%d · %d puan" % [_room_manager.get_run_max_combo(), _room_manager.get_level_score()]
 	else:
-		line = "Gargoyle patladı!\n%d / %d oda · %d puan" % [
+		line = "Gargoyle patladı!\nSeviye %d · Oda %d/%d · %d puan" % [
+			_room_manager.get_level_index() + 1,
 			_room_manager.current_room_index + 1,
 			_room_manager.total_rooms,
 			_room_manager.get_level_score()
@@ -155,8 +209,8 @@ func _build_over_info(records: Array[String]) -> String:
 	return line + _records_or_best(records)
 
 
-func _build_victory_info(total: int, records: Array[String]) -> String:
-	var line := "Tüm 10 komisyon tamamlandı!\nToplam %d puan · En yüksek combo x%d" % [
+func _build_all_clear_info(total: int, records: Array[String]) -> String:
+	var line := "TÜM 10 SEVİYE TAMAMLANDI!\nSon seviye: %d puan · En yüksek combo x%d" % [
 		total, _room_manager.get_run_max_combo()
 	]
 	return line + _records_or_best(records)
@@ -295,7 +349,8 @@ func _update_room_counter() -> void:
 	if _room_manager.get_mode() == RoomManager.Mode.ENDLESS:
 		_room_counter.text = "Tur %d  ♾" % (_room_manager.current_room_index + 1)
 	else:
-		_room_counter.text = "Oda %d / %d" % [
+		_room_counter.text = "S%d · Oda %d / %d" % [
+			_room_manager.get_level_index() + 1,
 			_room_manager.current_room_index + 1,
 			_room_manager.total_rooms
 		]

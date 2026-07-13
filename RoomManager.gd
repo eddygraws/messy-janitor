@@ -6,6 +6,7 @@ signal room_transition_started
 signal room_transition_finished
 signal level_completed(total_score: int, average_score: int)
 signal objective_changed(remaining: int, total: int)
+signal tutorial_requested(text: String)
 
 enum Mode { ADVENTURE, ENDLESS }
 
@@ -20,14 +21,15 @@ enum Mode { ADVENTURE, ENDLESS }
 @export var commission_path: NodePath = ^"../CommissionDirector"
 
 @export var viewport_height: float = 1080.0
-@export_range(3, 10, 1) var rooms_per_level: int = 10
 @export var slide_duration: float = 1.15
 
 var mode: int = Mode.ADVENTURE
+var current_level_index: int = 0
 var current_room_index: int = 0
 var total_rooms: int = 0
 var _rooms: Array[Node2D] = []
-var _current_room_node: Node2D
+var _level_node: Node = null           # Adventure: yüklenen seviye sahnesinin kökü
+var _current_room_node: Node2D         # Endless: aktif prosedürel oda
 var _transitioning: bool = false
 var _level_total_score: int = 0
 var _rooms_cleared: int = 0
@@ -56,50 +58,133 @@ func _ready() -> void:
 	_tempo = get_node_or_null(tempo_path) as TempoDirector
 	_commission = get_node_or_null(commission_path) as CommissionDirector
 
-	_collect_rooms()
-	_apply_equipment_unlock()
+	# Artık odalar seviye sahnelerinden (Adventure) veya EndlessGenerator'dan
+	# gelir. Sahneye elle konmuş eski odaları temizle.
+	for child in get_children():
+		if child is Node2D and child.is_in_group("Room"):
+			child.queue_free()
 
 
-# MainScene mod seçildikten sonra çağırır.
+# ---------------------------------------------------------------------------
+# Koşu başlangıcı
+# ---------------------------------------------------------------------------
+
 func start_run(selected_mode: int) -> void:
 	mode = selected_mode
-	current_room_index = 0
-	_level_total_score = 0
-	_rooms_cleared = 0
-	_run_max_combo = 0
-	_run_start_ms = Time.get_ticks_msec()
+	_reset_run_stats()
 	position = Vector2.ZERO
 	if _commission != null:
 		_commission.clear()
 	if mode == Mode.ENDLESS:
 		_begin_endless()
 	else:
-		_begin_adventure()
+		start_adventure_level(0)
 
+
+func start_adventure_level(level_index: int) -> void:
+	mode = Mode.ADVENTURE
+	current_level_index = level_index
+	_reset_run_stats()
+	position = Vector2.ZERO
+	if _commission != null:
+		_commission.clear()
+	await _begin_adventure()
+
+
+func _reset_run_stats() -> void:
+	current_room_index = 0
+	_level_total_score = 0
+	_rooms_cleared = 0
+	_run_max_combo = 0
+	_run_start_ms = Time.get_ticks_msec()
+
+
+# ---------------------------------------------------------------------------
+# Adventure
+# ---------------------------------------------------------------------------
 
 func _begin_adventure() -> void:
-	_apply_equipment_unlock()
+	_load_level(current_level_index)
+	_apply_level_equipment()
 	_current_room_node = get_current_room()
+
 	_transitioning = true
 	if _commission != null:
-		await _commission.present(0, _current_room_node)
+		var info := _level_info()
+		await _commission.present_level_intro(info)
+	await _enter_room_present()
 	_transitioning = false
 	_score_tracker.begin_room()
 	emit_current_objective()
 	room_transition_finished.emit()
 
 
+func _load_level(level_index: int) -> void:
+	if _level_node != null and is_instance_valid(_level_node):
+		_level_node.queue_free()
+		_level_node = null
+
+	var path := "res://levels/level_%02d.tscn" % (level_index + 1)
+	var scene: PackedScene = load(path)
+	if scene == null:
+		push_error("RoomManager: seviye sahnesi yüklenemedi: %s" % path)
+		return
+	_level_node = scene.instantiate()
+	add_child(_level_node)
+
+	if _level_node.has_method("build_rooms"):
+		_rooms = _level_node.build_rooms(viewport_height)
+	else:
+		_rooms = []
+		for child in _level_node.get_children():
+			if child is Node2D and child.is_in_group("Room"):
+				_rooms.append(child)
+	total_rooms = _rooms.size()
+
+
+func _apply_level_equipment() -> void:
+	if _equipment != null:
+		_equipment.set_unlocked_count(LevelData.unlocked_equipment(current_level_index))
+
+
+func _level_info() -> Dictionary:
+	if _level_node != null and _level_node.has_method("get_level_info"):
+		return _level_node.get_level_info()
+	return LevelData.get_level(current_level_index)
+
+
+# Aktif odanın twist kuralını + tutorial'ını sun (await edilebilir).
+func _enter_room_present() -> void:
+	var room := get_current_room()
+	if room == null:
+		return
+	var tutorial := ""
+	if room.has_meta("tutorial"):
+		tutorial = String(room.get_meta("tutorial"))
+	if tutorial != "":
+		tutorial_requested.emit(tutorial)
+	if _commission != null:
+		var commission: Dictionary = {}
+		if room.has_meta("commission"):
+			commission = room.get_meta("commission")
+		await _commission.present(commission, room)
+
+
+# ---------------------------------------------------------------------------
+# Endless
+# ---------------------------------------------------------------------------
+
 func _begin_endless() -> void:
 	total_rooms = -1
-	# Sahnedeki elle tasarlanmış odaları gizle.
-	for child in get_children():
-		if child is Node2D and child.is_in_group("Room"):
-			child.visible = false
+	if _level_node != null and is_instance_valid(_level_node):
+		_level_node.queue_free()
+		_level_node = null
 	_rooms.clear()
 	_current_room_node = _generate_endless_room(0)
 	_apply_endless_difficulty(0)
 	_score_tracker.begin_room()
 	emit_current_objective()
+	room_transition_finished.emit()
 
 
 func _generate_endless_room(index: int) -> Node2D:
@@ -120,11 +205,45 @@ func _apply_endless_difficulty(index: int) -> void:
 		_tempo.set_base_intensity(minf(0.55, index * 0.045))
 
 
-func _apply_progression() -> void:
-	if mode == Mode.ENDLESS:
-		_apply_endless_difficulty(current_room_index)
-	else:
-		_apply_equipment_unlock()
+func _advance_endless() -> void:
+	var next_index := current_room_index + 1
+	var next_room := _generate_endless_room(next_index)
+
+	await _animate_to_next_room()
+
+	var old_room := _current_room_node
+	current_room_index = next_index
+	_current_room_node = next_room
+	_stress.reduce_stress(_stress.current_stress * 0.5)
+	_stamina.restore(_stamina.max_stamina * 0.25)
+	_apply_endless_difficulty(current_room_index)
+	_score_tracker.begin_room()
+	emit_current_objective()
+	if old_room != null:
+		old_room.queue_free()
+
+	_transitioning = false
+	room_transition_finished.emit()
+
+
+# ---------------------------------------------------------------------------
+# Ortak akış
+# ---------------------------------------------------------------------------
+
+func is_transitioning() -> bool:
+	return _transitioning
+
+
+func get_mode() -> int:
+	return mode
+
+
+func get_level_index() -> int:
+	return current_level_index
+
+
+func get_level_score() -> int:
+	return _level_total_score
 
 
 func get_rooms_cleared() -> int:
@@ -139,34 +258,6 @@ func get_run_max_combo() -> int:
 	return _run_max_combo
 
 
-func get_mode() -> int:
-	return mode
-
-
-# Level ilerledikçe ekipman açılır:
-# Oda 1-3: Paspas | 4-6: +Süpürge | 7-9: +Fırça | 10+: +Sprey+Bez & Cımbız
-func _apply_equipment_unlock() -> void:
-	if _equipment == null:
-		return
-	var level := current_room_index + 1
-	var unlocked := 1
-	if level >= 10:
-		unlocked = 5
-	elif level >= 7:
-		unlocked = 3
-	elif level >= 4:
-		unlocked = 2
-	_equipment.set_unlocked_count(unlocked)
-
-
-func is_transitioning() -> bool:
-	return _transitioning
-
-
-func get_level_score() -> int:
-	return _level_total_score
-
-
 func get_current_room() -> Node2D:
 	if mode == Mode.ENDLESS:
 		return _current_room_node
@@ -178,19 +269,15 @@ func get_current_room() -> Node2D:
 func check_room_cleared() -> void:
 	if _transitioning:
 		return
-
 	var room := get_current_room()
 	if room == null:
 		return
-
 	var counts := _count_dirt(room)
 	objective_changed.emit(counts.x, counts.y)
-
 	if counts.x == 0:
 		_start_room_transition()
 
 
-# counts.x = kalan kir, counts.y = toplam kir
 func _count_dirt(room: Node2D) -> Vector2i:
 	var total := 0
 	var remaining := 0
@@ -210,26 +297,6 @@ func emit_current_objective() -> void:
 		return
 	var counts := _count_dirt(room)
 	objective_changed.emit(counts.x, counts.y)
-
-
-func _collect_rooms() -> void:
-	var all_rooms: Array[Node2D] = []
-	for child in get_children():
-		if child is Node2D and child.is_in_group("Room"):
-			all_rooms.append(child)
-
-	total_rooms = mini(all_rooms.size(), rooms_per_level)
-	_rooms.clear()
-
-	for i in all_rooms.size():
-		var is_active := i < total_rooms
-		all_rooms[i].visible = is_active
-		all_rooms[i].position.y = -i * viewport_height
-		if is_active:
-			_rooms.append(all_rooms[i])
-
-	if total_rooms == 0:
-		push_error("RoomManager: 'Room' grubunda hiç oda yok!")
 
 
 func _start_room_transition() -> void:
@@ -253,40 +320,25 @@ func _start_room_transition() -> void:
 
 	var is_last_room := current_room_index >= total_rooms - 1
 	if is_last_room:
-		await _finish_level(result)
+		await _finish_level()
 		return
 
 	await _animate_to_next_room()
 	current_room_index += 1
-	await _enter_room()
+	_stress.reduce_stress(_stress.current_stress * 0.5)
+	_stamina.restore(_stamina.max_stamina * 0.25)
+	await _enter_room_present()
 	_transitioning = false
+	_score_tracker.begin_room()
+	emit_current_objective()
 	room_transition_finished.emit()
 
 
-func _advance_endless() -> void:
-	var next_index := current_room_index + 1
-	var next_room := _generate_endless_room(next_index)
-
-	await _animate_to_next_room()
-
-	var old_room := _current_room_node
-	current_room_index = next_index
-	_current_room_node = next_room
-	await _enter_room()
-	if old_room != null:
-		old_room.queue_free()
-
-	_transitioning = false
-	room_transition_finished.emit()
-
-
-func _finish_level(result: Dictionary) -> void:
+func _finish_level() -> void:
 	var average := _level_total_score / maxi(_rooms_cleared, 1)
-	level_completed.emit(_level_total_score, average)
 	await _feedback_ui.show_level_summary(_level_total_score, average, _rooms_cleared)
 	_transitioning = false
-	room_transition_finished.emit()
-	print("LEVEL COMPLETED! Total: %d | Avg: %d" % [_level_total_score, average])
+	level_completed.emit(_level_total_score, average)
 
 
 func _animate_to_next_room() -> void:
@@ -308,13 +360,3 @@ func _animate_to_next_room() -> void:
 	await slide.finished
 	if _camera:
 		_camera.zoom = Vector2.ONE
-
-
-func _enter_room() -> void:
-	_stress.reduce_stress(_stress.current_stress * 0.5)
-	_stamina.restore(_stamina.max_stamina * 0.25)
-	_apply_progression()
-	if mode == Mode.ADVENTURE and _commission != null:
-		await _commission.present(current_room_index, get_current_room())
-	_score_tracker.begin_room()
-	emit_current_objective()
