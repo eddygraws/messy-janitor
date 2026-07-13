@@ -133,3 +133,9 @@ func _flash_portrait(flash_color: Color) -> void:
 	var tween := create_tween()
 	tween.tween_property(_portrait, "modulate", flash_color, 0.06)
 	tween.tween_property(_portrait, "modulate", Color.WHITE, 0.14)
+	tween.tween_callback(_restore_portrait_tint)
+
+
+func _restore_portrait_tint() -> void:
+	if _portrait != null and _portrait.has_method("restore_tint_after_flash"):
+		_portrait.call("restore_tint_after_flash")

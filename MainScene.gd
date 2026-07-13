@@ -4,7 +4,6 @@ extends Node2D
 @onready var _stress: StressComponent = $StressComponent
 @onready var _stamina_bar: ProgressBar = $UI/ProgressBar
 @onready var _stress_label: Label = $UI/StersYuzdeLAbel
-@onready var _portrait: Sprite2D = $UI/KarakterPortresi
 @onready var _room_counter: Label = $UI/RoomCounterLabel
 @onready var _objective_label: Label = $UI/ObjectiveLabel
 @onready var _room_manager: RoomManager = $RoomManager
@@ -135,9 +134,6 @@ func _on_stamina_changed(current: float, maximum: float) -> void:
 func _on_stress_changed(current: float, maximum: float) -> void:
 	var ratio := current / maximum
 	_stress_label.text = "%d%%" % int(ratio * 100.0)
-	if _portrait:
-		var swell := lerpf(1.0, 1.35, ratio)
-		_portrait.scale = Vector2(swell, swell)
 
 
 func _on_stress_critical() -> void:

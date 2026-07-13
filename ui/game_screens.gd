@@ -36,6 +36,8 @@ func set_records_text(text: String) -> void:
 
 
 func show_start() -> void:
+	_level_screen.visible = false
+	_over_screen.visible = false
 	_start_screen.visible = true
 	_start_screen.modulate.a = 0.0
 	var tween := create_tween()

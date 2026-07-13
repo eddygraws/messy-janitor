@@ -1,4 +1,4 @@
-[gd_scene load_steps=26 format=3 uid="uid://cp32j57bmrg12"]
+[gd_scene format=3 uid="uid://cp32j57bmrg12"]
 
 [ext_resource type="Script" uid="uid://dupuii07fhowk" path="res://MainScene.gd" id="1_main"]
 [ext_resource type="Script" uid="uid://dcmrfkg15i3au" path="res://RoomManager.gd" id="2_room"]
@@ -19,6 +19,7 @@
 [ext_resource type="Script" uid="uid://b32r4gxbk6afa" path="res://systems/mold_spawner.gd" id="19_mold"]
 [ext_resource type="Script" uid="uid://t2g0yl1ekftq" path="res://systems/equipment_component.gd" id="22_equip"]
 [ext_resource type="Script" uid="uid://cmqhgoa4t0cd8" path="res://ui/equipment_bar.gd" id="23_eqbar"]
+[ext_resource type="Script" uid="uid://bx7rt3pjwxs62" path="res://ui/character_portrait.gd" id="24_portrait"]
 [ext_resource type="Script" uid="uid://clvphum1xnthc" path="res://ui/character_reaction_ui.gd" id="24_react"]
 [ext_resource type="Script" uid="uid://4tvx3nhc24hx" path="res://systems/tempo_director.gd" id="25_tempo"]
 [ext_resource type="Script" uid="uid://bk4kx2fgbs7nw" path="res://systems/risk_mode_component.gd" id="26_risk"]
@@ -146,6 +147,8 @@ value = 100.0
 
 [node name="KarakterPortresi" type="Sprite2D" parent="UI" unique_id=350438037]
 position = Vector2(1800, 100)
+scale = Vector2(1.1, 1.1)
+script = ExtResource("24_portrait")
 
 [node name="StersYuzdeLAbel" type="Label" parent="UI" unique_id=1896669479]
 offset_left = 20.0
