@@ -1,12 +1,13 @@
 class_name GameScreens
 extends CanvasLayer
 
-signal start_pressed
+signal mode_selected(mode: int)
 signal restart_pressed
 
 @onready var _start_screen: Control = $StartScreen
 @onready var _over_screen: Control = $GameOverScreen
-@onready var _start_button: Button = $StartScreen/Center/StartButton
+@onready var _adventure_button: Button = $StartScreen/Center/AdventureButton
+@onready var _endless_button: Button = $StartScreen/Center/EndlessButton
 @onready var _restart_button: Button = $GameOverScreen/Center/RestartButton
 @onready var _over_info: Label = $GameOverScreen/Center/InfoLabel
 @onready var _over_title: Label = $GameOverScreen/Center/TitleLabel
@@ -15,7 +16,8 @@ signal restart_pressed
 func _ready() -> void:
 	# Oyun duraklatıldığında (pause) bile menü çalışsın.
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	_start_button.pressed.connect(func() -> void: start_pressed.emit())
+	_adventure_button.pressed.connect(func() -> void: mode_selected.emit(0))
+	_endless_button.pressed.connect(func() -> void: mode_selected.emit(1))
 	_restart_button.pressed.connect(func() -> void: restart_pressed.emit())
 	_over_screen.visible = false
 	show_start()
@@ -27,7 +29,7 @@ func show_start() -> void:
 	var tween := create_tween()
 	tween.tween_property(_start_screen, "modulate:a", 1.0, 0.35)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_pop_button(_start_button)
+	_pop_button(_adventure_button)
 
 
 func hide_start() -> void:
@@ -37,9 +39,9 @@ func hide_start() -> void:
 	tween.tween_callback(func() -> void: _start_screen.visible = false)
 
 
-func show_game_over(rooms_survived: int, total_rooms: int, score: int) -> void:
-	_over_title.text = "SPLAT!"
-	_over_info.text = "Gargoyle patladı!\n%d / %d oda · %d puan" % [rooms_survived, total_rooms, score]
+func show_game_over(title: String, info: String) -> void:
+	_over_title.text = title
+	_over_info.text = info
 
 	_over_screen.visible = true
 	_over_screen.modulate.a = 0.0

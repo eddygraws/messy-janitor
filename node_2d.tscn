@@ -22,6 +22,9 @@
 [ext_resource type="Script" uid="uid://d4jrq4r7le4yx" path="res://components/drain_zone.gd" id="21_drain"]
 [ext_resource type="Script" uid="uid://t2g0yl1ekftq" path="res://systems/equipment_component.gd" id="22_equip"]
 [ext_resource type="Script" uid="uid://cmqhgoa4t0cd8" path="res://ui/equipment_bar.gd" id="23_eqbar"]
+[ext_resource type="Script" uid="uid://clvphum1xnthc" path="res://ui/character_reaction_ui.gd" id="24_react"]
+[ext_resource type="Script" uid="uid://4tvx3nhc24hx" path="res://systems/tempo_director.gd" id="25_tempo"]
+[ext_resource type="Script" uid="uid://bk4kx2fgbs7nw" path="res://systems/risk_mode_component.gd" id="26_risk"]
 
 [node name="Main" type="Node2D" unique_id=1997389448]
 script = ExtResource("1_main")
@@ -95,6 +98,12 @@ script = ExtResource("18_combo")
 
 [node name="EquipmentComponent" type="Node" parent="." unique_id=742815092]
 script = ExtResource("22_equip")
+
+[node name="TempoDirector" type="Node" parent="." unique_id=742815093]
+script = ExtResource("25_tempo")
+
+[node name="RiskModeComponent" type="Node" parent="." unique_id=742815094]
+script = ExtResource("26_risk")
 
 [node name="MoldSpawner" type="Node" parent="." unique_id=1531069809]
 script = ExtResource("19_mold")
@@ -1030,6 +1039,33 @@ grow_vertical = 0
 mouse_filter = 2
 script = ExtResource("23_eqbar")
 
+[node name="RiskLabel" type="Label" parent="UI" unique_id=940912660]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -140.0
+offset_right = 220.0
+offset_bottom = -104.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 0.45, 0.4, 1)
+theme_override_font_sizes/font_size = 24
+text = "⚡ RİSKLİ TEMİZLİK (R)"
+horizontal_alignment = 1
+
+[node name="CharacterReactionUI" type="Control" parent="UI" unique_id=940912655]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("24_react")
+
 [node name="RoomFeedbackUI" type="Control" parent="UI" unique_id=940912692]
 layout_mode = 3
 anchors_preset = 15
@@ -1146,26 +1182,42 @@ offset_top = 120.0
 offset_bottom = 200.0
 grow_horizontal = 2
 theme_override_colors/font_color = Color(0.6, 0.58, 0.7, 1)
-theme_override_font_sizes/font_size = 22
-text = "Odaları temizle · Abur cuburdan kaç · Sakin kal"
+theme_override_font_sizes/font_size = 20
+text = "MACERA: 10 komisyon · SONSUZ: skor avı  |  Aletler: 1-5 · Risk: R"
 horizontal_alignment = 1
 autowrap_mode = 2
 
-[node name="StartButton" type="Button" parent="GameScreens/StartScreen/Center" unique_id=1545294408]
-custom_minimum_size = Vector2(320, 72)
+[node name="AdventureButton" type="Button" parent="GameScreens/StartScreen/Center" unique_id=1545294408]
+custom_minimum_size = Vector2(420, 68)
 layout_mode = 0
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -160.0
-offset_top = -90.0
-offset_right = 160.0
-offset_bottom = -18.0
+offset_left = -210.0
+offset_top = -168.0
+offset_right = 210.0
+offset_bottom = -100.0
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_font_sizes/font_size = 28
-text = "TEMİZLİĞE BAŞLA"
+theme_override_font_sizes/font_size = 26
+text = "🗺  MACERA MODU"
+
+[node name="EndlessButton" type="Button" parent="GameScreens/StartScreen/Center" unique_id=1545294409]
+custom_minimum_size = Vector2(420, 68)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -210.0
+offset_top = -88.0
+offset_right = 210.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 26
+text = "♾  SONSUZ MOD"
 
 [node name="GameOverScreen" type="Control" parent="GameScreens" unique_id=715423064]
 visible = false

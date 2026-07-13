@@ -16,6 +16,9 @@ extends Node2D
 @onready var _combo_label: Label = $UI/ComboLabel
 @onready var _combo: ComboComponent = $ComboComponent
 @onready var _equipment: EquipmentComponent = $EquipmentComponent
+@onready var _tempo: TempoDirector = $TempoDirector
+@onready var _risk: RiskModeComponent = $RiskModeComponent
+@onready var _risk_label: Label = $UI/RiskLabel
 
 
 func _ready() -> void:
@@ -33,8 +36,12 @@ func _ready() -> void:
 	_on_combo_changed(0)
 	_equipment.equipment_changed.connect(_on_equipment_changed)
 	_on_equipment_changed(_equipment.get_current())
+	_tempo.climax_entered.connect(_on_climax_entered)
+	_tempo.climax_exited.connect(_on_climax_exited)
+	_risk.risk_changed.connect(_on_risk_changed)
+	_on_risk_changed(_risk.is_active())
 
-	_screens.start_pressed.connect(_on_start_pressed)
+	_screens.mode_selected.connect(_on_mode_selected)
 	_screens.restart_pressed.connect(_on_restart_pressed)
 
 	_on_stamina_changed(_stamina.current_stamina, _stamina.max_stamina)
@@ -60,8 +67,10 @@ func _enter_playing_state() -> void:
 		_cursor.visible = true
 
 
-func _on_start_pressed() -> void:
+func _on_mode_selected(mode: int) -> void:
 	_screens.hide_start()
+	_room_manager.start_run(mode)
+	_update_room_counter()
 	_enter_playing_state()
 
 
@@ -95,11 +104,27 @@ func _on_stress_exploded() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _cursor:
 		_cursor.visible = false
-	_screens.show_game_over(
-		_room_manager.current_room_index,
+	_screens.show_game_over(_build_over_title(), _build_over_info())
+
+
+func _build_over_title() -> String:
+	return "SPLAT!"
+
+
+func _build_over_info() -> String:
+	var run_time := int(_room_manager.get_run_time())
+	if _room_manager.get_mode() == RoomManager.Mode.ENDLESS:
+		var survived := _room_manager.get_rooms_cleared()
+		var line := "Gargoyle patladı!\n%d tur temizlendi · %ds dayandın" % [survived, run_time]
+		line += "\nEn yüksek combo: x%d · %d puan" % [_room_manager.get_run_max_combo(), _room_manager.get_level_score()]
+		if survived >= 3:
+			line += "\nNeredeyse rekor! Bir tur daha dayanabilirdin."
+		return line
+	return "Gargoyle patladı!\n%d / %d oda · %d puan" % [
+		_room_manager.current_room_index + 1,
 		_room_manager.total_rooms,
 		_room_manager.get_level_score()
-	)
+	]
 
 
 func _on_mop_charge_changed(ratio: float) -> void:
@@ -146,6 +171,41 @@ func _on_combo_milestone(combo: int) -> void:
 		.set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
 
 
+var _climax_active: bool = false
+
+
+func _on_climax_entered() -> void:
+	_climax_active = true
+	if _objective_label:
+		_objective_label.pivot_offset = _objective_label.size * 0.5
+		_objective_label.scale = Vector2(1.4, 1.4)
+		var tween := create_tween()
+		tween.tween_property(_objective_label, "scale", Vector2.ONE, 0.3)\
+			.set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	_room_manager.emit_current_objective()
+
+
+func _on_climax_exited() -> void:
+	_climax_active = false
+	_room_manager.emit_current_objective()
+
+
+func _on_risk_changed(active: bool) -> void:
+	if _risk_label == null:
+		return
+	if active:
+		_risk_label.text = "⚡ RİSKLİ TEMİZLİK AÇIK  ×%.1f PUAN" % _risk.score_multiplier
+		_risk_label.modulate = Color(1.0, 0.4, 0.35)
+		_risk_label.pivot_offset = _risk_label.size * 0.5
+		_risk_label.scale = Vector2(1.3, 1.3)
+		var tween := create_tween()
+		tween.tween_property(_risk_label, "scale", Vector2.ONE, 0.25)\
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	else:
+		_risk_label.text = "⚡ Riskli Temizlik: R"
+		_risk_label.modulate = Color(0.7, 0.7, 0.72, 0.55)
+
+
 func _on_equipment_changed(type: int) -> void:
 	# İmleci aktif ekipmanın rengiyle boya (görsel ipucu).
 	if _cursor and type >= 0 and type < EquipmentComponent.COLORS.size():
@@ -164,14 +224,21 @@ func _on_objective_changed(remaining: int, total: int) -> void:
 	if remaining <= 0:
 		_objective_label.text = "✓ ODA TEMİZ!"
 		_objective_label.modulate = Color(0.5, 1.0, 0.6)
+	elif _climax_active:
+		_objective_label.text = "⏱ ACELE ET!  %d / %d" % [total - remaining, total]
+		_objective_label.modulate = Color(1.0, 0.5, 0.4)
 	else:
 		_objective_label.text = "HEDEF: %d / %d kir temizlendi" % [total - remaining, total]
 		_objective_label.modulate = Color(1, 1, 1)
 
 
 func _update_room_counter() -> void:
-	if _room_counter:
-		_room_counter.text = "Room %d / %d" % [
+	if _room_counter == null:
+		return
+	if _room_manager.get_mode() == RoomManager.Mode.ENDLESS:
+		_room_counter.text = "Tur %d  ♾" % (_room_manager.current_room_index + 1)
+	else:
+		_room_counter.text = "Oda %d / %d" % [
 			_room_manager.current_room_index + 1,
 			_room_manager.total_rooms
 		]

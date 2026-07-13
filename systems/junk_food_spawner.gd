@@ -3,11 +3,16 @@ extends Node
 
 @export var world_layer_path: NodePath = ^"../WorldLayer"
 @export var room_manager_path: NodePath = ^"../RoomManager"
+@export var tempo_path: NodePath = ^"../TempoDirector"
 
 @export var spawn_interval_min: float = 2.2
 @export var spawn_interval_max: float = 4.0
 @export var junk_lifetime: float = 3.2
 @export var max_concurrent: int = 2
+
+# Climax (son sprint): junk food sıklaşır ve sayısı artar.
+@export var climax_interval_scale: float = 0.45   # yoğunlukta bekleme süresi çarpanı
+@export var climax_extra_concurrent: int = 2
 @export var stress_penalty: float = 20.0
 @export var stamina_reward: float = 32.0
 
@@ -19,6 +24,7 @@ extends Node
 
 var _world: Node2D
 var _room_manager: Node
+var _tempo: TempoDirector
 var _timer: float = 0.0
 var _next_spawn: float = 0.0
 
@@ -26,6 +32,7 @@ var _next_spawn: float = 0.0
 func _ready() -> void:
 	_world = get_node(world_layer_path) as Node2D
 	_room_manager = get_node_or_null(room_manager_path)
+	_tempo = get_node_or_null(tempo_path) as TempoDirector
 	_next_spawn = randf_range(spawn_interval_min, spawn_interval_max)
 
 	if _room_manager != null and _room_manager.has_signal("room_transition_started"):
@@ -36,14 +43,18 @@ func _process(delta: float) -> void:
 	if _is_blocked():
 		return
 
+	var intensity := _tempo.get_intensity() if _tempo != null else 0.0
+
 	_timer += delta
-	if _timer < _next_spawn:
+	var effective_next := _next_spawn * lerpf(1.0, climax_interval_scale, intensity)
+	if _timer < effective_next:
 		return
 
 	_timer = 0.0
 	_next_spawn = randf_range(spawn_interval_min, spawn_interval_max)
 
-	if _count_active() < max_concurrent:
+	var effective_max := max_concurrent + int(round(intensity * climax_extra_concurrent))
+	if _count_active() < effective_max:
 		_spawn_one()
 
 

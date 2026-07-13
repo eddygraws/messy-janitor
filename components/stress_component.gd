@@ -16,13 +16,14 @@ signal panic_mode_exited
 var current_stress: float = 0.0
 var _exploded: bool = false
 var _in_panic: bool = false
+var mistake_multiplier: float = 1.0   # Riskli Temizlik modu bunu yükseltir
 
 
 func register_mistake() -> void:
 	if _exploded:
 		return
 	mistake_registered.emit()
-	add_stress(mistake_stress)
+	add_stress(mistake_stress * mistake_multiplier)
 
 
 func add_stress(amount: float) -> void:

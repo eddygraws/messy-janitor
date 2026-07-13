@@ -6,10 +6,13 @@ signal room_finalized(result: Dictionary)
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var router_path: NodePath = ^"../CursorClickerRouter"
 @export var combo_path: NodePath = ^"../ComboComponent"
+@export var risk_path: NodePath = ^"../RiskModeComponent"
 
 var _stress: StressComponent
 var _router: CursorClickRouter
 var _combo: ComboComponent
+var _risk: RiskModeComponent
+var _risk_used: bool = false
 
 var _mistakes: int = 0
 var _junk_eaten: int = 0
@@ -31,7 +34,15 @@ func _ready() -> void:
 	_router.junk_food_tempted.connect(_on_junk_food)
 	if _combo != null:
 		_combo.combo_changed.connect(_on_combo_changed)
+	_risk = get_node_or_null(risk_path) as RiskModeComponent
+	if _risk != null:
+		_risk.risk_changed.connect(_on_risk_changed)
 	begin_room()
+
+
+func _on_risk_changed(active: bool) -> void:
+	if active:
+		_risk_used = true
 
 
 func begin_room() -> void:
@@ -44,6 +55,7 @@ func begin_room() -> void:
 	_mistake_streak = 0
 	_prev_combo = _combo.get_combo() if _combo != null else 0
 	_room_start_ms = Time.get_ticks_msec()
+	_risk_used = _risk != null and _risk.is_active()
 
 
 func finalize_room() -> Dictionary:
@@ -55,7 +67,9 @@ func finalize_room() -> Dictionary:
 		_panic_events, stress_ratio, elapsed,
 		_mistakes == 0 and _junk_eaten == 0
 	)
-	var score: int = breakdown.total
+	var base_score: int = breakdown.total
+	var risk_mult := _risk.get_score_multiplier() if (_risk != null and _risk_used) else 1.0
+	var score := int(round(base_score * risk_mult))
 	var grade_data := RoomRating.get_grade_data(score)
 
 	var result := {
@@ -68,6 +82,8 @@ func finalize_room() -> Dictionary:
 		"max_combo": _max_combo,
 		"elapsed": elapsed,
 		"stress_ratio": stress_ratio,
+		"risk_used": _risk_used,
+		"risk_multiplier": risk_mult,
 		"breakdown": breakdown,
 	}
 	room_finalized.emit(result)

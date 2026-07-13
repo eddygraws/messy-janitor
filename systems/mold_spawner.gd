@@ -2,10 +2,15 @@ class_name MoldSpawner
 extends Node
 
 @export var room_manager_path: NodePath = ^"../RoomManager"
+@export var tempo_path: NodePath = ^"../TempoDirector"
 @export var max_spread_per_room: int = 6
 @export var mold_hitbox: Vector2 = Vector2(95, 80)
 @export var child_spread_time: float = 6.5      # yayılan küfün tekrar yayılma süresi
 @export var min_gap: float = 120.0              # diğer objelerle min mesafe
+
+# Climax (son sprint): küf daha hızlı yayılır, tavan yükselir.
+@export var climax_spread_mult: float = 2.4
+@export var climax_extra_spread: int = 3
 
 # Merkezi güvenli alan (kirlerle aynı bant).
 @export var area_min: Vector2 = Vector2(520, 380)
@@ -14,14 +19,26 @@ extends Node
 @export var mold_color: Color = Color(0.4, 0.55, 0.3, 1.0)
 
 var _room_manager: Node
+var _tempo: TempoDirector
 var _spread_count: int = 0
 
 
 func _ready() -> void:
 	_room_manager = get_node_or_null(room_manager_path)
+	_tempo = get_node_or_null(tempo_path) as TempoDirector
 	if _room_manager != null and _room_manager.has_signal("room_transition_finished"):
 		_room_manager.room_transition_finished.connect(_on_room_changed)
 	call_deferred("_connect_existing")
+
+
+func _process(_delta: float) -> void:
+	# Climax'ta aktif küflerin yayılma hızını yükselt.
+	if _tempo == null:
+		return
+	var scale := lerpf(1.0, climax_spread_mult, _tempo.get_intensity())
+	for node in get_tree().get_nodes_in_group("Cleanable"):
+		if node is CleanableObject and node.spreads and not node.is_cleaned():
+			node.spread_speed_scale = scale
 
 
 func _connect_existing() -> void:
@@ -47,7 +64,10 @@ func _on_spread(origin: Vector2) -> void:
 	# Sadece ekranda görünen (aktif odadaki) küfler yayılabilir.
 	if origin.y < 0.0 or origin.y > 1080.0 or origin.x < 0.0 or origin.x > 1920.0:
 		return
-	if _spread_count >= max_spread_per_room:
+	var cap := max_spread_per_room
+	if _tempo != null:
+		cap += int(round(_tempo.get_intensity() * climax_extra_spread))
+	if _spread_count >= cap:
 		return
 
 	var room := _room_manager.get_current_room() as Node2D

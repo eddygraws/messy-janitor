@@ -15,6 +15,7 @@ signal wrong_tool(position: Vector2)
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var mop_path: NodePath = ^"../MopComponent"
 @export var equipment_path: NodePath = ^"../EquipmentComponent"
+@export var risk_path: NodePath = ^"../RiskModeComponent"
 @export var room_manager_path: NodePath = ^"../RoomManager"
 @export var panic_hitbox_scale: float = 0.68   # panikte hitbox daralır (yanlış tıklama artar)
 @export var wrong_tool_stress: float = 4.0     # yanlış alet: hafif ceza
@@ -25,6 +26,7 @@ var _stamina: StaminaComponent
 var _stress: StressComponent
 var _mop: MopComponent
 var _equipment: EquipmentComponent
+var _risk: RiskModeComponent
 # NOT: Döngüsel class bağımlılığını kırmak için RoomManager tipini kullanmıyoruz.
 var _room_manager: Node
 
@@ -45,6 +47,7 @@ func _ready() -> void:
 	_stress = get_node(stress_path) as StressComponent
 	_mop = get_node_or_null(mop_path) as MopComponent
 	_equipment = get_node_or_null(equipment_path) as EquipmentComponent
+	_risk = get_node_or_null(risk_path) as RiskModeComponent
 	_room_manager = get_node_or_null(room_manager_path)
 	_last_mouse_screen = get_viewport().get_mouse_position()
 	if _stress != null:
@@ -143,6 +146,8 @@ func _process(delta: float) -> void:
 	var eq := _current_eq()
 	var effort := motion.length()
 	var effectiveness := _mop.get_effectiveness() if (_mop != null and eq == CleanableObject.EQ_MOP) else 1.0
+	if _risk != null:
+		effectiveness *= _risk.get_clean_speed_multiplier()
 	var over_stain := false
 
 	for obj in _query_cleanables(aim):
@@ -164,6 +169,10 @@ func _current_eq() -> int:
 
 
 func _handle_press(pos: Vector2) -> void:
+	# Ekipman değişim donması: kısa süre etkileşim yok (ceza da yok).
+	if _equipment != null and _equipment.is_switching():
+		return
+
 	# Kova: durulama moduna gir (her aletle erişilebilir - durulama)
 	if _is_over_bucket(pos):
 		_reloading = true
@@ -214,7 +223,8 @@ func _handle_press(pos: Vector2) -> void:
 				_stress.register_mistake()
 		CleanableObject.EQ_BRUSH:
 			scrub_tick.emit(pos)
-			if obj.mash():
+			var mash_mult := _risk.get_clean_speed_multiplier() if _risk != null else 1.0
+			if obj.mash(mash_mult):
 				object_cleaned.emit(pos)
 		CleanableObject.EQ_SPRAY:
 			if not obj.is_sprayed():
@@ -231,16 +241,26 @@ func _apply_wrong_tool(pos: Vector2, required: int) -> void:
 	var penalty := wrong_tool_stress
 	if required == CleanableObject.EQ_TWEEZERS:
 		penalty = dangerous_wrong_stress   # tehlikeli obje + yanlış alet = sert ceza
+	if _risk != null and _risk.is_active():
+		penalty *= _risk.stress_multiplier
 	_stress.add_stress(penalty)
 	wrong_tool.emit(pos)
 
 
 func _apply_junk_food_effect(junk: JunkFoodObject) -> void:
 	junk.trigger_temptation()
-	# Ödül: stamina hemen gelir. Tuzak: hemen küçük stres + gecikmeli "sugar crash".
-	_stamina.restore(junk.stamina_reward)
+	# STRATEJİK KARAR: junk food artık sadece ceza değil, bağlama bağlı bir bahis.
+	# - Stamina ne kadar düşükse ödül o kadar değerli (çaresizlik primi).
+	# - Stres ne kadar yüksekse "sugar crash" o kadar sert (stresliyken yemek riskli).
+	var stamina_ratio := _stamina.get_ratio()
+	var stress_ratio := _stress.get_stress_ratio()
+
+	var reward := junk.stamina_reward * lerpf(1.0, 1.5, 1.0 - stamina_ratio)
+	_stamina.restore(reward)
+
 	_stress.add_stress(junk.stress_penalty * 0.4)
-	_stress.add_delayed_stress(junk.stress_penalty * 0.85, junk.crash_delay)
+	var crash := junk.stress_penalty * 0.85 * (1.0 + stress_ratio)
+	_stress.add_delayed_stress(crash, junk.crash_delay)
 	junk_food_tempted.emit(junk.global_position)
 
 
@@ -282,12 +302,15 @@ func _query_cleanables(pos: Vector2) -> Array[CleanableObject]:
 	return results
 
 
-# Panikte hitbox merkeze doğru daralır -> isabet zorlaşır.
+# Panik VE Riskli Temizlik modunda hitbox merkeze doğru daralır -> isabet zorlaşır.
 func _scaled_hitbox(rect: Rect2) -> Rect2:
-	if _hitbox_scale >= 0.999:
+	var scale := _hitbox_scale
+	if _risk != null:
+		scale = minf(scale, _risk.get_hitbox_scale())
+	if scale >= 0.999:
 		return rect
 	var center := rect.get_center()
-	var size := rect.size * _hitbox_scale
+	var size := rect.size * scale
 	return Rect2(center - size * 0.5, size)
 
 

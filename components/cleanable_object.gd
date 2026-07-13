@@ -30,6 +30,7 @@ const EQ_TWEEZERS := 4
 @export_group("Timed Mold (Yayılan Küf)")
 @export var spreads: bool = false
 @export var spread_time: float = 5.0            # bu süre temizlenmezse yayılır
+var spread_speed_scale: float = 1.0             # TempoDirector climax'ta hızlandırır
 
 @export_group("Hidden Grime (Gizli Kir)")
 @export var is_hidden: bool = false
@@ -65,7 +66,7 @@ func _process(delta: float) -> void:
 		return
 
 	if spreads:
-		_spread_accum += delta
+		_spread_accum += delta * spread_speed_scale
 		if _spread_accum >= spread_time:
 			_spread_accum = 0.0
 			spread_triggered.emit(global_position)
@@ -142,10 +143,10 @@ func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0) -> boo
 
 
 # Fırça: hızlı tekrarlı tıklama. Her çağrı ilerleme ekler, bitince true döner.
-func mash() -> bool:
+func mash(speed_mult: float = 1.0) -> bool:
 	if is_cleaned() or not is_revealed():
 		return false
-	_scrub_progress = minf(1.0, _scrub_progress + mash_per_hit)
+	_scrub_progress = minf(1.0, _scrub_progress + mash_per_hit * speed_mult)
 	scrub_progress_changed.emit(_scrub_progress)
 	_update_scrub_visual()
 	if _scrub_progress >= 1.0:

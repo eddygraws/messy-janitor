@@ -17,13 +17,21 @@ const COLORS: Array[Color] = [
 	Color(0.95, 0.75, 0.8),
 ]
 
+@export var switch_lock_time: float = 0.16   # alet değişiminde kısa "geçiş" donması
+
 var current: int = 0
 var unlocked_count: int = 1
+var _switch_lock: float = 0.0
 
 
 func _ready() -> void:
 	equipment_changed.emit(current)
 	unlocked_changed.emit(unlocked_count)
+
+
+func _process(delta: float) -> void:
+	if _switch_lock > 0.0:
+		_switch_lock = maxf(0.0, _switch_lock - delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -48,7 +56,12 @@ func set_current(idx: int) -> void:
 	if idx == current or idx < 0 or idx >= unlocked_count:
 		return
 	current = idx
+	_switch_lock = switch_lock_time
 	equipment_changed.emit(current)
+
+
+func is_switching() -> bool:
+	return _switch_lock > 0.0
 
 
 func get_current() -> int:

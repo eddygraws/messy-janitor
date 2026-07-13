@@ -7,6 +7,8 @@ signal room_transition_finished
 signal level_completed(total_score: int, average_score: int)
 signal objective_changed(remaining: int, total: int)
 
+enum Mode { ADVENTURE, ENDLESS }
+
 @export var feedback_ui_path: NodePath = ^"../UI/RoomFeedbackUI"
 @export var score_tracker_path: NodePath = ^"../RoomScoreTracker"
 @export var screen_shake_path: NodePath = ^"../ScreenShake"
@@ -14,17 +16,22 @@ signal objective_changed(remaining: int, total: int)
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var stamina_path: NodePath = ^"../StaminaComponent"
 @export var equipment_path: NodePath = ^"../EquipmentComponent"
+@export var tempo_path: NodePath = ^"../TempoDirector"
 
 @export var viewport_height: float = 1080.0
 @export_range(3, 10, 1) var rooms_per_level: int = 10
 @export var slide_duration: float = 1.15
 
+var mode: int = Mode.ADVENTURE
 var current_room_index: int = 0
 var total_rooms: int = 0
 var _rooms: Array[Node2D] = []
+var _current_room_node: Node2D
 var _transitioning: bool = false
 var _level_total_score: int = 0
 var _rooms_cleared: int = 0
+var _run_start_ms: int = 0
+var _run_max_combo: int = 0
 
 var _feedback_ui: RoomFeedbackUI
 var _score_tracker: RoomScoreTracker
@@ -33,6 +40,7 @@ var _camera: Camera2D
 var _stress: StressComponent
 var _stamina: StaminaComponent
 var _equipment: EquipmentComponent
+var _tempo: TempoDirector
 
 
 func _ready() -> void:
@@ -43,9 +51,86 @@ func _ready() -> void:
 	_stress = get_node(stress_path) as StressComponent
 	_stamina = get_node(stamina_path) as StaminaComponent
 	_equipment = get_node_or_null(equipment_path) as EquipmentComponent
+	_tempo = get_node_or_null(tempo_path) as TempoDirector
 
 	_collect_rooms()
 	_apply_equipment_unlock()
+
+
+# MainScene mod seçildikten sonra çağırır.
+func start_run(selected_mode: int) -> void:
+	mode = selected_mode
+	current_room_index = 0
+	_level_total_score = 0
+	_rooms_cleared = 0
+	_run_max_combo = 0
+	_run_start_ms = Time.get_ticks_msec()
+	position = Vector2.ZERO
+	if mode == Mode.ENDLESS:
+		_begin_endless()
+	else:
+		_begin_adventure()
+
+
+func _begin_adventure() -> void:
+	_apply_equipment_unlock()
+	_current_room_node = get_current_room()
+	_score_tracker.begin_room()
+	emit_current_objective()
+
+
+func _begin_endless() -> void:
+	total_rooms = -1
+	# Sahnedeki elle tasarlanmış odaları gizle.
+	for child in get_children():
+		if child is Node2D and child.is_in_group("Room"):
+			child.visible = false
+	_rooms.clear()
+	_current_room_node = _generate_endless_room(0)
+	_apply_endless_difficulty(0)
+	_score_tracker.begin_room()
+	emit_current_objective()
+
+
+func _generate_endless_room(index: int) -> Node2D:
+	var room := EndlessGenerator.build_room(index, _endless_unlocked(index))
+	add_child(room)
+	room.position = Vector2(0, -index * viewport_height)
+	return room
+
+
+func _endless_unlocked(index: int) -> int:
+	return clampi(1 + index / 2, 1, 5)
+
+
+func _apply_endless_difficulty(index: int) -> void:
+	if _equipment != null:
+		_equipment.set_unlocked_count(_endless_unlocked(index))
+	if _tempo != null:
+		_tempo.set_base_intensity(minf(0.55, index * 0.045))
+
+
+func _apply_progression() -> void:
+	if mode == Mode.ENDLESS:
+		_apply_endless_difficulty(current_room_index)
+	else:
+		_apply_equipment_unlock()
+
+
+func get_rooms_cleared() -> int:
+	return _rooms_cleared
+
+
+func get_run_time() -> float:
+	return (Time.get_ticks_msec() - _run_start_ms) / 1000.0
+
+
+func get_run_max_combo() -> int:
+	return _run_max_combo
+
+
+func get_mode() -> int:
+	return mode
 
 
 # Level ilerledikçe ekipman açılır:
@@ -73,6 +158,8 @@ func get_level_score() -> int:
 
 
 func get_current_room() -> Node2D:
+	if mode == Mode.ENDLESS:
+		return _current_room_node
 	if current_room_index >= _rooms.size():
 		return null
 	return _rooms[current_room_index]
@@ -140,10 +227,15 @@ func _start_room_transition() -> void:
 	var result: Dictionary = _score_tracker.finalize_room()
 	_level_total_score += result.score
 	_rooms_cleared += 1
+	_run_max_combo = maxi(_run_max_combo, int(result.get("max_combo", 0)))
 	room_cleared.emit(current_room_index, result)
 
 	_shake.shake(0.18)
 	await _feedback_ui.show_rating(result)
+
+	if mode == Mode.ENDLESS:
+		await _advance_endless()
+		return
 
 	var is_last_room := current_room_index >= total_rooms - 1
 	if is_last_room:
@@ -153,6 +245,23 @@ func _start_room_transition() -> void:
 	await _animate_to_next_room()
 	current_room_index += 1
 	_prepare_next_room()
+	_transitioning = false
+	room_transition_finished.emit()
+
+
+func _advance_endless() -> void:
+	var next_index := current_room_index + 1
+	var next_room := _generate_endless_room(next_index)
+
+	await _animate_to_next_room()
+
+	var old_room := _current_room_node
+	current_room_index = next_index
+	_current_room_node = next_room
+	_prepare_next_room()
+	if old_room != null:
+		old_room.queue_free()
+
 	_transitioning = false
 	room_transition_finished.emit()
 
@@ -190,6 +299,6 @@ func _animate_to_next_room() -> void:
 func _prepare_next_room() -> void:
 	_stress.reduce_stress(_stress.current_stress * 0.5)
 	_stamina.restore(_stamina.max_stamina * 0.25)
-	_apply_equipment_unlock()
+	_apply_progression()
 	_score_tracker.begin_room()
 	emit_current_objective()

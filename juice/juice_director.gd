@@ -5,6 +5,7 @@ extends Node
 @export var particle_burst_path: NodePath = ^"../ParticleBurst"
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var router_path: NodePath = ^"../CursorClickerRouter"
+@export var tempo_path: NodePath = ^"../TempoDirector"
 @export var portrait_path: NodePath = ^"../UI/KarakterPortresi"
 @export var break_stress: float = 18.0
 
@@ -12,6 +13,7 @@ var _shake: ScreenShake
 var _particles: ParticleBurst
 var _stress: StressComponent
 var _router: CursorClickRouter
+var _tempo: TempoDirector
 var _portrait: Sprite2D
 var _scrub_cooldown: float = 0.0
 
@@ -21,6 +23,7 @@ func _ready() -> void:
 	_particles = get_node(particle_burst_path) as ParticleBurst
 	_stress = get_node(stress_path) as StressComponent
 	_router = get_node(router_path) as CursorClickRouter
+	_tempo = get_node_or_null(tempo_path) as TempoDirector
 	_portrait = get_node(portrait_path) as Sprite2D
 
 	_stress.mistake_registered.connect(_on_mistake)
@@ -32,6 +35,8 @@ func _ready() -> void:
 	_router.object_cleaned.connect(_on_object_cleaned)
 	_router.object_disposed.connect(_on_object_disposed)
 	_router.wrong_tool.connect(_on_wrong_tool)
+	if _tempo != null:
+		_tempo.climax_entered.connect(_on_climax_entered)
 
 	call_deferred("_connect_cleanables")
 
@@ -87,6 +92,12 @@ func _on_object_disposed(world_pos: Vector2) -> void:
 	# Çöp kovasına / gidere teslim: tatmin edici küçük patlama.
 	_shake.shake(0.16)
 	_particles.spawn(ParticleBurst.BurstType.CLEAN, world_pos)
+
+
+func _on_climax_entered() -> void:
+	# Son sprint başladı: uyarı sarsıntısı + portre turuncu flaş.
+	_shake.shake(0.4)
+	_flash_portrait(Color(1.4, 0.9, 0.4))
 
 
 func _on_wrong_tool(world_pos: Vector2) -> void:
