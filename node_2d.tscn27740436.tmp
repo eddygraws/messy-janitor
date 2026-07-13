@@ -1,0 +1,844 @@
+[gd_scene format=3 uid="uid://cp32j57bmrg12"]
+
+[ext_resource type="Script" uid="uid://dupuii07fhowk" path="res://MainScene.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://dcmrfkg15i3au" path="res://RoomManager.gd" id="2_room"]
+[ext_resource type="Script" uid="uid://cwnjpk33137vu" path="res://tired_cursor.gd" id="3_cursor"]
+[ext_resource type="Script" uid="uid://dcyhv81vghxn4" path="res://components/stamina_component.gd" id="4_stamina"]
+[ext_resource type="Script" uid="uid://cc6fvx1b2x63w" path="res://components/stress_component.gd" id="5_stress"]
+[ext_resource type="Script" uid="uid://c3lomfjn1m1pg" path="res://systems/cursor_click_router.gd" id="6_router"]
+[ext_resource type="Script" uid="uid://caduae6ac74im" path="res://juice/screen_shake.gd" id="9_shake"]
+[ext_resource type="Script" uid="uid://ccjxlpxcjs1an" path="res://juice/particle_burst.gd" id="10_particles"]
+[ext_resource type="Script" uid="uid://0i42xwn6a1fh" path="res://juice/juice_director.gd" id="11_juice"]
+[ext_resource type="Script" uid="uid://qi0ewukuabsa" path="res://components/room_score_tracker.gd" id="12_score"]
+[ext_resource type="Script" uid="uid://b3pyb503bo50v" path="res://ui/room_feedback_ui.gd" id="13_feedback"]
+[ext_resource type="Script" uid="uid://dxqm8v67r8b50" path="res://ui/game_screens.gd" id="14_screens"]
+[ext_resource type="Script" uid="uid://c5xc8vshn1ycn" path="res://systems/junk_food_spawner.gd" id="15_spawner"]
+[ext_resource type="Script" uid="uid://bpnwsf77v84wd" path="res://systems/mop_component.gd" id="16_mop"]
+[ext_resource type="Script" uid="uid://dxvy8ub7u48fk" path="res://components/mop_bucket.gd" id="17_bucket"]
+[ext_resource type="Script" uid="uid://e3v5brs5cda5" path="res://systems/combo_component.gd" id="18_combo"]
+[ext_resource type="Script" uid="uid://b32r4gxbk6afa" path="res://systems/mold_spawner.gd" id="19_mold"]
+[ext_resource type="Script" uid="uid://t2g0yl1ekftq" path="res://systems/equipment_component.gd" id="22_equip"]
+[ext_resource type="Script" uid="uid://cmqhgoa4t0cd8" path="res://ui/equipment_bar.gd" id="23_eqbar"]
+[ext_resource type="Texture2D" uid="uid://mcjwu8vp3dyr" path="res://assets/janitor-export.png" id="24_2u7jv"]
+[ext_resource type="Script" uid="uid://bx7rt3pjwxs62" path="res://ui/character_portrait.gd" id="24_portrait"]
+[ext_resource type="Script" uid="uid://clvphum1xnthc" path="res://ui/character_reaction_ui.gd" id="24_react"]
+[ext_resource type="Script" uid="uid://4tvx3nhc24hx" path="res://systems/tempo_director.gd" id="25_tempo"]
+[ext_resource type="Script" uid="uid://bk4kx2fgbs7nw" path="res://systems/risk_mode_component.gd" id="26_risk"]
+[ext_resource type="Script" uid="uid://c3oc1umb1lgvl" path="res://systems/commission_director.gd" id="27_commdir"]
+[ext_resource type="Script" uid="uid://47s4wbrhu2m3" path="res://ui/commission_card_ui.gd" id="28_commcard"]
+[ext_resource type="Script" uid="uid://ra8gfjqa25qs" path="res://systems/save_manager.gd" id="29_save"]
+[ext_resource type="Script" uid="uid://b4ccx6cbmnv0v" path="res://systems/run_timer.gd" id="30_timer"]
+[ext_resource type="Script" uid="uid://3bb66b47piyh" path="res://systems/mop_skill_check.gd" id="31_skill"]
+[ext_resource type="Script" uid="uid://ddr8126pja6ct" path="res://ui/mop_skill_check_ui.gd" id="32_skillui"]
+[ext_resource type="Script" uid="uid://d1x6urvqsdbdd" path="res://systems/run_modifier_director.gd" id="33_mods"]
+[ext_resource type="Script" uid="uid://wbhdio03m6n3" path="res://ui/draft_card_ui.gd" id="34_draft"]
+[ext_resource type="Script" uid="uid://dxtrowymkl4kg" path="res://ui/active_cards_strip.gd" id="35_strip"]
+[ext_resource type="Script" uid="uid://baf21yl1g0yx4" path="res://ui/post_process_director.gd" id="36_post"]
+[ext_resource type="Script" uid="uid://7slax4gbh3e7" path="res://ui/wavy_label.gd" id="37_wavy"]
+
+[node name="Main" type="Node2D" unique_id=1997389448]
+script = ExtResource("1_main")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=745883053]
+position = Vector2(960, 540)
+
+[node name="WorldLayer" type="Node2D" parent="." unique_id=1058636094]
+z_index = 5
+
+[node name="MopBucket" type="Node2D" parent="WorldLayer" unique_id=1705565784 groups=["MopBucket"]]
+position = Vector2(1760, 900)
+script = ExtResource("17_bucket")
+
+[node name="Glow" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=1488056372]
+modulate = Color(1, 0.75, 0.3, 0)
+color = Color(1, 0.7, 0.25, 0.55)
+polygon = PackedVector2Array(-98, -112, 98, -112, 98, 112, -98, 112)
+
+[node name="Body" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=1305986758]
+color = Color(0.32, 0.34, 0.4, 1)
+polygon = PackedVector2Array(-70, -60, 70, -60, 56, 92, -56, 92)
+
+[node name="Water" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=182454360]
+color = Color(0.35, 0.62, 0.9, 1)
+polygon = PackedVector2Array(-64, -60, 64, -60, 58, -34, -58, -34)
+
+[node name="Rim" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=774085406]
+color = Color(0.5, 0.53, 0.6, 1)
+polygon = PackedVector2Array(-72, -66, 72, -66, 70, -56, -70, -56)
+
+[node name="Label" type="Label" parent="WorldLayer/MopBucket" unique_id=161769068]
+offset_left = -80.0
+offset_top = 98.0
+offset_right = 80.0
+offset_bottom = 128.0
+theme_override_colors/font_color = Color(0.8, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 22
+text = "KOVA"
+horizontal_alignment = 1
+
+[node name="StaminaComponent" type="Node" parent="." unique_id=2092589117]
+script = ExtResource("4_stamina")
+
+[node name="StressComponent" type="Node" parent="." unique_id=1645662337]
+script = ExtResource("5_stress")
+
+[node name="RoomScoreTracker" type="Node" parent="." unique_id=1237827070]
+script = ExtResource("12_score")
+
+[node name="ScreenShake" type="Node" parent="." unique_id=754589181]
+script = ExtResource("9_shake")
+
+[node name="ParticleBurst" type="Node" parent="." unique_id=570616110]
+script = ExtResource("10_particles")
+
+[node name="JuiceDirector" type="Node" parent="." unique_id=843532981]
+script = ExtResource("11_juice")
+
+[node name="CursorClickerRouter" type="Node" parent="." unique_id=1346099246]
+script = ExtResource("6_router")
+
+[node name="JunkFoodSpawner" type="Node" parent="." unique_id=13832413]
+script = ExtResource("15_spawner")
+
+[node name="MopComponent" type="Node" parent="." unique_id=974748242]
+script = ExtResource("16_mop")
+
+[node name="ComboComponent" type="Node" parent="." unique_id=742815091]
+script = ExtResource("18_combo")
+
+[node name="EquipmentComponent" type="Node" parent="." unique_id=742815092]
+script = ExtResource("22_equip")
+
+[node name="TempoDirector" type="Node" parent="." unique_id=742815093]
+script = ExtResource("25_tempo")
+
+[node name="RiskModeComponent" type="Node" parent="." unique_id=742815094]
+script = ExtResource("26_risk")
+
+[node name="CommissionDirector" type="Node" parent="." unique_id=742815095]
+script = ExtResource("27_commdir")
+
+[node name="SaveManager" type="Node" parent="." unique_id=742815096]
+script = ExtResource("29_save")
+
+[node name="RunTimer" type="Node" parent="." unique_id=742815097]
+script = ExtResource("30_timer")
+
+[node name="MopSkillCheckDirector" type="Node" parent="." unique_id=742815098]
+script = ExtResource("31_skill")
+
+[node name="RunModifierDirector" type="Node" parent="." unique_id=742815099]
+script = ExtResource("33_mods")
+
+[node name="PostProcessDirector" type="CanvasLayer" parent="." unique_id=742815100]
+script = ExtResource("36_post")
+
+[node name="MoldSpawner" type="Node" parent="." unique_id=1531069809]
+script = ExtResource("19_mold")
+child_spread_time = 3.5
+mold_color = Color(0.83720696, 0.2759009, 0.23884636, 1)
+
+[node name="TiredCursor" type="Node2D" parent="." unique_id=1908703759 groups=["PlayerCursor"]]
+z_index = 10
+script = ExtResource("3_cursor")
+
+[node name="Sap" type="Polygon2D" parent="TiredCursor" unique_id=913641232]
+color = Color(0.55, 0.38, 0.2, 1)
+polygon = PackedVector2Array(2, -6, 8, -6, 42, -80, 34, -84)
+
+[node name="PaspasBasi" type="Polygon2D" parent="TiredCursor" unique_id=1652665526]
+color = Color(0.85, 0.82, 0.7, 1)
+polygon = PackedVector2Array(-24, -8, 24, -8, 16, 22, -16, 22)
+
+[node name="NisanNoktasi" type="Polygon2D" parent="TiredCursor" unique_id=697433721]
+color = Color(0.2, 0.9, 0.5, 0.5)
+polygon = PackedVector2Array(-3, -3, 3, -3, 3, 3, -3, 3)
+
+[node name="RoomManager" type="Node2D" parent="." unique_id=559059836 groups=["RoomManagerGroup"]]
+script = ExtResource("2_room")
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=531795412]
+
+[node name="ProgressBar" type="ProgressBar" parent="UI" unique_id=798444352]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 220.0
+offset_bottom = 47.0
+value = 100.0
+
+[node name="PortraitDock" type="Control" parent="UI" unique_id=350438036]
+z_index = 30
+layout_mode = 3
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -300.0
+offset_right = 296.0
+offset_bottom = -16.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="FrameBorder" type="ColorRect" parent="UI/PortraitDock" unique_id=350438039]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.45, 0.38, 0.55, 0.65)
+
+[node name="Frame" type="ColorRect" parent="UI/PortraitDock" unique_id=350438038]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 3.0
+offset_top = 3.0
+offset_right = -3.0
+offset_bottom = -3.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.1, 0.08, 0.14, 0.95)
+
+[node name="KarakterPortresi" type="TextureRect" parent="UI/PortraitDock" unique_id=350438037]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -32.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("24_portrait")
+portrait_atlas = ExtResource("24_2u7jv")
+use_placeholder = false
+
+[node name="Caption" type="Label" parent="UI/PortraitDock" unique_id=350438040]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -28.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.82, 0.78, 0.92, 0.95)
+theme_override_font_sizes/font_size = 14
+text = "TEMİZLEYİCİ"
+horizontal_alignment = 1
+
+[node name="StersYuzdeLAbel" type="Label" parent="UI" unique_id=1896669479]
+offset_left = 20.0
+offset_top = 60.0
+offset_right = 120.0
+offset_bottom = 83.0
+text = "0%"
+
+[node name="MopChargeLabel" type="Control" parent="UI" unique_id=14691500]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 20.0
+offset_top = 92.0
+offset_right = 320.0
+offset_bottom = 112.0
+mouse_filter = 2
+script = ExtResource("37_wavy")
+text = "PASPAS KİRİ"
+font_size = 14
+font_color = Color(1, 0.7, 0.35, 1)
+wave_amplitude = 2.0
+
+[node name="MopChargeBar" type="ProgressBar" parent="UI" unique_id=1627183474]
+offset_left = 20.0
+offset_top = 112.0
+offset_right = 220.0
+offset_bottom = 130.0
+show_percentage = false
+
+[node name="RoomCounterLabel" type="Control" parent="UI" unique_id=1631618211]
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -280.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 48.0
+grow_horizontal = 0
+mouse_filter = 2
+script = ExtResource("37_wavy")
+text = "Room 1 / 5"
+font_size = 20
+wave_amplitude = 2.5
+horizontal_alignment = 2
+
+[node name="TimeLabel" type="Control" parent="UI" unique_id=1631618212]
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -280.0
+offset_top = 48.0
+offset_right = -20.0
+offset_bottom = 82.0
+grow_horizontal = 0
+mouse_filter = 2
+script = ExtResource("37_wavy")
+text = "⏱ --:--"
+font_size = 26
+font_color = Color(0.85, 0.9, 1, 1)
+wave_amplitude = 3.0
+horizontal_alignment = 2
+
+[node name="ObjectiveLabel" type="Control" parent="UI" unique_id=219732668]
+layout_mode = 3
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 24.0
+offset_right = 300.0
+offset_bottom = 64.0
+grow_horizontal = 2
+mouse_filter = 2
+script = ExtResource("37_wavy")
+text = "HEDEF: 0 / 3 kir temizlendi"
+wave_amplitude = 3.5
+horizontal_alignment = 1
+
+[node name="ComboLabel" type="Control" parent="UI" unique_id=728647838]
+layout_mode = 3
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -280.0
+offset_top = 120.0
+offset_right = 280.0
+offset_bottom = 180.0
+grow_horizontal = 2
+mouse_filter = 2
+script = ExtResource("37_wavy")
+font_size = 42
+font_color = Color(1, 0.85, 0.3, 1)
+wave_amplitude = 6.0
+wave_speed = 3.2
+wave_frequency = 0.55
+horizontal_alignment = 1
+glow_on_high_wave = true
+
+[node name="EquipmentBar" type="Control" parent="UI" unique_id=940912650]
+layout_mode = 3
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -100.0
+offset_right = 360.0
+offset_bottom = -22.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("23_eqbar")
+
+[node name="RiskLabel" type="Label" parent="UI" unique_id=940912660]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -140.0
+offset_right = 220.0
+offset_bottom = -104.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 0.45, 0.4, 1)
+theme_override_font_sizes/font_size = 24
+text = "⚡ RİSKLİ TEMİZLİK (R)"
+horizontal_alignment = 1
+
+[node name="MopSkillCheckUI" type="Control" parent="UI" unique_id=940912661]
+z_index = 12
+layout_mode = 3
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -210.0
+offset_right = 220.0
+offset_bottom = -130.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("32_skillui")
+
+[node name="DraftCardUI" type="Control" parent="UI" unique_id=940912662]
+z_index = 25
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("34_draft")
+
+[node name="ActiveCardsStrip" type="Control" parent="UI" unique_id=940912663]
+z_index = 8
+layout_mode = 3
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -420.0
+offset_top = -148.0
+offset_right = -16.0
+offset_bottom = -108.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("35_strip")
+
+[node name="CharacterReactionUI" type="Control" parent="UI" unique_id=940912655]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("24_react")
+
+[node name="CommissionInfoLabel" type="Label" parent="UI" unique_id=940912670]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -260.0
+offset_top = 96.0
+offset_right = 260.0
+offset_bottom = 132.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.75, 0.55, 1)
+theme_override_font_sizes/font_size = 26
+horizontal_alignment = 1
+
+[node name="TutorialLabel" type="Label" parent="UI" unique_id=940912675]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -420.0
+offset_top = 300.0
+offset_right = 420.0
+offset_bottom = 356.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.95, 0.6, 1)
+theme_override_font_sizes/font_size = 30
+horizontal_alignment = 1
+
+[node name="CommissionCardUI" type="Control" parent="UI" unique_id=940912671]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("28_commcard")
+
+[node name="RoomFeedbackUI" type="Control" parent="UI" unique_id=940912692]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("13_feedback")
+
+[node name="Flash" type="ColorRect" parent="UI/RoomFeedbackUI" unique_id=133828077]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.95, 0.92, 0.85, 1)
+
+[node name="Panel" type="Control" parent="UI/RoomFeedbackUI" unique_id=620220861]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -120.0
+offset_right = 280.0
+offset_bottom = 120.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="GradeLabel" type="Label" parent="UI/RoomFeedbackUI/Panel" unique_id=975091842]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 80.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 72
+text = "SWEET!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ScoreLabel" type="Label" parent="UI/RoomFeedbackUI/Panel" unique_id=1553393172]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 70.0
+offset_bottom = 110.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 28
+text = "850 PTS"
+horizontal_alignment = 1
+
+[node name="SubtitleLabel" type="Label" parent="UI/RoomFeedbackUI/Panel" unique_id=301785165]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 110.0
+offset_bottom = 140.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.75, 0.75, 0.75, 1)
+theme_override_font_sizes/font_size = 18
+text = "Flawless sweep!"
+horizontal_alignment = 1
+
+[node name="GameScreens" type="CanvasLayer" parent="." unique_id=1285678272]
+layer = 20
+script = ExtResource("14_screens")
+
+[node name="StartScreen" type="Control" parent="GameScreens" unique_id=1871315697]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BG" type="ColorRect" parent="GameScreens/StartScreen" unique_id=1071750822]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.08, 0.06, 0.1, 0.96)
+
+[node name="Center" type="Control" parent="GameScreens/StartScreen" unique_id=828806970]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -360.0
+offset_top = -220.0
+offset_right = 360.0
+offset_bottom = 220.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="GameScreens/StartScreen/Center" unique_id=536129150]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 90.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.85, 0.8, 0.95, 1)
+theme_override_font_sizes/font_size = 60
+text = "THE GARGOYLE'S MESS"
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="SubtitleLabel" type="Label" parent="GameScreens/StartScreen/Center" unique_id=1081122661]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 120.0
+offset_bottom = 200.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.6, 0.58, 0.7, 1)
+theme_override_font_sizes/font_size = 20
+text = "MACERA: 10 seviye (3-5 oda) · SONSUZ: skor avı  |  Aletler kademeli açılır · Risk: R"
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="RecordsLabel" type="Label" parent="GameScreens/StartScreen/Center" unique_id=1081122670]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 214.0
+offset_bottom = 272.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.95, 0.8, 0.5, 1)
+theme_override_font_sizes/font_size = 20
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="AdventureButton" type="Button" parent="GameScreens/StartScreen/Center" unique_id=1545294408]
+custom_minimum_size = Vector2(420, 68)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -210.0
+offset_top = -168.0
+offset_right = 210.0
+offset_bottom = -100.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 26
+text = "🗺  MACERA MODU"
+
+[node name="EndlessButton" type="Button" parent="GameScreens/StartScreen/Center" unique_id=1545294409]
+custom_minimum_size = Vector2(420, 68)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -210.0
+offset_top = -88.0
+offset_right = 210.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 26
+text = "♾  SONSUZ MOD"
+
+[node name="LevelSelectScreen" type="Control" parent="GameScreens" unique_id=715423090]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BG" type="ColorRect" parent="GameScreens/LevelSelectScreen" unique_id=715423091]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.08, 0.06, 0.1, 0.97)
+
+[node name="Center" type="Control" parent="GameScreens/LevelSelectScreen" unique_id=715423092]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -430.0
+offset_top = -290.0
+offset_right = 430.0
+offset_bottom = 290.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="GameScreens/LevelSelectScreen/Center" unique_id=715423093]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 70.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.85, 0.8, 0.95, 1)
+theme_override_font_sizes/font_size = 48
+text = "MACERA · SEVİYE SEÇ"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Grid" type="GridContainer" parent="GameScreens/LevelSelectScreen/Center" unique_id=715423094]
+layout_mode = 0
+offset_left = 23.0
+offset_top = 96.0
+offset_right = 837.0
+offset_bottom = 420.0
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 16
+columns = 5
+
+[node name="BackButton" type="Button" parent="GameScreens/LevelSelectScreen/Center" unique_id=715423095]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -110.0
+offset_top = -58.0
+offset_right = 110.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 24
+text = "‹ Geri"
+
+[node name="GameOverScreen" type="Control" parent="GameScreens" unique_id=715423064]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BG" type="ColorRect" parent="GameScreens/GameOverScreen" unique_id=103549549]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.15, 0.03, 0.04, 0.96)
+
+[node name="Center" type="Control" parent="GameScreens/GameOverScreen" unique_id=1427235632]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -360.0
+offset_top = -220.0
+offset_right = 360.0
+offset_bottom = 220.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="GameScreens/GameOverScreen/Center" unique_id=1808922449]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 100.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.4, 0.35, 1)
+theme_override_font_sizes/font_size = 80
+text = "SPLAT!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="InfoLabel" type="Label" parent="GameScreens/GameOverScreen/Center" unique_id=1246896443]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 130.0
+offset_bottom = 220.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.85, 0.8, 0.8, 1)
+theme_override_font_sizes/font_size = 24
+text = "Gargoyle patladı!"
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="RestartButton" type="Button" parent="GameScreens/GameOverScreen/Center" unique_id=153129544]
+custom_minimum_size = Vector2(320, 72)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -160.0
+offset_top = -90.0
+offset_right = 160.0
+offset_bottom = -18.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 28
+text = "TEKRAR DENE"
+
+[node name="PauseScreen" type="Control" parent="GameScreens" unique_id=715423065]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BG" type="ColorRect" parent="GameScreens/PauseScreen" unique_id=715423066]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.06, 0.05, 0.1, 0.82)
+
+[node name="Center" type="Control" parent="GameScreens/PauseScreen" unique_id=715423067]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -180.0
+offset_right = 280.0
+offset_bottom = 180.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="GameScreens/PauseScreen/Center" unique_id=715423068]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 72.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.88, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 52
+text = "DURAKLATILDI"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HintLabel" type="Label" parent="GameScreens/PauseScreen/Center" unique_id=715423069]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 72.0
+offset_bottom = 108.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.65, 0.62, 0.72, 1)
+theme_override_font_sizes/font_size = 18
+text = "ESC — Devam Et"
+horizontal_alignment = 1
+
+[node name="ResumeButton" type="Button" parent="GameScreens/PauseScreen/Center" unique_id=715423070]
+custom_minimum_size = Vector2(320, 64)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -160.0
+offset_top = -20.0
+offset_right = 160.0
+offset_bottom = 44.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 26
+text = "DEVAM ET"
+
+[node name="MainMenuButton" type="Button" parent="GameScreens/PauseScreen/Center" unique_id=715423071]
+custom_minimum_size = Vector2(320, 64)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -160.0
+offset_top = 64.0
+offset_right = 160.0
+offset_bottom = 128.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 26
+text = "ANA MENÜ"

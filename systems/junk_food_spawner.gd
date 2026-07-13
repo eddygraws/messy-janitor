@@ -16,9 +16,7 @@ extends Node
 @export var stress_penalty: float = 20.0
 @export var stamina_reward: float = 32.0
 
-# Ekranın (1920x1080) güvenli spawn alanı; kenarlardan içeride.
-@export var area_min: Vector2 = Vector2(300, 240)
-@export var area_max: Vector2 = Vector2(1600, 840)
+# Junk food izometrik oda zemin/duvar alanında belirir.
 
 @export var emojis: Array[String] = ["🍟", "🥤", "🍔", "🍩", "🍫", "🍰", "🌭", "🍦", "🍕"]
 
@@ -86,10 +84,8 @@ func _spawn_one() -> void:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	junk.add_child(label)
 
-	junk.position = Vector2(
-		randf_range(area_min.x, area_max.x),
-		randf_range(area_min.y, area_max.y)
-	)
+	junk.position = RoomSpawnBounds.random_point([], 100.0, 16)
+	junk.z_index = RoomSpawnBounds.depth_z(junk.position.y)
 	_world.add_child(junk)
 
 

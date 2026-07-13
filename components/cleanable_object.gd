@@ -48,6 +48,7 @@ var _reveal_amount: float = 1.0   # gizli kir: imleç yakınlığına göre 0..1
 var _in_range: bool = false       # imleç şu an aydınlatma yarıçapında mı
 var _base_alpha: float = 1.0
 var _sprayed: bool = false
+var _grime_materials: Array[ShaderMaterial] = []
 
 
 func _ready() -> void:
@@ -60,6 +61,7 @@ func _ready() -> void:
 	else:
 		_reveal_amount = 1.0
 		_in_range = true
+	call_deferred("_setup_grime_shaders")
 
 
 func _process(delta: float) -> void:
@@ -193,18 +195,19 @@ func enable_hidden(radius: float = 150.0) -> void:
 # Commission: bu objeyi "yasak" işaretle (kırmızı halka + temizlenemez).
 func mark_forbidden() -> void:
 	is_forbidden = true
-	var ring := Polygon2D.new()
-	ring.color = Color(1.0, 0.25, 0.2, 0.5)
-	var hw := hitbox_size.x * 0.5 + 12.0
-	var hh := hitbox_size.y * 0.5 + 12.0
-	ring.polygon = PackedVector2Array([
-		Vector2(-hw, -hh), Vector2(hw, -hh), Vector2(hw, hh), Vector2(-hw, hh)])
+	var ring := Sprite2D.new()
+	ring.texture = GameAssets.get_forbidden_ring()
+	ring.centered = true
+	ring.scale = Vector2(
+		(hitbox_size.x + 24.0) / 128.0,
+		(hitbox_size.y + 24.0) / 128.0,
+	)
 	ring.z_index = -1
 	add_child(ring)
 	var warn := Label.new()
 	warn.text = "⛔"
 	warn.add_theme_font_size_override("font_size", 40)
-	warn.position = Vector2(-20, -hh - 44)
+	warn.position = Vector2(-20, -hitbox_size.y * 0.5 - 44)
 	add_child(warn)
 
 
@@ -250,6 +253,7 @@ func _finish_clean() -> void:
 
 	_is_clean = true
 	_scrub_progress = 1.0
+	_update_grime_dissolve(0.85)
 	modulate.a = 0.35
 	cleaned.emit()
 	_notify_room()
@@ -261,13 +265,41 @@ func _notify_room() -> void:
 		room_manager.check_room_cleared()
 
 
+func _setup_grime_shaders() -> void:
+	_grime_materials.clear()
+	for child in get_children():
+		if child is CanvasItem and child.z_index >= 0 and _is_grime_target(child):
+			_grime_materials.append(GrimeShaderHelper.apply_to_canvas_item(child as CanvasItem))
+	_update_grime_dissolve()
+
+
+func _is_grime_target(node: Node) -> bool:
+	if node is Sprite2D:
+		return node.get_meta(SpriteVisualHelper.GRIME_META, true)
+	if node is Polygon2D:
+		return true
+	return false
+
+
+func _update_grime_dissolve(pulse: float = 0.0) -> void:
+	for mat in _grime_materials:
+		GrimeShaderHelper.set_dissolve(mat, _scrub_progress, pulse)
+
+
 func _update_scrub_visual() -> void:
+	_update_grime_dissolve(0.15 if _scrub_progress > 0.05 else 0.0)
 	_refresh_alpha()
 
 
 # Alfayı hem temizlik ilerlemesine hem de (gizliyse) imleç aydınlatmasına göre ayarlar.
 func _refresh_alpha() -> void:
 	if _is_clean or _is_broken:
+		return
+	if not _grime_materials.is_empty():
+		if is_hidden:
+			modulate.a = _base_alpha * _reveal_amount
+		else:
+			modulate.a = _base_alpha
 		return
 	var base := lerpf(_base_alpha, 0.35, _scrub_progress)
 	if is_hidden:

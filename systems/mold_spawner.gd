@@ -12,9 +12,8 @@ extends Node
 @export var climax_spread_mult: float = 2.4
 @export var climax_extra_spread: int = 3
 
-# Merkezi güvenli alan (kirlerle aynı bant).
-@export var area_min: Vector2 = Vector2(520, 380)
-@export var area_max: Vector2 = Vector2(1400, 760)
+# İzometrik oda yüzeyleri (RoomSpawnBounds ile aynı).
+@export var spread_radius: Vector2 = Vector2(180, 150)
 
 @export var mold_color: Color = Color(0.4, 0.55, 0.3, 1.0)
 
@@ -86,24 +85,11 @@ func _on_spread(origin: Vector2) -> void:
 
 
 func _find_free_spot(origin: Vector2) -> Vector2:
-	# Aktif odanın objelerinin global konumu görünür bantta olduğundan
-	# (RoomManager kaydırma ofseti yerel ofseti sıfırlar) doğrudan clamp yeterli.
-	for _i in 12:
-		var offset := Vector2(randf_range(-220, 220), randf_range(-180, 180))
-		var world_pos := origin + offset
-		world_pos.x = clampf(world_pos.x, area_min.x, area_max.x)
-		world_pos.y = clampf(world_pos.y, area_min.y, area_max.y)
-		if _is_clear(world_pos):
-			return world_pos
-	return Vector2.INF
-
-
-func _is_clear(world_pos: Vector2) -> bool:
+	var placed: Array[Vector2] = []
 	for node in get_tree().get_nodes_in_group("Cleanable"):
 		if node is CleanableObject and not node.is_cleaned():
-			if node.global_position.distance_to(world_pos) < min_gap:
-				return false
-	return true
+			placed.append(node.global_position)
+	return RoomSpawnBounds.random_near(origin, spread_radius, placed, min_gap, 14)
 
 
 func _spawn_mold(room: Node2D, world_pos: Vector2) -> void:
@@ -114,19 +100,11 @@ func _spawn_mold(room: Node2D, world_pos: Vector2) -> void:
 	mold.hitbox_size = mold_hitbox
 	mold.modulate = mold_color
 
-	var visual := Polygon2D.new()
-	visual.color = Color(0.3, 0.42, 0.22, 0.9)
-	var hw := mold_hitbox.x * 0.5
-	var hh := mold_hitbox.y * 0.5
-	visual.polygon = PackedVector2Array([
-		Vector2(-hw, -hh * 0.7), Vector2(-hw * 0.3, -hh),
-		Vector2(hw * 0.6, -hh * 0.8), Vector2(hw, -hh * 0.1),
-		Vector2(hw * 0.5, hh), Vector2(-hw * 0.5, hh * 0.9),
-	])
-	mold.add_child(visual)
+	SpriteVisualHelper.add_dirt_sprite(mold, "mold", mold_color)
 
 	room.add_child(mold)
 	mold.global_position = world_pos
+	mold.z_index = RoomSpawnBounds.depth_z(world_pos.y)
 	mold.spread_triggered.connect(_on_spread)
 
 	# Doğuş animasyonu

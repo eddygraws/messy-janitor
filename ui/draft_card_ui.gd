@@ -56,10 +56,10 @@ func _build() -> void:
 	_panel.add_child(vb)
 
 	_title = Label.new()
-	_title.text = "🃏 GÜÇ KARTI SEÇ"
-	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title.add_theme_font_size_override("font_size", 36)
 	_title.add_theme_color_override("font_color", Color(0.92, 0.88, 1.0))
+	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_title.text = "🃏 GÜÇ KARTI SEÇ"
 	vb.add_child(_title)
 
 	_subtitle = Label.new()

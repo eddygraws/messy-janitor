@@ -33,6 +33,7 @@
 [ext_resource type="Script" uid="uid://d1x6urvqsdbdd" path="res://systems/run_modifier_director.gd" id="33_mods"]
 [ext_resource type="Script" uid="uid://wbhdio03m6n3" path="res://ui/draft_card_ui.gd" id="34_draft"]
 [ext_resource type="Script" uid="uid://dxtrowymkl4kg" path="res://ui/active_cards_strip.gd" id="35_strip"]
+[ext_resource type="Script" uid="uid://baf21yl1g0yx4" path="res://ui/post_process_director.gd" id="36_post"]
 
 [node name="Main" type="Node2D" unique_id=1997389448]
 script = ExtResource("1_main")
@@ -47,22 +48,13 @@ z_index = 5
 position = Vector2(1760, 900)
 script = ExtResource("17_bucket")
 
-[node name="Glow" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=1488056372]
+[node name="Glow" type="Sprite2D" parent="WorldLayer/MopBucket" unique_id=1488056372]
 modulate = Color(1, 0.75, 0.3, 0)
-color = Color(1, 0.7, 0.25, 0.55)
-polygon = PackedVector2Array(-98, -112, 98, -112, 98, 112, -98, 112)
 
-[node name="Body" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=1305986758]
-color = Color(0.32, 0.34, 0.4, 1)
-polygon = PackedVector2Array(-70, -60, 70, -60, 56, 92, -56, 92)
+[node name="Body" type="Sprite2D" parent="WorldLayer/MopBucket" unique_id=1305986758]
 
-[node name="Water" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=182454360]
-color = Color(0.35, 0.62, 0.9, 1)
-polygon = PackedVector2Array(-64, -60, 64, -60, 58, -34, -58, -34)
-
-[node name="Rim" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=774085406]
-color = Color(0.5, 0.53, 0.6, 1)
-polygon = PackedVector2Array(-72, -66, 72, -66, 70, -56, -70, -56)
+[node name="Water" type="Sprite2D" parent="WorldLayer/MopBucket" unique_id=182454360]
+position = Vector2(0, -18)
 
 [node name="Label" type="Label" parent="WorldLayer/MopBucket" unique_id=161769068]
 offset_left = -80.0
@@ -128,6 +120,9 @@ script = ExtResource("31_skill")
 [node name="RunModifierDirector" type="Node" parent="." unique_id=742815099]
 script = ExtResource("33_mods")
 
+[node name="PostProcessDirector" type="CanvasLayer" parent="." unique_id=742815100]
+script = ExtResource("36_post")
+
 [node name="MoldSpawner" type="Node" parent="." unique_id=1531069809]
 script = ExtResource("19_mold")
 child_spread_time = 3.5
@@ -136,18 +131,6 @@ mold_color = Color(0.83720696, 0.2759009, 0.23884636, 1)
 [node name="TiredCursor" type="Node2D" parent="." unique_id=1908703759 groups=["PlayerCursor"]]
 z_index = 10
 script = ExtResource("3_cursor")
-
-[node name="Sap" type="Polygon2D" parent="TiredCursor" unique_id=913641232]
-color = Color(0.55, 0.38, 0.2, 1)
-polygon = PackedVector2Array(2, -6, 8, -6, 42, -80, 34, -84)
-
-[node name="PaspasBasi" type="Polygon2D" parent="TiredCursor" unique_id=1652665526]
-color = Color(0.85, 0.82, 0.7, 1)
-polygon = PackedVector2Array(-24, -8, 24, -8, 16, 22, -16, 22)
-
-[node name="NisanNoktasi" type="Polygon2D" parent="TiredCursor" unique_id=697433721]
-color = Color(0.2, 0.9, 0.5, 0.5)
-polygon = PackedVector2Array(-3, -3, 3, -3, 3, 3, -3, 3)
 
 [node name="RoomManager" type="Node2D" parent="." unique_id=559059836 groups=["RoomManagerGroup"]]
 script = ExtResource("2_room")
@@ -239,7 +222,7 @@ text = "0%"
 [node name="MopChargeLabel" type="Label" parent="UI" unique_id=14691500]
 offset_left = 20.0
 offset_top = 92.0
-offset_right = 220.0
+offset_right = 320.0
 offset_bottom = 112.0
 theme_override_colors/font_color = Color(1, 0.7, 0.35, 1)
 theme_override_font_sizes/font_size = 14
@@ -256,10 +239,10 @@ show_percentage = false
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -200.0
+offset_left = -280.0
 offset_top = 20.0
 offset_right = -20.0
-offset_bottom = 43.0
+offset_bottom = 48.0
 grow_horizontal = 0
 theme_override_font_sizes/font_size = 20
 text = "Room 1 / 5"
@@ -269,10 +252,10 @@ horizontal_alignment = 2
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -200.0
+offset_left = -280.0
 offset_top = 48.0
 offset_right = -20.0
-offset_bottom = 78.0
+offset_bottom = 82.0
 grow_horizontal = 0
 theme_override_colors/font_color = Color(0.85, 0.9, 1, 1)
 theme_override_font_sizes/font_size = 26
@@ -286,7 +269,7 @@ anchor_right = 0.5
 offset_left = -300.0
 offset_top = 24.0
 offset_right = 300.0
-offset_bottom = 60.0
+offset_bottom = 64.0
 grow_horizontal = 2
 theme_override_font_sizes/font_size = 28
 text = "HEDEF: 0 / 3 kir temizlendi"
@@ -296,10 +279,10 @@ horizontal_alignment = 1
 anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
-offset_left = -220.0
+offset_left = -280.0
 offset_top = 120.0
-offset_right = 220.0
-offset_bottom = 172.0
+offset_right = 280.0
+offset_bottom = 180.0
 grow_horizontal = 2
 theme_override_colors/font_color = Color(1, 0.85, 0.3, 1)
 theme_override_font_sizes/font_size = 42

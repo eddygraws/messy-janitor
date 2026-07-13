@@ -8,6 +8,7 @@ signal unlocked_changed(count: int)
 enum Type { MOP, BROOM, BRUSH, SPRAY, TWEEZERS }
 
 const LABELS: Array[String] = ["Paspas", "Süpürge", "Fırça", "Sprey+Bez", "Cımbız"]
+## UI ikonları ve imleç sprite'ları: `systems/game_assets.gd` → `assets/tools/`
 const ICONS: Array[String] = ["🧹", "🧺", "🪥", "🧴", "🔬"]
 const COLORS: Array[Color] = [
 	Color(0.85, 0.82, 0.7),

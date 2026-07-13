@@ -2,7 +2,7 @@ class_name RoomFeedbackUI
 extends Control
 
 @onready var _panel: Control = $Panel
-@onready var _grade_label: Label = $Panel/GradeLabel
+var _grade_label: WavyLabel
 @onready var _score_label: Label = $Panel/ScoreLabel
 @onready var _subtitle_label: Label = $Panel/SubtitleLabel
 @onready var _flash: ColorRect = $Flash
@@ -13,12 +13,46 @@ func _ready() -> void:
 	_panel.modulate.a = 0.0
 	_panel.scale = Vector2(0.3, 0.3)
 	_flash.modulate.a = 0.0
+	_setup_wavy_grade_label()
+
+
+func _setup_wavy_grade_label() -> void:
+	var label := get_node_or_null("Panel/GradeLabel") as Label
+	if label == null:
+		return
+	var parent := label.get_parent()
+	var idx := label.get_index()
+	var w := WavyLabel.new()
+	w.name = "GradeLabel"
+	w.text = label.text
+	w.font_size = 72
+	w.font_color = label.get_theme_color("font_color")
+	w.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	w.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	w.wave_amplitude = 3.0
+	w.wave_speed = 2.4
+	w.enable_shimmer = true
+	w.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	w.layout_mode = label.layout_mode
+	w.anchor_left = label.anchor_left
+	w.anchor_top = label.anchor_top
+	w.anchor_right = label.anchor_right
+	w.anchor_bottom = label.anchor_bottom
+	w.offset_left = label.offset_left
+	w.offset_top = label.offset_top
+	w.offset_right = label.offset_right
+	w.offset_bottom = label.offset_bottom
+	w.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	parent.add_child(w)
+	parent.move_child(w, idx)
+	label.queue_free()
+	_grade_label = w
 
 
 func show_rating(result: Dictionary, is_level_complete: bool = false) -> void:
 	visible = true
 	_grade_label.text = "LEVEL CLEAR!" if is_level_complete else result.grade
-	_grade_label.modulate = result.grade_color if not is_level_complete else Color(1.0, 0.85, 0.3)
+	_grade_label.font_color = result.grade_color if not is_level_complete else Color(1.0, 0.85, 0.3)
 	_score_label.text = "%d PTS" % result.score
 	_subtitle_label.text = result.subtitle
 

@@ -6,6 +6,7 @@ signal level_selected(index: int)
 signal back_pressed
 signal restart_pressed
 signal pause_resume_pressed
+signal pause_main_menu_pressed
 signal pause_shown
 signal pause_hidden
 
@@ -18,7 +19,7 @@ signal pause_hidden
 @onready var _endless_button: Button = $StartScreen/Center/EndlessButton
 @onready var _restart_button: Button = $GameOverScreen/Center/RestartButton
 @onready var _over_info: Label = $GameOverScreen/Center/InfoLabel
-@onready var _over_title: Label = $GameOverScreen/Center/TitleLabel
+var _over_title: WavyLabel
 @onready var _records_label: Label = $StartScreen/Center/RecordsLabel
 @onready var _pause_screen: Control = $PauseScreen
 @onready var _pause_resume: Button = $PauseScreen/Center/ResumeButton
@@ -37,6 +38,7 @@ func _ready() -> void:
 	_level_screen.visible = false
 	_pause_screen.visible = false
 	show_start()
+	call_deferred("_setup_wavy_menu_titles")
 
 
 func set_records_text(text: String) -> void:
@@ -170,7 +172,10 @@ func show_game_over(title: String, info: String) -> void:
 	_start_screen.visible = false
 	_level_screen.visible = false
 	_pause_screen.visible = false
-	_over_title.text = title
+	if _over_title == null or not is_instance_valid(_over_title):
+		_over_title = _over_screen.get_node_or_null("Center/TitleLabel") as WavyLabel
+	if _over_title != null:
+		_over_title.text = title
 	_over_info.text = info
 
 	_over_screen.visible = true
@@ -194,3 +199,44 @@ func _pop_button(button: Button) -> void:
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(button, "scale", Vector2.ONE, 0.7)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _setup_wavy_menu_titles() -> void:
+	_swap_wavy(_start_screen.get_node_or_null("Center/TitleLabel"), 58, 3.2, true, false)
+	_swap_wavy(_start_screen.get_node_or_null("Center/SubtitleLabel"), 22, 1.2, true, false)
+	_swap_wavy(_level_screen.get_node_or_null("Center/TitleLabel"), 44, 2.0, true, false)
+	_over_title = _swap_wavy(_over_screen.get_node_or_null("Center/TitleLabel"), 72, 3.5, true, true)
+	_swap_wavy(_pause_screen.get_node_or_null("Center/TitleLabel"), 48, 2.2, true, false)
+
+
+func _swap_wavy(label: Label, font_size: int, amplitude: float, shimmer: bool, rainbow: bool) -> WavyLabel:
+	if label == null:
+		return null
+	var parent := label.get_parent()
+	var idx := label.get_index()
+	var w := WavyLabel.new()
+	w.name = label.name
+	w.text = label.text
+	w.font_size = font_size
+	w.font_color = label.get_theme_color("font_color") if label.has_theme_color_override("font_color") else Color(0.9, 0.88, 0.95)
+	w.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	w.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	w.wave_amplitude = amplitude
+	w.enable_shimmer = shimmer
+	w.enable_rainbow = rainbow
+	w.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	w.layout_mode = label.layout_mode
+	w.anchor_left = label.anchor_left
+	w.anchor_top = label.anchor_top
+	w.anchor_right = label.anchor_right
+	w.anchor_bottom = label.anchor_bottom
+	w.offset_left = label.offset_left
+	w.offset_top = label.offset_top
+	w.offset_right = label.offset_right
+	w.offset_bottom = label.offset_bottom
+	w.grow_horizontal = Control.GROW_DIRECTION_BOTH if label.anchor_right - label.anchor_left >= 0.99 else label.grow_horizontal
+	w.grow_vertical = label.grow_vertical
+	parent.add_child(w)
+	parent.move_child(w, idx)
+	label.queue_free()
+	return w

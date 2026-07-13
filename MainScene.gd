@@ -24,9 +24,12 @@ extends Node2D
 @onready var _time_label: Label = $UI/TimeLabel
 @onready var _skill_check: MopSkillCheckDirector = $MopSkillCheckDirector
 @onready var _run_modifiers: RunModifierDirector = $RunModifierDirector
+@onready var _post_process: PostProcessDirector = $PostProcessDirector
+@onready var _bucket_glow: Sprite2D = $WorldLayer/MopBucket/Glow
 
 var _timer_started: bool = false
 var _game_over_pending: bool = false
+var _bucket_glow_mat: ShaderMaterial
 
 
 func _ready() -> void:
@@ -42,8 +45,6 @@ func _ready() -> void:
 	_combo.combo_changed.connect(_on_combo_changed)
 	_combo.combo_milestone.connect(_on_combo_milestone)
 	_on_combo_changed(0)
-	_equipment.equipment_changed.connect(_on_equipment_changed)
-	_on_equipment_changed(_equipment.get_current())
 	_tempo.climax_entered.connect(_on_climax_entered)
 	_tempo.climax_exited.connect(_on_climax_exited)
 	_risk.risk_changed.connect(_on_risk_changed)
@@ -76,6 +77,15 @@ func _ready() -> void:
 
 	# Başlangıç ekranı açıkken oyunu duraklat ve donanım imlecini göster.
 	_enter_menu_state()
+	_setup_bucket_glow_shader()
+
+
+func _setup_bucket_glow_shader() -> void:
+	if _bucket_glow == null:
+		return
+	_bucket_glow_mat = ShaderMaterial.new()
+	_bucket_glow_mat.shader = load("res://shaders/ui_glow.gdshader")
+	_bucket_glow_mat.set_shader_parameter("intensity", 0.0)
 
 
 func _enter_menu_state() -> void:
@@ -83,6 +93,8 @@ func _enter_menu_state() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _cursor:
 		_cursor.visible = false
+	if _post_process:
+		_post_process.set_menu_open(true)
 
 
 func _enter_playing_state() -> void:
@@ -90,6 +102,8 @@ func _enter_playing_state() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	if _cursor:
 		_cursor.visible = true
+	if _post_process:
+		_post_process.set_menu_open(false)
 	if _run_timer != null and _timer_started and not _game_over_pending:
 		_run_timer.resume_after_menu()
 
@@ -302,12 +316,18 @@ func _on_mop_overheated() -> void:
 	if _mop_charge_label:
 		_mop_charge_label.text = "PASPAS KİRLİ! → KOVADA DURULA"
 		_mop_charge_label.modulate = Color(1.0, 0.4, 0.35)
+	if _bucket_glow_mat != null and _bucket_glow != null:
+		_bucket_glow_mat.set_shader_parameter("intensity", 1.1)
+		_bucket_glow_mat.set_shader_parameter("glow_color", Color(1.0, 0.65, 0.2))
+		_bucket_glow.material = _bucket_glow_mat
 
 
 func _on_mop_rinsed() -> void:
 	if _mop_charge_label:
 		_mop_charge_label.text = "PASPAS KİRİ"
 		_mop_charge_label.modulate = Color(1.0, 0.7, 0.35)
+	if _bucket_glow != null:
+		_bucket_glow.material = null
 
 
 func _on_combo_changed(combo: int) -> void:
@@ -370,14 +390,6 @@ func _on_risk_changed(active: bool) -> void:
 	else:
 		_risk_label.text = "⚡ Riskli Temizlik: R"
 		_risk_label.modulate = Color(0.7, 0.7, 0.72, 0.55)
-
-
-func _on_equipment_changed(type: int) -> void:
-	# İmleci aktif ekipmanın rengiyle boya (görsel ipucu).
-	if _cursor and type >= 0 and type < EquipmentComponent.COLORS.size():
-		var col: Color = EquipmentComponent.COLORS[type]
-		var tween := create_tween()
-		tween.tween_property(_cursor, "modulate", col, 0.12)
 
 
 func _on_room_transition_finished() -> void:

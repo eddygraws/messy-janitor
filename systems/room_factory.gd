@@ -6,11 +6,9 @@ extends RefCounted
 
 const DRAG_SCRIPT := preload("res://components/draggable_cleanable.gd")
 
-const AREA_MIN := Vector2(520, 360)
-const AREA_MAX := Vector2(1400, 760)
-const MIN_DIST := 165.0
+const MIN_DIST := RoomSpawnBounds.MIN_DIST
 
-const DEFAULT_BG := Color(0.16, 0.18, 0.24)
+const DEFAULT_BG := Color(0.58, 0.64, 0.62)
 
 
 # spec: {
@@ -23,10 +21,8 @@ static func build_room(spec: Dictionary, index: int) -> Node2D:
 	room.name = String(spec.get("name", "Room_%d" % index))
 	room.add_to_group("Room")
 
-	var bg := Polygon2D.new()
-	bg.color = spec.get("bg", DEFAULT_BG)
-	bg.polygon = PackedVector2Array([Vector2(0, 0), Vector2(1920, 0), Vector2(1920, 1080), Vector2(0, 1080)])
-	room.add_child(bg)
+	var bg_color: Color = spec.get("bg", DEFAULT_BG)
+	RoomSpawnBounds.add_isometric_shell(room, bg_color)
 
 	var label_text := String(spec.get("label", ""))
 	if label_text != "":
@@ -57,16 +53,18 @@ static func build_room(spec: Dictionary, index: int) -> Node2D:
 		for _i in count:
 			var pos: Vector2 = fixed_pos if fixed_pos != null else free_pos(placed)
 			placed.append(pos)
-			room.add_child(make_dirt(type, pos))
+			var dirt := make_dirt(type, pos)
+			dirt.z_index = RoomSpawnBounds.depth_z(pos.y)
+			room.add_child(dirt)
 			if type == "broom":
 				need_trashbin = true
 			elif type == "slime":
 				need_drain = true
 
 	if need_trashbin:
-		room.add_child(make_zone(&"TrashBin", Vector2(1620, 880), "ÇÖP KOVASI"))
+		room.add_child(make_zone(&"TrashBin", RoomSpawnBounds.TRASH_POS, "ÇÖP KOVASI"))
 	if need_drain:
-		room.add_child(make_zone(&"Drain", Vector2(320, 880), "GİDER"))
+		room.add_child(make_zone(&"Drain", RoomSpawnBounds.DRAIN_POS, "GİDER"))
 
 	room.set_meta("tutorial", String(spec.get("tutorial", "")))
 	room.set_meta("commission", spec.get("commission", {}))
@@ -74,39 +72,28 @@ static func build_room(spec: Dictionary, index: int) -> Node2D:
 
 
 static func free_pos(placed: Array[Vector2]) -> Vector2:
-	for _try in 24:
-		var p := Vector2(randf_range(AREA_MIN.x, AREA_MAX.x), randf_range(AREA_MIN.y, AREA_MAX.y))
-		var ok := true
-		for q in placed:
-			if p.distance_to(q) < MIN_DIST:
-				ok = false
-				break
-		if ok:
-			return p
-	return Vector2(randf_range(AREA_MIN.x, AREA_MAX.x), randf_range(AREA_MIN.y, AREA_MAX.y))
+	return RoomSpawnBounds.random_point(placed, MIN_DIST)
 
 
 static func make_dirt(type: String, pos: Vector2) -> Node2D:
 	match type:
-		"stain":  # tek tıkla temizlenen basit leke (paspas)
+		"stain":
 			var cl := CleanableObject.new()
 			cl.hitbox_size = Vector2(84, 84)
 			cl.required_equipment = 0
 			cl.modulate = Color(0.5, 0.4, 0.32)
 			cl.position = pos
-			_add_visual(cl, Color(0.4, 0.32, 0.24), PackedVector2Array([
-				Vector2(-34, -30), Vector2(30, -34), Vector2(38, 26), Vector2(-30, 34)]))
+			_add_dirt_visual(cl, "stain")
 			return cl
-		"scrub":  # ovalayarak temizlenen leke (paspas)
+		"scrub":
 			var st := CleanableObject.new()
 			st.hitbox_size = Vector2(126, 92)
 			st.requires_scrub = true
 			st.modulate = Color(0.6, 0.45, 0.35)
 			st.position = pos
-			_add_visual(st, Color(0.45, 0.3, 0.2, 0.9), PackedVector2Array([
-				Vector2(-58, -38), Vector2(58, -32), Vector2(50, 42), Vector2(-52, 36)]))
+			_add_dirt_visual(st, "scrub")
 			return st
-		"hidden":  # gizli kir (imleç aydınlatır) — paspas ovalama
+		"hidden":
 			var hd := CleanableObject.new()
 			hd.hitbox_size = Vector2(120, 90)
 			hd.requires_scrub = true
@@ -114,64 +101,56 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			hd.reveal_radius = 150.0
 			hd.modulate = Color(0.7, 0.5, 0.75)
 			hd.position = pos
-			_add_visual(hd, Color(0.5, 0.35, 0.6, 0.85), PackedVector2Array([
-				Vector2(-54, -40), Vector2(54, -34), Vector2(46, 42), Vector2(-50, 38)]))
+			_add_dirt_visual(hd, "hidden")
 			return hd
-		"slime":  # paspasla gidere it (draggable, equipment 0)
+		"slime":
 			var sl: Node2D = DRAG_SCRIPT.new()
 			sl.set("hitbox_size", Vector2(82, 82))
 			sl.set("required_equipment", 0)
 			sl.set("target_group", &"Drain")
 			sl.modulate = Color(0.45, 0.85, 0.55)
 			sl.position = pos
-			_add_visual(sl, Color(0.35, 0.7, 0.42), PackedVector2Array([
-				Vector2(-30, -18), Vector2(-8, -28), Vector2(20, -18),
-				Vector2(30, 10), Vector2(6, 28), Vector2(-26, 18)]))
+			_add_dirt_visual(sl, "slime")
 			return sl
-		"broom":  # süpürgeyle çöp kovasına it (draggable, equipment 1)
+		"broom":
 			var b: Node2D = DRAG_SCRIPT.new()
 			b.set("hitbox_size", Vector2(76, 76))
 			b.set("required_equipment", 1)
 			b.set("target_group", &"TrashBin")
 			b.modulate = Color(0.72, 0.6, 0.42)
 			b.position = pos
-			_add_visual(b, Color(0.6, 0.48, 0.3), PackedVector2Array([
-				Vector2(-22, -14), Vector2(-6, -22), Vector2(14, -10),
-				Vector2(24, 10), Vector2(4, 22), Vector2(-18, 14)]))
+			_add_dirt_visual(b, "broom")
 			return b
-		"brush":  # fırçayla hızlı tıkla (equipment 2)
+		"brush":
 			var br := CleanableObject.new()
 			br.hitbox_size = Vector2(110, 96)
 			br.required_equipment = 2
 			br.mash_per_hit = 0.2
 			br.modulate = Color(0.42, 0.4, 0.36)
 			br.position = pos
-			_add_visual(br, Color(0.3, 0.28, 0.24), PackedVector2Array([
-				Vector2(-50, -42), Vector2(-8, -48), Vector2(44, -38),
-				Vector2(50, 2), Vector2(38, 46), Vector2(-20, 44), Vector2(-48, 12)]))
+			_add_dirt_visual(br, "brush")
 			return br
-		"spray":  # sprey sık, sonra ovala (equipment 3)
+		"spray":
 			var sp := CleanableObject.new()
 			sp.hitbox_size = Vector2(140, 118)
 			sp.requires_scrub = true
 			sp.required_equipment = 3
 			sp.modulate = Color(0.7, 0.85, 0.95)
 			sp.position = pos
-			_add_visual(sp, Color(0.55, 0.75, 0.9, 0.5), PackedVector2Array([
-				Vector2(-64, -54), Vector2(64, -54), Vector2(64, 54), Vector2(-64, 54)]))
-			_add_visual(sp, Color(0.75, 0.8, 0.7, 0.4), PackedVector2Array([
-				Vector2(-40, -30), Vector2(20, -36), Vector2(44, 10), Vector2(10, 38), Vector2(-34, 28)]))
+			_add_dirt_visual(sp, "spray", Color(0.55, 0.75, 0.9, 0.85))
+			var overlay := SpriteVisualHelper.make_sprite(
+				GameAssets.get_dirt_texture("scrub"), Color(0.75, 0.8, 0.7, 0.55), 0.72)
+			sp.add_child(overlay)
 			return sp
-		"tweezers":  # cımbızla tek hassas tıkla (equipment 4)
+		"tweezers":
 			var tw := CleanableObject.new()
 			tw.hitbox_size = Vector2(54, 54)
 			tw.required_equipment = 4
 			tw.modulate = Color(0.9, 0.95, 1.0)
 			tw.position = pos
-			_add_visual(tw, Color(0.85, 0.92, 1.0, 0.9), PackedVector2Array([
-				Vector2(-22, -8), Vector2(6, -24), Vector2(18, 4), Vector2(2, 22), Vector2(-14, 14)]))
+			_add_dirt_visual(tw, "tweezers")
 			return tw
-		"fragile":  # kırılgan — sert ovalama kırar (paspas)
+		"fragile":
 			var fr := CleanableObject.new()
 			fr.hitbox_size = Vector2(84, 120)
 			fr.requires_scrub = true
@@ -179,11 +158,9 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			fr.fragile_threshold = 30.0
 			fr.modulate = Color(0.55, 0.7, 0.95)
 			fr.position = pos
-			_add_visual(fr, Color(0.4, 0.55, 0.85, 0.95), PackedVector2Array([
-				Vector2(-26, -60), Vector2(26, -60), Vector2(18, 0),
-				Vector2(32, 42), Vector2(-32, 42), Vector2(-18, 0)]))
+			_add_dirt_visual(fr, "fragile")
 			return fr
-		"mold":  # yayılan küf (paspas ovala) — hızlı ol
+		"mold":
 			var mo := CleanableObject.new()
 			mo.hitbox_size = Vector2(118, 84)
 			mo.requires_scrub = true
@@ -191,9 +168,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			mo.spread_time = 6.0
 			mo.modulate = Color(0.4, 0.55, 0.3)
 			mo.position = pos
-			_add_visual(mo, Color(0.3, 0.42, 0.22, 0.9), PackedVector2Array([
-				Vector2(-58, -36), Vector2(-12, -44), Vector2(40, -34),
-				Vector2(60, 6), Vector2(36, 44), Vector2(-36, 40)]))
+			_add_dirt_visual(mo, "mold")
 			return mo
 		_:
 			return make_dirt("scrub", pos)
@@ -204,17 +179,8 @@ static func make_zone(group: StringName, pos: Vector2, text: String) -> Node2D:
 	zone.zone_group = group
 	zone.hitbox_size = Vector2(180, 170)
 	zone.position = pos
-
-	var body := Polygon2D.new()
-	body.color = Color(0.28, 0.3, 0.34) if group == &"TrashBin" else Color(0.09, 0.09, 0.12)
-	body.polygon = PackedVector2Array([Vector2(-70, -60), Vector2(70, -60), Vector2(58, 80), Vector2(-58, 80)])
-	zone.add_child(body)
-
-	var rim := Polygon2D.new()
-	rim.color = Color(0.42, 0.44, 0.5)
-	rim.polygon = PackedVector2Array([Vector2(-82, -74), Vector2(82, -74), Vector2(82, -58), Vector2(-82, -58)])
-	zone.add_child(rim)
-
+	zone.z_index = RoomSpawnBounds.depth_z(pos.y)
+	SpriteVisualHelper.add_zone_sprite(zone, group)
 	var label := Label.new()
 	label.modulate = Color(1, 1, 1, 0.45)
 	label.position = Vector2(-90, 86)
@@ -226,8 +192,5 @@ static func make_zone(group: StringName, pos: Vector2, text: String) -> Node2D:
 	return zone
 
 
-static func _add_visual(parent: Node2D, color: Color, poly: PackedVector2Array) -> void:
-	var v := Polygon2D.new()
-	v.color = color
-	v.polygon = poly
-	parent.add_child(v)
+static func _add_dirt_visual(parent: Node2D, dirt_type: String, tint: Color = Color.WHITE) -> void:
+	SpriteVisualHelper.add_dirt_sprite(parent, dirt_type, tint)
