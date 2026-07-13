@@ -58,8 +58,8 @@ func _ready() -> void:
 	_tempo = get_node_or_null(tempo_path) as TempoDirector
 	_commission = get_node_or_null(commission_path) as CommissionDirector
 
-	# Artık odalar seviye sahnelerinden (Adventure) veya EndlessGenerator'dan
-	# gelir. Sahneye elle konmuş eski odaları temizle.
+	# Güvenlik: RoomManager altına yanlışlıkla eklenmiş "Room" çocuklarını temizle.
+	# Odalar seviye sahnelerinden (Adventure) veya EndlessGenerator'dan gelir.
 	for child in get_children():
 		if child is Node2D and child.is_in_group("Room"):
 			child.queue_free()
