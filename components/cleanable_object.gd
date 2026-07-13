@@ -208,26 +208,25 @@ func mark_forbidden() -> void:
 	add_child(warn)
 
 
-func _check_reveal() -> void:
+# El feneri: imleç yakınlığına göre görünürlük. Uzaklaşınca tekrar kaybolur.
+func _update_reveal(delta: float) -> void:
+	var target := 0.0
 	var cursor := get_tree().get_first_node_in_group("PlayerCursor")
-	if cursor == null or not (cursor is Node2D):
-		return
-	if global_position.distance_to((cursor as Node2D).global_position) <= reveal_radius:
-		_reveal()
+	if cursor is Node2D:
+		var dist := global_position.distance_to((cursor as Node2D).global_position)
+		if dist <= reveal_radius:
+			# Merkeze yakınken parlak, kenarda sönük (torch gradyanı).
+			target = clampf(1.0 - dist / reveal_radius, 0.0, 1.0)
 
+	var was_in_range := _in_range
+	_in_range = target > 0.02
 
-func _reveal() -> void:
-	if _revealed:
-		return
-	_revealed = true
-	revealed.emit()
-	var tween := create_tween()
-	tween.tween_property(self, "modulate:a", _base_alpha, 0.25)\
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	scale = Vector2(1.25, 1.25)
-	var pop := create_tween()
-	pop.tween_property(self, "scale", Vector2.ONE, 0.2)\
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# İlk kez aydınlanınca dinleyicilere haber ver.
+	if _in_range and not was_in_range:
+		revealed.emit()
+
+	_reveal_amount = lerpf(_reveal_amount, target, clampf(delta * 12.0, 0.0, 1.0))
+	_refresh_alpha()
 
 
 func _break() -> void:
@@ -263,4 +262,15 @@ func _notify_room() -> void:
 
 
 func _update_scrub_visual() -> void:
-	modulate.a = lerpf(_base_alpha, 0.35, _scrub_progress)
+	_refresh_alpha()
+
+
+# Alfayı hem temizlik ilerlemesine hem de (gizliyse) imleç aydınlatmasına göre ayarlar.
+func _refresh_alpha() -> void:
+	if _is_clean or _is_broken:
+		return
+	var base := lerpf(_base_alpha, 0.35, _scrub_progress)
+	if is_hidden:
+		modulate.a = base * _reveal_amount
+	else:
+		modulate.a = base
