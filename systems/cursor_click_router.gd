@@ -11,6 +11,7 @@ signal object_cleaned(position: Vector2)
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var mop_path: NodePath = ^"../MopComponent"
 @export var room_manager_path: NodePath = ^"../RoomManager"
+@export var panic_hitbox_scale: float = 0.68   # panikte hitbox daralır (yanlış tıklama artar)
 
 var _cursor: Node2D
 var _stamina: StaminaComponent
@@ -22,6 +23,8 @@ var _room_manager: Node
 var _is_scrubbing: bool = false
 var _scrubbing_active: bool = false
 var _reloading: bool = false
+var _dragging: DraggableCleanable = null
+var _hitbox_scale: float = 1.0
 var _last_click_pos: Vector2 = Vector2.ZERO
 var _last_mouse_screen: Vector2 = Vector2.ZERO
 
@@ -33,6 +36,9 @@ func _ready() -> void:
 	_mop = get_node_or_null(mop_path) as MopComponent
 	_room_manager = get_node_or_null(room_manager_path)
 	_last_mouse_screen = get_viewport().get_mouse_position()
+	if _stress != null:
+		_stress.panic_mode_entered.connect(_on_panic_entered)
+		_stress.panic_mode_exited.connect(_on_panic_exited)
 
 
 func _can_interact() -> bool:
@@ -49,7 +55,6 @@ func get_last_click_pos() -> Vector2:
 	return _last_click_pos
 
 
-# İmlecin (paspasın) drift eden gerçek konumu nişan noktasıdır.
 func _get_aim_pos() -> Vector2:
 	if _cursor != null:
 		return _cursor.global_position
@@ -69,6 +74,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			_is_scrubbing = false
 			_reloading = false
+			_dragging = null
 
 
 func _process(delta: float) -> void:
@@ -80,11 +86,12 @@ func _process(delta: float) -> void:
 		_is_scrubbing = false
 		_scrubbing_active = false
 		_reloading = false
+		_dragging = null
 		return
 
 	var aim := _get_aim_pos()
 
-	# 1) Kovada durulama (basılı tut)
+	# 1) Kovada durulama
 	if _reloading:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _is_over_bucket(aim):
 			if _mop != null:
@@ -94,7 +101,21 @@ func _process(delta: float) -> void:
 			_reloading = false
 		return
 
-	# 2) Ovalama (rubbing) ile temizlik
+	# 2) Kayan leke sürükleme
+	if _dragging != null:
+		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and is_instance_valid(_dragging) and not _dragging.is_cleaned():
+			_dragging.drag_toward(aim, delta)
+			scrub_tick.emit(_dragging.global_position)
+			if _dragging.is_over_drain():
+				var drop := _dragging.global_position
+				_dragging.deliver_to_drain()
+				object_cleaned.emit(drop)
+				_dragging = null
+		else:
+			_dragging = null
+		return
+
+	# 3) Ovalama ile temizlik
 	if not _is_scrubbing or not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_scrubbing_active = false
 		return
@@ -106,7 +127,7 @@ func _process(delta: float) -> void:
 	for obj in _query_cleanables(aim):
 		if obj.requires_scrub:
 			over_stain = true
-			if obj.scrub_rub(aim, motion, effectiveness):
+			if obj.scrub_rub(aim, motion, effectiveness) and not obj.is_broken():
 				object_cleaned.emit(aim)
 
 	_scrubbing_active = over_stain and effort > 1.5
@@ -118,9 +139,15 @@ func _process(delta: float) -> void:
 
 
 func _handle_press(pos: Vector2) -> void:
-	# Önce kova: durulama moduna gir (hata sayılmaz)
+	# Kova: durulama moduna gir
 	if _is_over_bucket(pos):
 		_reloading = true
+		return
+
+	# Kayan leke: sürükleme moduna gir
+	var drag := _query_draggable(pos)
+	if drag != null:
+		_dragging = drag
 		return
 
 	# Junk food (cazibe)
@@ -150,9 +177,10 @@ func _handle_press(pos: Vector2) -> void:
 
 func _apply_junk_food_effect(junk: JunkFoodObject) -> void:
 	junk.trigger_temptation()
-	# Ödül: stamina geri gelir. Tuzak: stres artar + combo kırılır.
+	# Ödül: stamina hemen gelir. Tuzak: hemen küçük stres + gecikmeli "sugar crash".
 	_stamina.restore(junk.stamina_reward)
-	_stress.add_stress(junk.stress_penalty)
+	_stress.add_stress(junk.stress_penalty * 0.4)
+	_stress.add_delayed_stress(junk.stress_penalty * 0.85, junk.crash_delay)
 	junk_food_tempted.emit(junk.global_position)
 
 
@@ -161,6 +189,14 @@ func _is_over_bucket(pos: Vector2) -> bool:
 	if bucket == null or not bucket.has_method("get_hitbox"):
 		return false
 	return bucket.get_hitbox().has_point(pos)
+
+
+func _query_draggable(pos: Vector2) -> DraggableCleanable:
+	for node in get_tree().get_nodes_in_group("Draggable"):
+		if node is DraggableCleanable and not node.is_cleaned() and node.is_revealed():
+			if node.get_hitbox().has_point(pos):
+				return node
+	return null
 
 
 func _query_junk_food(pos: Vector2) -> Array[JunkFoodObject]:
@@ -174,9 +210,29 @@ func _query_junk_food(pos: Vector2) -> Array[JunkFoodObject]:
 func _query_cleanables(pos: Vector2) -> Array[CleanableObject]:
 	var results: Array[CleanableObject] = []
 	for node in get_tree().get_nodes_in_group("Cleanable"):
-		if node is CleanableObject and not node.is_cleaned() and node.get_hitbox().has_point(pos):
-			results.append(node)
+		if node is DraggableCleanable:
+			continue
+		if node is CleanableObject and not node.is_cleaned() and node.is_revealed():
+			if _scaled_hitbox(node.get_hitbox()).has_point(pos):
+				results.append(node)
 	return results
+
+
+# Panikte hitbox merkeze doğru daralır -> isabet zorlaşır.
+func _scaled_hitbox(rect: Rect2) -> Rect2:
+	if _hitbox_scale >= 0.999:
+		return rect
+	var center := rect.get_center()
+	var size := rect.size * _hitbox_scale
+	return Rect2(center - size * 0.5, size)
+
+
+func _on_panic_entered() -> void:
+	_hitbox_scale = panic_hitbox_scale
+
+
+func _on_panic_exited() -> void:
+	_hitbox_scale = 1.0
 
 
 func _get_world_mouse_pos() -> Vector2:

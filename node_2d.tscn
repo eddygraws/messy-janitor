@@ -16,6 +16,10 @@
 [ext_resource type="Script" uid="uid://c5xc8vshn1ycn" path="res://systems/junk_food_spawner.gd" id="15_spawner"]
 [ext_resource type="Script" uid="uid://bpnwsf77v84wd" path="res://systems/mop_component.gd" id="16_mop"]
 [ext_resource type="Script" uid="uid://dxvy8ub7u48fk" path="res://components/mop_bucket.gd" id="17_bucket"]
+[ext_resource type="Script" uid="uid://e3v5brs5cda5" path="res://systems/combo_component.gd" id="18_combo"]
+[ext_resource type="Script" uid="uid://b32r4gxbk6afa" path="res://systems/mold_spawner.gd" id="19_mold"]
+[ext_resource type="Script" uid="uid://bx1bojb01oseu" path="res://components/draggable_cleanable.gd" id="20_drag"]
+[ext_resource type="Script" uid="uid://d4jrq4r7le4yx" path="res://components/drain_zone.gd" id="21_drain"]
 
 [node name="Main" type="Node2D" unique_id=1997389448]
 script = ExtResource("1_main")
@@ -84,7 +88,13 @@ script = ExtResource("15_spawner")
 [node name="MopComponent" type="Node" parent="." unique_id=974748242]
 script = ExtResource("16_mop")
 
-[node name="TiredCursor" type="Node2D" parent="." unique_id=1908703759]
+[node name="ComboComponent" type="Node" parent="." unique_id=742815091]
+script = ExtResource("18_combo")
+
+[node name="MoldSpawner" type="Node" parent="." unique_id=1531069809]
+script = ExtResource("19_mold")
+
+[node name="TiredCursor" type="Node2D" parent="." unique_id=1908703759 groups=["PlayerCursor"]]
 z_index = 10
 script = ExtResource("3_cursor")
 
@@ -199,15 +209,18 @@ requires_scrub = true
 color = Color(0.45, 0.3, 0.2, 0.9)
 polygon = PackedVector2Array(-60, -45, 60, -40, 52, 48, -54, 44)
 
-[node name="Cop2" type="Node2D" parent="RoomManager/Oda_2" unique_id=305126789]
-modulate = Color(0.5, 0.55, 0.4, 1)
-position = Vector2(1320, 700)
+[node name="Vazo" type="Node2D" parent="RoomManager/Oda_2" unique_id=305126789]
+modulate = Color(0.55, 0.7, 0.95, 1)
+position = Vector2(1320, 680)
 script = ExtResource("7_cleanable")
-hitbox_size = Vector2(64, 64)
+hitbox_size = Vector2(84, 130)
+requires_scrub = true
+is_fragile = true
+fragile_threshold = 30.0
 
-[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Cop2" unique_id=1325028334]
-color = Color(0.35, 0.4, 0.25, 1)
-polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Vazo" unique_id=1325028334]
+color = Color(0.4, 0.55, 0.85, 0.95)
+polygon = PackedVector2Array(-26, -62, 26, -62, 18, 0, 32, 42, -32, 42, -18, 0)
 
 [node name="Oda_3" type="Node2D" parent="RoomManager" unique_id=401299010 groups=["Room"]]
 
@@ -235,16 +248,18 @@ hitbox_size = Vector2(70, 70)
 color = Color(0.35, 0.4, 0.25, 1)
 polygon = PackedVector2Array(-26, -26, 26, -24, 22, 26, -22, 24)
 
-[node name="Leke" type="Node2D" parent="RoomManager/Oda_3" unique_id=1904475081]
-modulate = Color(0.6, 0.45, 0.35, 1)
+[node name="Kuf" type="Node2D" parent="RoomManager/Oda_3" unique_id=1904475081]
+modulate = Color(0.4, 0.55, 0.3, 1)
 position = Vector2(1050, 400)
 script = ExtResource("7_cleanable")
-hitbox_size = Vector2(140, 90)
+hitbox_size = Vector2(120, 85)
 requires_scrub = true
+spreads = true
+spread_time = 5.0
 
-[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Leke" unique_id=489554974]
-color = Color(0.45, 0.3, 0.2, 0.9)
-polygon = PackedVector2Array(-64, -38, 64, -32, 56, 42, -58, 36)
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Kuf" unique_id=489554974]
+color = Color(0.3, 0.42, 0.22, 0.9)
+polygon = PackedVector2Array(-58, -36, -12, -44, 40, -34, 60, 6, 36, 44, -36, 40)
 
 [node name="Cop2" type="Node2D" parent="RoomManager/Oda_3" unique_id=384106106]
 modulate = Color(0.5, 0.55, 0.4, 1)
@@ -325,15 +340,18 @@ hitbox_size = Vector2(64, 64)
 color = Color(0.35, 0.4, 0.25, 1)
 polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
 
-[node name="Cop3" type="Node2D" parent="RoomManager/Oda_4" unique_id=353657258]
-modulate = Color(0.5, 0.55, 0.4, 1)
-position = Vector2(700, 720)
+[node name="GizliKir" type="Node2D" parent="RoomManager/Oda_4" unique_id=353657258]
+modulate = Color(0.7, 0.5, 0.75, 1)
+position = Vector2(700, 700)
 script = ExtResource("7_cleanable")
-hitbox_size = Vector2(64, 64)
+hitbox_size = Vector2(120, 90)
+requires_scrub = true
+hidden = true
+reveal_radius = 150.0
 
-[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Cop3" unique_id=455000187]
-color = Color(0.35, 0.4, 0.25, 1)
-polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/GizliKir" unique_id=455000187]
+color = Color(0.5, 0.35, 0.6, 0.85)
+polygon = PackedVector2Array(-54, -40, 54, -34, 46, 42, -50, 38)
 
 [node name="Oda_5" type="Node2D" parent="RoomManager" unique_id=1262133606 groups=["Room"]]
 
@@ -393,16 +411,38 @@ hitbox_size = Vector2(64, 64)
 color = Color(0.35, 0.4, 0.25, 1)
 polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
 
-[node name="Leke3" type="Node2D" parent="RoomManager/Oda_5" unique_id=312789731]
-modulate = Color(0.6, 0.45, 0.35, 1)
-position = Vector2(760, 700)
-script = ExtResource("7_cleanable")
-hitbox_size = Vector2(110, 80)
-requires_scrub = true
+[node name="Slime" type="Node2D" parent="RoomManager/Oda_5" unique_id=312789731 groups=["Draggable"]]
+modulate = Color(0.5, 0.9, 0.55, 1)
+position = Vector2(760, 560)
+script = ExtResource("20_drag")
+hitbox_size = Vector2(96, 84)
 
-[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Leke3" unique_id=2052777723]
-color = Color(0.45, 0.3, 0.2, 0.9)
-polygon = PackedVector2Array(-50, -34, 50, -28, 44, 38, -46, 32)
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Slime" unique_id=2052777723]
+color = Color(0.45, 0.85, 0.5, 0.9)
+polygon = PackedVector2Array(-44, -28, 0, -40, 46, -24, 40, 32, 0, 42, -42, 30)
+
+[node name="Drain" type="Node2D" parent="RoomManager/Oda_5" unique_id=1644510813 groups=["Drain"]]
+position = Vector2(760, 870)
+script = ExtResource("21_drain")
+hitbox_size = Vector2(160, 140)
+
+[node name="DrainVisual" type="Polygon2D" parent="RoomManager/Oda_5/Drain" unique_id=2047909024]
+color = Color(0.09, 0.09, 0.12, 1)
+polygon = PackedVector2Array(-74, -60, 74, -60, 74, 60, -74, 60)
+
+[node name="DrainRim" type="Polygon2D" parent="RoomManager/Oda_5/Drain" unique_id=1224571495]
+color = Color(0.32, 0.34, 0.4, 1)
+polygon = PackedVector2Array(-74, -60, 74, -60, 74, -50, -74, -50)
+
+[node name="DrainLabel" type="Label" parent="RoomManager/Oda_5/Drain" unique_id=700308326]
+modulate = Color(1, 1, 1, 0.4)
+offset_left = -80.0
+offset_top = 66.0
+offset_right = 80.0
+offset_bottom = 92.0
+theme_override_font_sizes/font_size = 18
+text = "GİDER"
+horizontal_alignment = 1
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=531795412]
 

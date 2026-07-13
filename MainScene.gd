@@ -14,7 +14,7 @@ extends Node2D
 @onready var _mop_charge_bar: ProgressBar = $UI/MopChargeBar
 @onready var _mop_charge_label: Label = $UI/MopChargeLabel
 @onready var _combo_label: Label = $UI/ComboLabel
-@onready var _score_tracker: RoomScoreTracker = $RoomScoreTracker
+@onready var _combo: ComboComponent = $ComboComponent
 
 
 func _ready() -> void:
@@ -27,7 +27,8 @@ func _ready() -> void:
 	_mop.charge_changed.connect(_on_mop_charge_changed)
 	_mop.overheated.connect(_on_mop_overheated)
 	_mop.rinsed.connect(_on_mop_rinsed)
-	_score_tracker.combo_changed.connect(_on_combo_changed)
+	_combo.combo_changed.connect(_on_combo_changed)
+	_combo.combo_milestone.connect(_on_combo_milestone)
 	_on_combo_changed(0)
 
 	_screens.start_pressed.connect(_on_start_pressed)
@@ -128,6 +129,18 @@ func _on_combo_changed(combo: int) -> void:
 	var tween := create_tween()
 	tween.tween_property(_combo_label, "scale", Vector2.ONE, 0.18)\
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _on_combo_milestone(combo: int) -> void:
+	if _combo_label == null:
+		return
+	_combo_label.text = "COMBO x%d  +ENERJİ!" % combo
+	_combo_label.modulate = Color(0.5, 1.0, 0.6)
+	_combo_label.scale = Vector2(1.6, 1.6)
+	_combo_label.pivot_offset = _combo_label.size * 0.5
+	var tween := create_tween()
+	tween.tween_property(_combo_label, "scale", Vector2.ONE, 0.28)\
+		.set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
 
 
 func _on_room_transition_finished() -> void:

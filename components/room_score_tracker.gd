@@ -2,52 +2,48 @@ class_name RoomScoreTracker
 extends Node
 
 signal room_finalized(result: Dictionary)
-signal combo_changed(combo: int)
 
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var router_path: NodePath = ^"../CursorClickerRouter"
+@export var combo_path: NodePath = ^"../ComboComponent"
 
 var _stress: StressComponent
 var _router: CursorClickRouter
+var _combo: ComboComponent
 
-var _cleans: int = 0
 var _mistakes: int = 0
 var _junk_eaten: int = 0
-var _panic_events: int = 0            # stres kritiğe kaç kez girdi
-var _combo: int = 0
+var _panic_events: int = 0
 var _max_combo: int = 0
 var _combo_points: int = 0
 var _mistake_penalty: int = 0
 var _mistake_streak: int = 0
+var _prev_combo: int = 0
 var _room_start_ms: int = 0
 
 
 func _ready() -> void:
 	_stress = get_node(stress_path) as StressComponent
 	_router = get_node(router_path) as CursorClickRouter
+	_combo = get_node_or_null(combo_path) as ComboComponent
 	_stress.mistake_registered.connect(_on_mistake)
 	_stress.stress_critical.connect(_on_panic)
-	_router.object_cleaned.connect(_on_cleaned)
 	_router.junk_food_tempted.connect(_on_junk_food)
+	if _combo != null:
+		_combo.combo_changed.connect(_on_combo_changed)
 	begin_room()
 
 
 func begin_room() -> void:
-	_cleans = 0
 	_mistakes = 0
 	_junk_eaten = 0
 	_panic_events = 0
-	_combo = 0
 	_max_combo = 0
 	_combo_points = 0
 	_mistake_penalty = 0
 	_mistake_streak = 0
+	_prev_combo = _combo.get_combo() if _combo != null else 0
 	_room_start_ms = Time.get_ticks_msec()
-	combo_changed.emit(0)
-
-
-func get_combo() -> int:
-	return _combo
 
 
 func finalize_room() -> Dictionary:
@@ -78,30 +74,22 @@ func finalize_room() -> Dictionary:
 	return result
 
 
-func _on_cleaned(_pos: Vector2) -> void:
-	_cleans += 1
-	_combo += 1
-	_max_combo = maxi(_max_combo, _combo)
-	_mistake_streak = 0
-	# Combo büyüdükçe artan bonus (kademeli, tavanlı)
-	_combo_points += mini(_combo, 8) * 25
-	combo_changed.emit(_combo)
+# Combo yükseldiğinde (yani doğru temizlik olduğunda) puan biriktir.
+func _on_combo_changed(combo: int) -> void:
+	if combo > _prev_combo:
+		_combo_points += mini(combo, 8) * 25
+		_max_combo = maxi(_max_combo, combo)
+	_prev_combo = combo
 
 
 func _on_mistake() -> void:
 	_mistakes += 1
-	# Artan ceza: peş peşe hatalar giderek daha çok yakar
 	_mistake_penalty += 60 + _mistake_streak * 25
 	_mistake_streak += 1
-	# Combo kırılır (kaybetme hissi)
-	_combo = 0
-	combo_changed.emit(0)
 
 
 func _on_junk_food(_world_pos: Vector2) -> void:
 	_junk_eaten += 1
-	_combo = 0
-	combo_changed.emit(0)
 
 
 func _on_panic() -> void:

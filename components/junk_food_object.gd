@@ -10,6 +10,7 @@ signal expired
 @export var stress_penalty: float = 20.0
 @export var stamina_reward: float = 32.0
 @export var lifetime: float = 3.5
+@export var crash_delay: float = 3.5   # sugar crash: gecikmeli stres süresi
 
 var _consumed: bool = false
 var _expired: bool = false
