@@ -23,7 +23,7 @@ signal revealed
 @export var spread_time: float = 5.0            # bu süre temizlenmezse yayılır
 
 @export_group("Hidden Grime (Gizli Kir)")
-@export var hidden: bool = false
+@export var is_hidden: bool = false
 @export var reveal_radius: float = 130.0        # imleç bu yarıçapa girince belirir
 
 var _is_clean: bool = false
@@ -38,7 +38,7 @@ var _base_alpha: float = 1.0
 func _ready() -> void:
 	add_to_group("Cleanable")
 	_base_alpha = modulate.a
-	if hidden:
+	if is_hidden:
 		modulate.a = 0.0
 		_revealed = false
 	else:
@@ -50,7 +50,7 @@ func _process(delta: float) -> void:
 	if _is_clean or _is_broken:
 		return
 
-	if hidden and not _revealed:
+	if is_hidden and not _revealed:
 		_check_reveal()
 		return
 
@@ -74,7 +74,7 @@ func is_broken() -> bool:
 
 
 func is_revealed() -> bool:
-	return not hidden or _revealed
+	return not is_hidden or _revealed
 
 
 func get_scrub_progress() -> float:

@@ -23,7 +23,9 @@ var _room_manager: Node
 var _is_scrubbing: bool = false
 var _scrubbing_active: bool = false
 var _reloading: bool = false
-var _dragging: DraggableCleanable = null
+# Kayan leke (DraggableCleanable) sınıf-adı bağımlılığından kaçınmak için
+# duck-typing kullanıyoruz (yükleme sırası kaynaklı çözüm hatalarını önler).
+var _dragging: Node2D = null
 var _hitbox_scale: float = 1.0
 var _last_click_pos: Vector2 = Vector2.ZERO
 var _last_mouse_screen: Vector2 = Vector2.ZERO
@@ -101,14 +103,14 @@ func _process(delta: float) -> void:
 			_reloading = false
 		return
 
-	# 2) Kayan leke sürükleme
+	# 2) Kayan leke sürükleme (duck-typing)
 	if _dragging != null:
-		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and is_instance_valid(_dragging) and not _dragging.is_cleaned():
-			_dragging.drag_toward(aim, delta)
+		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and is_instance_valid(_dragging) and not bool(_dragging.call("is_cleaned")):
+			_dragging.call("drag_toward", aim, delta)
 			scrub_tick.emit(_dragging.global_position)
-			if _dragging.is_over_drain():
+			if bool(_dragging.call("is_over_drain")):
 				var drop := _dragging.global_position
-				_dragging.deliver_to_drain()
+				_dragging.call("deliver_to_drain")
 				object_cleaned.emit(drop)
 				_dragging = null
 		else:
@@ -149,6 +151,7 @@ func _handle_press(pos: Vector2) -> void:
 	if drag != null:
 		_dragging = drag
 		return
+
 
 	# Junk food (cazibe)
 	var junk_hits := _query_junk_food(pos)
@@ -191,11 +194,15 @@ func _is_over_bucket(pos: Vector2) -> bool:
 	return bucket.get_hitbox().has_point(pos)
 
 
-func _query_draggable(pos: Vector2) -> DraggableCleanable:
+func _query_draggable(pos: Vector2) -> Node2D:
 	for node in get_tree().get_nodes_in_group("Draggable"):
-		if node is DraggableCleanable and not node.is_cleaned() and node.is_revealed():
-			if node.get_hitbox().has_point(pos):
-				return node
+		if not (node is Node2D):
+			continue
+		if bool(node.call("is_cleaned")) or not bool(node.call("is_revealed")):
+			continue
+		var rect: Rect2 = node.call("get_hitbox")
+		if rect.has_point(pos):
+			return node as Node2D
 	return null
 
 
@@ -210,7 +217,7 @@ func _query_junk_food(pos: Vector2) -> Array[JunkFoodObject]:
 func _query_cleanables(pos: Vector2) -> Array[CleanableObject]:
 	var results: Array[CleanableObject] = []
 	for node in get_tree().get_nodes_in_group("Cleanable"):
-		if node is DraggableCleanable:
+		if node.is_in_group("Draggable"):
 			continue
 		if node is CleanableObject and not node.is_cleaned() and node.is_revealed():
 			if _scaled_hitbox(node.get_hitbox()).has_point(pos):

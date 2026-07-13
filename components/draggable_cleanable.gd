@@ -1,5 +1,4 @@
-class_name DraggableCleanable
-extends CleanableObject
+extends "res://components/cleanable_object.gd"
 
 # Kayan leke: tıklanınca silinmez, imleçle sürüklenip gider deliğine
 # (DrainZone) itilince temizlenir.

@@ -93,6 +93,8 @@ script = ExtResource("18_combo")
 
 [node name="MoldSpawner" type="Node" parent="." unique_id=1531069809]
 script = ExtResource("19_mold")
+child_spread_time = 3.5
+mold_color = Color(0.83720696, 0.2759009, 0.23884636, 1)
 
 [node name="TiredCursor" type="Node2D" parent="." unique_id=1908703759 groups=["PlayerCursor"]]
 z_index = 10
@@ -255,7 +257,6 @@ script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 85)
 requires_scrub = true
 spreads = true
-spread_time = 5.0
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Kuf" unique_id=489554974]
 color = Color(0.3, 0.42, 0.22, 0.9)
@@ -346,7 +347,7 @@ position = Vector2(700, 700)
 script = ExtResource("7_cleanable")
 hitbox_size = Vector2(120, 90)
 requires_scrub = true
-hidden = true
+is_hidden = true
 reveal_radius = 150.0
 
 [node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/GizliKir" unique_id=455000187]
