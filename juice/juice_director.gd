@@ -6,7 +6,7 @@ extends Node
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var router_path: NodePath = ^"../CursorClickerRouter"
 @export var tempo_path: NodePath = ^"../TempoDirector"
-@export var portrait_path: NodePath = ^"../UI/KarakterPortresi"
+@export var portrait_path: NodePath = ^"../UI/PortraitDock/KarakterPortresi"
 @export var break_stress: float = 18.0
 
 var _shake: ScreenShake

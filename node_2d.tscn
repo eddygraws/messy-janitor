@@ -17,6 +17,7 @@
 [ext_resource type="Script" uid="uid://dxvy8ub7u48fk" path="res://components/mop_bucket.gd" id="17_bucket"]
 [ext_resource type="Script" uid="uid://e3v5brs5cda5" path="res://systems/combo_component.gd" id="18_combo"]
 [ext_resource type="Script" uid="uid://b32r4gxbk6afa" path="res://systems/mold_spawner.gd" id="19_mold"]
+[ext_resource type="Texture2D" uid="uid://tgexjmcosit" path="res://assets/facial-features-complete.png" id="22_1fr6y"]
 [ext_resource type="Script" uid="uid://t2g0yl1ekftq" path="res://systems/equipment_component.gd" id="22_equip"]
 [ext_resource type="Script" uid="uid://cmqhgoa4t0cd8" path="res://ui/equipment_bar.gd" id="23_eqbar"]
 [ext_resource type="Script" uid="uid://bx7rt3pjwxs62" path="res://ui/character_portrait.gd" id="24_portrait"]
@@ -145,10 +146,50 @@ offset_right = 220.0
 offset_bottom = 47.0
 value = 100.0
 
-[node name="KarakterPortresi" type="Sprite2D" parent="UI" unique_id=350438037]
-position = Vector2(1800, 100)
-scale = Vector2(1.1, 1.1)
+[node name="PortraitDock" type="Control" parent="UI" unique_id=350438036]
+z_index = 10
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -188.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = 188.0
+grow_horizontal = 0
+mouse_filter = 2
+
+[node name="Frame" type="ColorRect" parent="UI/PortraitDock" unique_id=350438038]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.1, 0.08, 0.14, 0.88)
+
+[node name="Caption" type="Label" parent="UI/PortraitDock" unique_id=350438040]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -22.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.75, 0.7, 0.85, 0.8)
+theme_override_font_sizes/font_size = 11
+text = "TEMİZLEYİCİ"
+horizontal_alignment = 1
+
+[node name="KarakterPortresi" type="Sprite2D" parent="UI/PortraitDock" unique_id=350438037]
+position = Vector2(88, 82)
+scale = Vector2(1.35, 1.35)
 script = ExtResource("24_portrait")
+portrait_atlas = ExtResource("22_1fr6y")
+use_placeholder = false
+apply_tint = false
 
 [node name="StersYuzdeLAbel" type="Label" parent="UI" unique_id=1896669479]
 offset_left = 20.0
