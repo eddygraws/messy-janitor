@@ -7,8 +7,17 @@ signal object_broken(position: Vector2)
 signal spread_triggered(origin_position: Vector2)
 signal revealed
 
+# Ekipman kimlikleri (EquipmentComponent.Type ile AYNI sıra).
+const EQ_MOP := 0
+const EQ_BROOM := 1
+const EQ_BRUSH := 2
+const EQ_SPRAY := 3
+const EQ_TWEEZERS := 4
+
 @export var hitbox_size: Vector2 = Vector2(80, 80)
 @export var requires_scrub: bool = false
+@export_enum("Mop", "Broom", "Brush", "Spray", "Tweezers") var required_equipment: int = 0
+@export var mash_per_hit: float = 0.22   # Fırça: her tıklamada eklenen ilerleme
 
 # Ovalama (rubbing) dengesi:
 @export var scrub_move_factor: float = 0.0016   # her piksel hareket başına ilerleme
@@ -33,6 +42,7 @@ var _last_dir_x: int = 0
 var _spread_accum: float = 0.0
 var _revealed: bool = false
 var _base_alpha: float = 1.0
+var _sprayed: bool = false
 
 
 func _ready() -> void:
@@ -96,6 +106,10 @@ func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0) -> boo
 		_last_dir_x = 0
 		return false
 
+	# Sprey+Bez: önce sprey sıkılmadan ovalama işe yaramaz.
+	if required_equipment == EQ_SPRAY and not _sprayed:
+		return false
+
 	# Kırılgan eşya: çok sert/hızlı ovalama kırar (ceza).
 	if is_fragile and motion.length() > fragile_threshold:
 		_break()
@@ -125,6 +139,40 @@ func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0) -> boo
 		_finish_clean()
 		return true
 	return false
+
+
+# Fırça: hızlı tekrarlı tıklama. Her çağrı ilerleme ekler, bitince true döner.
+func mash() -> bool:
+	if is_cleaned() or not is_revealed():
+		return false
+	_scrub_progress = minf(1.0, _scrub_progress + mash_per_hit)
+	scrub_progress_changed.emit(_scrub_progress)
+	_update_scrub_visual()
+	if _scrub_progress >= 1.0:
+		_finish_clean()
+		return true
+	return false
+
+
+# Sprey+Bez birinci aşama: yüzeyi ıslat.
+func spray() -> void:
+	if _sprayed or is_cleaned():
+		return
+	_sprayed = true
+	var wet := create_tween()
+	wet.tween_property(self, "modulate", modulate.lerp(Color(0.6, 0.85, 1.0, modulate.a), 0.6), 0.15)
+
+
+func is_sprayed() -> bool:
+	return _sprayed
+
+
+# Cımbız: tek hassas tıklamayla topla.
+func pluck() -> bool:
+	if is_cleaned() or not is_revealed():
+		return false
+	_finish_clean()
+	return true
 
 
 func _check_reveal() -> void:

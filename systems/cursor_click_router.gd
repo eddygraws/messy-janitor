@@ -5,18 +5,26 @@ signal scrub_tick(position: Vector2)
 signal reload_tick(position: Vector2)
 signal junk_food_tempted(position: Vector2)
 signal object_cleaned(position: Vector2)
+signal on_drag_start(position: Vector2)
+signal on_drag_end(position: Vector2)
+signal object_disposed(position: Vector2)
+signal wrong_tool(position: Vector2)
 
 @export var cursor_path: NodePath = ^"../TiredCursor"
 @export var stamina_path: NodePath = ^"../StaminaComponent"
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var mop_path: NodePath = ^"../MopComponent"
+@export var equipment_path: NodePath = ^"../EquipmentComponent"
 @export var room_manager_path: NodePath = ^"../RoomManager"
 @export var panic_hitbox_scale: float = 0.68   # panikte hitbox daralır (yanlış tıklama artar)
+@export var wrong_tool_stress: float = 4.0     # yanlış alet: hafif ceza
+@export var dangerous_wrong_stress: float = 14.0  # cımbız objesine yanlış alet: sert ceza
 
 var _cursor: Node2D
 var _stamina: StaminaComponent
 var _stress: StressComponent
 var _mop: MopComponent
+var _equipment: EquipmentComponent
 # NOT: Döngüsel class bağımlılığını kırmak için RoomManager tipini kullanmıyoruz.
 var _room_manager: Node
 
@@ -36,6 +44,7 @@ func _ready() -> void:
 	_stamina = get_node(stamina_path) as StaminaComponent
 	_stress = get_node(stress_path) as StressComponent
 	_mop = get_node_or_null(mop_path) as MopComponent
+	_equipment = get_node_or_null(equipment_path) as EquipmentComponent
 	_room_manager = get_node_or_null(room_manager_path)
 	_last_mouse_screen = get_viewport().get_mouse_position()
 	if _stress != null:
@@ -76,7 +85,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			_is_scrubbing = false
 			_reloading = false
-			_dragging = null
+			if _dragging != null:
+				on_drag_end.emit(_get_aim_pos())
+				_dragging = null
 
 
 func _process(delta: float) -> void:
@@ -103,31 +114,39 @@ func _process(delta: float) -> void:
 			_reloading = false
 		return
 
-	# 2) Kayan leke sürükleme (duck-typing)
+	# 2) Sürükleme (slime -> gider / süpürülen çöp -> çöp kovası) (duck-typing)
 	if _dragging != null:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and is_instance_valid(_dragging) and not bool(_dragging.call("is_cleaned")):
 			_dragging.call("drag_toward", aim, delta)
 			scrub_tick.emit(_dragging.global_position)
-			if bool(_dragging.call("is_over_drain")):
+			# Stamina düşükse sürüklerken obje elden kayabilir.
+			if _stamina != null and _stamina.get_ratio() < 0.18 and randf() < 0.9 * delta:
+				on_drag_end.emit(_dragging.global_position)
+				_dragging = null
+				return
+			if bool(_dragging.call("is_over_target")):
 				var drop := _dragging.global_position
-				_dragging.call("deliver_to_drain")
+				_dragging.call("deliver")
+				object_disposed.emit(drop)
 				object_cleaned.emit(drop)
 				_dragging = null
 		else:
+			on_drag_end.emit(aim)
 			_dragging = null
 		return
 
-	# 3) Ovalama ile temizlik
+	# 3) Ovalama ile temizlik (Paspas ve Sprey-sonrası Bez)
 	if not _is_scrubbing or not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_scrubbing_active = false
 		return
 
+	var eq := _current_eq()
 	var effort := motion.length()
-	var effectiveness := _mop.get_effectiveness() if _mop != null else 1.0
+	var effectiveness := _mop.get_effectiveness() if (_mop != null and eq == CleanableObject.EQ_MOP) else 1.0
 	var over_stain := false
 
 	for obj in _query_cleanables(aim):
-		if obj.requires_scrub:
+		if obj.requires_scrub and obj.required_equipment == eq:
 			over_stain = true
 			if obj.scrub_rub(aim, motion, effectiveness) and not obj.is_broken():
 				object_cleaned.emit(aim)
@@ -135,47 +154,85 @@ func _process(delta: float) -> void:
 	_scrubbing_active = over_stain and effort > 1.5
 	if _scrubbing_active:
 		_stamina.drain(delta)
-		if _mop != null:
+		if _mop != null and eq == CleanableObject.EQ_MOP:
 			_mop.add_heat(effort)
 		scrub_tick.emit(aim)
 
 
+func _current_eq() -> int:
+	return _equipment.get_current() if _equipment != null else CleanableObject.EQ_MOP
+
+
 func _handle_press(pos: Vector2) -> void:
-	# Kova: durulama moduna gir
+	# Kova: durulama moduna gir (her aletle erişilebilir - durulama)
 	if _is_over_bucket(pos):
 		_reloading = true
 		return
 
-	# Kayan leke: sürükleme moduna gir
-	var drag := _query_draggable(pos)
-	if drag != null:
-		_dragging = drag
-		return
+	var eq := _current_eq()
 
-
-	# Junk food (cazibe)
+	# Junk food (cazibe) - her aletle tıklanır
 	var junk_hits := _query_junk_food(pos)
 	if not junk_hits.is_empty():
 		for junk in junk_hits:
 			_apply_junk_food_effect(junk)
 		return
 
-	# Temizlenebilir objeler
+	# Sürüklenebilir: slime (paspas) / süpürülen çöp (süpürge)
+	var drag := _query_draggable(pos)
+	if drag != null:
+		if int(drag.get("required_equipment")) == eq:
+			_dragging = drag
+			on_drag_start.emit(drag.global_position)
+		else:
+			_apply_wrong_tool(pos, int(drag.get("required_equipment")))
+		return
+
+	# Diğer temizlenebilirler
 	var hits := _query_cleanables(pos)
 	if hits.is_empty():
 		_stress.register_mistake()
 		return
 
-	var instant_clean := false
-	for obj in hits:
-		if obj.try_clean(pos):
-			instant_clean = true
-			object_cleaned.emit(pos)
-		elif obj.requires_scrub and not obj.is_cleaned():
-			_is_scrubbing = true
+	# Aktif ekipmana uygun ilk objeyi seç
+	var obj: CleanableObject = null
+	for h in hits:
+		if h.required_equipment == eq:
+			obj = h
+			break
+	if obj == null:
+		_apply_wrong_tool(pos, hits[0].required_equipment)
+		return
 
-	if not instant_clean and not _is_scrubbing:
-		_stress.register_mistake()
+	match eq:
+		CleanableObject.EQ_MOP:
+			if obj.try_clean(pos):
+				object_cleaned.emit(pos)
+			elif obj.requires_scrub and not obj.is_cleaned():
+				_is_scrubbing = true
+			else:
+				_stress.register_mistake()
+		CleanableObject.EQ_BRUSH:
+			scrub_tick.emit(pos)
+			if obj.mash():
+				object_cleaned.emit(pos)
+		CleanableObject.EQ_SPRAY:
+			if not obj.is_sprayed():
+				obj.spray()
+				scrub_tick.emit(pos)
+			elif obj.requires_scrub and not obj.is_cleaned():
+				_is_scrubbing = true
+		CleanableObject.EQ_TWEEZERS:
+			if obj.pluck():
+				object_cleaned.emit(pos)
+
+
+func _apply_wrong_tool(pos: Vector2, required: int) -> void:
+	var penalty := wrong_tool_stress
+	if required == CleanableObject.EQ_TWEEZERS:
+		penalty = dangerous_wrong_stress   # tehlikeli obje + yanlış alet = sert ceza
+	_stress.add_stress(penalty)
+	wrong_tool.emit(pos)
 
 
 func _apply_junk_food_effect(junk: JunkFoodObject) -> void:

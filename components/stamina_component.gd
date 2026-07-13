@@ -24,6 +24,10 @@ func _process(delta: float) -> void:
 		restore(passive_regen * delta)
 
 
+func get_ratio() -> float:
+	return current_stamina / max_stamina if max_stamina > 0.0 else 0.0
+
+
 func get_control_factor() -> float:
 	if current_stamina >= min_control_stamina:
 		return 1.0

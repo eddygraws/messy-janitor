@@ -13,9 +13,10 @@ signal objective_changed(remaining: int, total: int)
 @export var camera_path: NodePath = ^"../Camera2D"
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var stamina_path: NodePath = ^"../StaminaComponent"
+@export var equipment_path: NodePath = ^"../EquipmentComponent"
 
 @export var viewport_height: float = 1080.0
-@export_range(3, 5, 1) var rooms_per_level: int = 5
+@export_range(3, 10, 1) var rooms_per_level: int = 10
 @export var slide_duration: float = 1.15
 
 var current_room_index: int = 0
@@ -31,6 +32,7 @@ var _shake: ScreenShake
 var _camera: Camera2D
 var _stress: StressComponent
 var _stamina: StaminaComponent
+var _equipment: EquipmentComponent
 
 
 func _ready() -> void:
@@ -40,8 +42,26 @@ func _ready() -> void:
 	_camera = get_node(camera_path) as Camera2D
 	_stress = get_node(stress_path) as StressComponent
 	_stamina = get_node(stamina_path) as StaminaComponent
+	_equipment = get_node_or_null(equipment_path) as EquipmentComponent
 
 	_collect_rooms()
+	_apply_equipment_unlock()
+
+
+# Level ilerledikçe ekipman açılır:
+# Oda 1-3: Paspas | 4-6: +Süpürge | 7-9: +Fırça | 10+: +Sprey+Bez & Cımbız
+func _apply_equipment_unlock() -> void:
+	if _equipment == null:
+		return
+	var level := current_room_index + 1
+	var unlocked := 1
+	if level >= 10:
+		unlocked = 5
+	elif level >= 7:
+		unlocked = 3
+	elif level >= 4:
+		unlocked = 2
+	_equipment.set_unlocked_count(unlocked)
 
 
 func is_transitioning() -> bool:
@@ -170,5 +190,6 @@ func _animate_to_next_room() -> void:
 func _prepare_next_room() -> void:
 	_stress.reduce_stress(_stress.current_stress * 0.5)
 	_stamina.restore(_stamina.max_stamina * 0.25)
+	_apply_equipment_unlock()
 	_score_tracker.begin_room()
 	emit_current_objective()

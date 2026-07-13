@@ -15,6 +15,7 @@ extends Node2D
 @onready var _mop_charge_label: Label = $UI/MopChargeLabel
 @onready var _combo_label: Label = $UI/ComboLabel
 @onready var _combo: ComboComponent = $ComboComponent
+@onready var _equipment: EquipmentComponent = $EquipmentComponent
 
 
 func _ready() -> void:
@@ -30,6 +31,8 @@ func _ready() -> void:
 	_combo.combo_changed.connect(_on_combo_changed)
 	_combo.combo_milestone.connect(_on_combo_milestone)
 	_on_combo_changed(0)
+	_equipment.equipment_changed.connect(_on_equipment_changed)
+	_on_equipment_changed(_equipment.get_current())
 
 	_screens.start_pressed.connect(_on_start_pressed)
 	_screens.restart_pressed.connect(_on_restart_pressed)
@@ -141,6 +144,14 @@ func _on_combo_milestone(combo: int) -> void:
 	var tween := create_tween()
 	tween.tween_property(_combo_label, "scale", Vector2.ONE, 0.28)\
 		.set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+
+
+func _on_equipment_changed(type: int) -> void:
+	# İmleci aktif ekipmanın rengiyle boya (görsel ipucu).
+	if _cursor and type >= 0 and type < EquipmentComponent.COLORS.size():
+		var col: Color = EquipmentComponent.COLORS[type]
+		var tween := create_tween()
+		tween.tween_property(_cursor, "modulate", col, 0.12)
 
 
 func _on_room_transition_finished() -> void:

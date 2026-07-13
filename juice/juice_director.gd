@@ -30,6 +30,8 @@ func _ready() -> void:
 	_router.reload_tick.connect(_on_reload_tick)
 	_router.junk_food_tempted.connect(_on_junk_food)
 	_router.object_cleaned.connect(_on_object_cleaned)
+	_router.object_disposed.connect(_on_object_disposed)
+	_router.wrong_tool.connect(_on_wrong_tool)
 
 	call_deferred("_connect_cleanables")
 
@@ -79,6 +81,19 @@ func _on_object_broken(world_pos: Vector2) -> void:
 	_shake.shake(0.6)
 	_particles.spawn(ParticleBurst.BurstType.MISTAKE, world_pos)
 	_flash_portrait(Color(1.3, 0.5, 0.5))
+
+
+func _on_object_disposed(world_pos: Vector2) -> void:
+	# Çöp kovasına / gidere teslim: tatmin edici küçük patlama.
+	_shake.shake(0.16)
+	_particles.spawn(ParticleBurst.BurstType.CLEAN, world_pos)
+
+
+func _on_wrong_tool(world_pos: Vector2) -> void:
+	# Yanlış alet: küçük uyarı sarsıntısı + portre flaşı (ceza hissi).
+	_shake.shake(0.2)
+	_particles.spawn(ParticleBurst.BurstType.MISTAKE, world_pos)
+	_flash_portrait(Color(1.1, 0.8, 0.5))
 
 
 func _on_scrub_tick(world_pos: Vector2) -> void:
