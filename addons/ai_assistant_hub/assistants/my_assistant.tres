@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="AIAssistantResource" format=3 uid="uid://ij18iow0ymm7"]
+
+[ext_resource type="Resource" uid="uid://c0xq2vafep0gu" path="res://addons/ai_assistant_hub/llm_providers/ollama.tres" id="1_mfxth"]
+[ext_resource type="Script" uid="uid://bl6ybgupnupix" path="res://addons/ai_assistant_hub/quick_prompts/ai_quick_prompt_resource.gd" id="1_tsdrn"]
+[ext_resource type="Script" uid="uid://tjdn0nqxem7g" path="res://addons/ai_assistant_hub/assistants/ai_assistant_resource.gd" id="2_k8w65"]
+[ext_resource type="Resource" uid="uid://brtea3a2q7h6q" path="res://addons/ai_assistant_hub/assistants/code_review.tres" id="3_0krlc"]
+
+[resource]
+script = ExtResource("2_k8w65")
+type_name = "Helper"
+ai_model = "qwen2.5-coder"
+llm_provider = ExtResource("1_mfxth")
+quick_prompts = Array[ExtResource("1_tsdrn")]([ExtResource("3_0krlc")])
+metadata/_custom_type_script = "uid://tjdn0nqxem7g"

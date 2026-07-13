@@ -1,0 +1,686 @@
+[gd_scene format=3 uid="uid://cp32j57bmrg12"]
+
+[ext_resource type="Script" uid="uid://dupuii07fhowk" path="res://MainScene.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://dcmrfkg15i3au" path="res://RoomManager.gd" id="2_room"]
+[ext_resource type="Script" uid="uid://cwnjpk33137vu" path="res://tired_cursor.gd" id="3_cursor"]
+[ext_resource type="Script" uid="uid://dcyhv81vghxn4" path="res://components/stamina_component.gd" id="4_stamina"]
+[ext_resource type="Script" uid="uid://cc6fvx1b2x63w" path="res://components/stress_component.gd" id="5_stress"]
+[ext_resource type="Script" uid="uid://c3lomfjn1m1pg" path="res://systems/cursor_click_router.gd" id="6_router"]
+[ext_resource type="Script" uid="uid://bub0r0vkki4uh" path="res://components/cleanable_object.gd" id="7_cleanable"]
+[ext_resource type="Script" uid="uid://caduae6ac74im" path="res://juice/screen_shake.gd" id="9_shake"]
+[ext_resource type="Script" uid="uid://ccjxlpxcjs1an" path="res://juice/particle_burst.gd" id="10_particles"]
+[ext_resource type="Script" uid="uid://0i42xwn6a1fh" path="res://juice/juice_director.gd" id="11_juice"]
+[ext_resource type="Script" uid="uid://qi0ewukuabsa" path="res://components/room_score_tracker.gd" id="12_score"]
+[ext_resource type="Script" uid="uid://b3pyb503bo50v" path="res://ui/room_feedback_ui.gd" id="13_feedback"]
+[ext_resource type="Script" uid="uid://dxqm8v67r8b50" path="res://ui/game_screens.gd" id="14_screens"]
+[ext_resource type="Script" uid="uid://c5xc8vshn1ycn" path="res://systems/junk_food_spawner.gd" id="15_spawner"]
+[ext_resource type="Script" uid="uid://bpnwsf77v84wd" path="res://systems/mop_component.gd" id="16_mop"]
+[ext_resource type="Script" uid="uid://dxvy8ub7u48fk" path="res://components/mop_bucket.gd" id="17_bucket"]
+
+[node name="Main" type="Node2D" unique_id=1997389448]
+script = ExtResource("1_main")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=745883053]
+position = Vector2(960, 540)
+
+[node name="WorldLayer" type="Node2D" parent="." unique_id=1058636094]
+z_index = 5
+
+[node name="MopBucket" type="Node2D" parent="WorldLayer" unique_id=1705565784 groups=["MopBucket"]]
+position = Vector2(1760, 900)
+script = ExtResource("17_bucket")
+
+[node name="Glow" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=1488056372]
+modulate = Color(1, 0.75, 0.3, 0)
+color = Color(1, 0.7, 0.25, 0.55)
+polygon = PackedVector2Array(-98, -112, 98, -112, 98, 112, -98, 112)
+
+[node name="Body" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=1305986758]
+color = Color(0.32, 0.34, 0.4, 1)
+polygon = PackedVector2Array(-70, -60, 70, -60, 56, 92, -56, 92)
+
+[node name="Water" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=182454360]
+color = Color(0.35, 0.62, 0.9, 1)
+polygon = PackedVector2Array(-64, -60, 64, -60, 58, -34, -58, -34)
+
+[node name="Rim" type="Polygon2D" parent="WorldLayer/MopBucket" unique_id=774085406]
+color = Color(0.5, 0.53, 0.6, 1)
+polygon = PackedVector2Array(-72, -66, 72, -66, 70, -56, -70, -56)
+
+[node name="Label" type="Label" parent="WorldLayer/MopBucket" unique_id=161769068]
+offset_left = -80.0
+offset_top = 98.0
+offset_right = 80.0
+offset_bottom = 128.0
+theme_override_colors/font_color = Color(0.8, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 22
+text = "KOVA"
+horizontal_alignment = 1
+
+[node name="StaminaComponent" type="Node" parent="." unique_id=2092589117]
+script = ExtResource("4_stamina")
+
+[node name="StressComponent" type="Node" parent="." unique_id=1645662337]
+script = ExtResource("5_stress")
+
+[node name="RoomScoreTracker" type="Node" parent="." unique_id=1237827070]
+script = ExtResource("12_score")
+
+[node name="ScreenShake" type="Node" parent="." unique_id=754589181]
+script = ExtResource("9_shake")
+
+[node name="ParticleBurst" type="Node" parent="." unique_id=570616110]
+script = ExtResource("10_particles")
+
+[node name="JuiceDirector" type="Node" parent="." unique_id=843532981]
+script = ExtResource("11_juice")
+
+[node name="CursorClickerRouter" type="Node" parent="." unique_id=1346099246]
+script = ExtResource("6_router")
+
+[node name="JunkFoodSpawner" type="Node" parent="." unique_id=13832413]
+script = ExtResource("15_spawner")
+
+[node name="MopComponent" type="Node" parent="." unique_id=974748242]
+script = ExtResource("16_mop")
+
+[node name="TiredCursor" type="Node2D" parent="." unique_id=1908703759]
+z_index = 10
+script = ExtResource("3_cursor")
+
+[node name="Sap" type="Polygon2D" parent="TiredCursor" unique_id=913641232]
+color = Color(0.55, 0.38, 0.2, 1)
+polygon = PackedVector2Array(2, -6, 8, -6, 42, -80, 34, -84)
+
+[node name="PaspasBasi" type="Polygon2D" parent="TiredCursor" unique_id=1652665526]
+color = Color(0.85, 0.82, 0.7, 1)
+polygon = PackedVector2Array(-24, -8, 24, -8, 16, 22, -16, 22)
+
+[node name="NisanNoktasi" type="Polygon2D" parent="TiredCursor" unique_id=697433721]
+color = Color(0.2, 0.9, 0.5, 0.5)
+polygon = PackedVector2Array(-3, -3, 3, -3, 3, 3, -3, 3)
+
+[node name="RoomManager" type="Node2D" parent="." unique_id=559059836 groups=["RoomManagerGroup"]]
+script = ExtResource("2_room")
+
+[node name="Oda_1" type="Node2D" parent="RoomManager" unique_id=1613387093 groups=["Room"]]
+
+[node name="BG" type="Polygon2D" parent="RoomManager/Oda_1" unique_id=2097512660]
+color = Color(0.16, 0.18, 0.24, 1)
+polygon = PackedVector2Array(0, 0, 1920, 0, 1920, 1080, 0, 1080)
+
+[node name="RoomLabel" type="Label" parent="RoomManager/Oda_1" unique_id=1611505207]
+modulate = Color(1, 1, 1, 0.25)
+offset_left = 660.0
+offset_top = 40.0
+offset_right = 1260.0
+offset_bottom = 200.0
+theme_override_font_sizes/font_size = 120
+text = "ODA 1"
+horizontal_alignment = 1
+
+[node name="Leke" type="Node2D" parent="RoomManager/Oda_1" unique_id=2011794754]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(620, 420)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(130, 90)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_1/Leke" unique_id=924035995]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-60, -38, 60, -32, 52, 42, -52, 36)
+
+[node name="Cop" type="Node2D" parent="RoomManager/Oda_1" unique_id=282017421]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(1180, 600)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(70, 70)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_1/Cop" unique_id=197917531]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-26, -26, 26, -24, 22, 26, -22, 24)
+
+[node name="Leke2" type="Node2D" parent="RoomManager/Oda_1" unique_id=449570773]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(960, 720)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(120, 110)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_1/Leke2" unique_id=1807332163]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-55, -50, 55, -44, 48, 52, -50, 46)
+
+[node name="Oda_2" type="Node2D" parent="RoomManager" unique_id=1617491684 groups=["Room"]]
+
+[node name="BG" type="Polygon2D" parent="RoomManager/Oda_2" unique_id=1615999462]
+color = Color(0.24, 0.16, 0.2, 1)
+polygon = PackedVector2Array(0, 0, 1920, 0, 1920, 1080, 0, 1080)
+
+[node name="RoomLabel" type="Label" parent="RoomManager/Oda_2" unique_id=2033980070]
+modulate = Color(1, 1, 1, 0.25)
+offset_left = 660.0
+offset_top = 40.0
+offset_right = 1260.0
+offset_bottom = 200.0
+theme_override_font_sizes/font_size = 120
+text = "ODA 2"
+horizontal_alignment = 1
+
+[node name="Leke" type="Node2D" parent="RoomManager/Oda_2" unique_id=1003665164]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(560, 400)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(120, 80)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Leke" unique_id=1431241963]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-55, -34, 55, -30, 48, 38, -50, 34)
+
+[node name="Cop" type="Node2D" parent="RoomManager/Oda_2" unique_id=1983002353]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(1100, 440)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(70, 70)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Cop" unique_id=558803018]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-26, -26, 26, -24, 22, 26, -22, 24)
+
+[node name="Leke2" type="Node2D" parent="RoomManager/Oda_2" unique_id=1179732932]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(820, 680)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(130, 100)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Leke2" unique_id=1737306459]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-60, -45, 60, -40, 52, 48, -54, 44)
+
+[node name="Cop2" type="Node2D" parent="RoomManager/Oda_2" unique_id=305126789]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(1320, 700)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(64, 64)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_2/Cop2" unique_id=1325028334]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
+
+[node name="Oda_3" type="Node2D" parent="RoomManager" unique_id=401299010 groups=["Room"]]
+
+[node name="BG" type="Polygon2D" parent="RoomManager/Oda_3" unique_id=2090616717]
+color = Color(0.16, 0.22, 0.18, 1)
+polygon = PackedVector2Array(0, 0, 1920, 0, 1920, 1080, 0, 1080)
+
+[node name="RoomLabel" type="Label" parent="RoomManager/Oda_3" unique_id=808332475]
+modulate = Color(1, 1, 1, 0.25)
+offset_left = 660.0
+offset_top = 40.0
+offset_right = 1260.0
+offset_bottom = 200.0
+theme_override_font_sizes/font_size = 120
+text = "ODA 3"
+horizontal_alignment = 1
+
+[node name="Cop" type="Node2D" parent="RoomManager/Oda_3" unique_id=2004196176]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(620, 440)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(70, 70)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Cop" unique_id=1653492937]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-26, -26, 26, -24, 22, 26, -22, 24)
+
+[node name="Leke" type="Node2D" parent="RoomManager/Oda_3" unique_id=1904475081]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(1050, 400)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(140, 90)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Leke" unique_id=489554974]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-64, -38, 64, -32, 56, 42, -58, 36)
+
+[node name="Cop2" type="Node2D" parent="RoomManager/Oda_3" unique_id=384106106]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(1350, 640)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(64, 64)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Cop2" unique_id=2080308300]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
+
+[node name="Leke2" type="Node2D" parent="RoomManager/Oda_3" unique_id=2033846151]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(820, 720)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(120, 110)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_3/Leke2" unique_id=1559797209]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-56, -50, 56, -44, 48, 52, -50, 46)
+
+[node name="Oda_4" type="Node2D" parent="RoomManager" unique_id=1726108417 groups=["Room"]]
+
+[node name="BG" type="Polygon2D" parent="RoomManager/Oda_4" unique_id=1047837324]
+color = Color(0.26, 0.2, 0.14, 1)
+polygon = PackedVector2Array(0, 0, 1920, 0, 1920, 1080, 0, 1080)
+
+[node name="RoomLabel" type="Label" parent="RoomManager/Oda_4" unique_id=1849560152]
+modulate = Color(1, 1, 1, 0.25)
+offset_left = 660.0
+offset_top = 40.0
+offset_right = 1260.0
+offset_bottom = 200.0
+theme_override_font_sizes/font_size = 120
+text = "ODA 4"
+horizontal_alignment = 1
+
+[node name="Leke" type="Node2D" parent="RoomManager/Oda_4" unique_id=1213392409]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(560, 400)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(120, 90)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Leke" unique_id=458716454]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-56, -38, 56, -32, 48, 42, -50, 36)
+
+[node name="Cop" type="Node2D" parent="RoomManager/Oda_4" unique_id=1323407329]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(900, 560)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(70, 70)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Cop" unique_id=1004374487]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-26, -26, 26, -24, 22, 26, -22, 24)
+
+[node name="Leke2" type="Node2D" parent="RoomManager/Oda_4" unique_id=534714634]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(1250, 420)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(130, 100)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Leke2" unique_id=139538672]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-60, -45, 60, -40, 52, 48, -54, 44)
+
+[node name="Cop2" type="Node2D" parent="RoomManager/Oda_4" unique_id=1899281293]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(1380, 720)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(64, 64)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Cop2" unique_id=1744441500]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
+
+[node name="Cop3" type="Node2D" parent="RoomManager/Oda_4" unique_id=353657258]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(700, 720)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(64, 64)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_4/Cop3" unique_id=455000187]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
+
+[node name="Oda_5" type="Node2D" parent="RoomManager" unique_id=1262133606 groups=["Room"]]
+
+[node name="BG" type="Polygon2D" parent="RoomManager/Oda_5" unique_id=1089243405]
+color = Color(0.2, 0.16, 0.24, 1)
+polygon = PackedVector2Array(0, 0, 1920, 0, 1920, 1080, 0, 1080)
+
+[node name="RoomLabel" type="Label" parent="RoomManager/Oda_5" unique_id=1806731002]
+modulate = Color(1, 1, 1, 0.25)
+offset_left = 660.0
+offset_top = 40.0
+offset_right = 1260.0
+offset_bottom = 200.0
+theme_override_font_sizes/font_size = 120
+text = "ODA 5"
+horizontal_alignment = 1
+
+[node name="Leke" type="Node2D" parent="RoomManager/Oda_5" unique_id=410790811]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(580, 420)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(130, 85)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Leke" unique_id=1754018972]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-60, -36, 60, -30, 52, 40, -54, 34)
+
+[node name="Cop" type="Node2D" parent="RoomManager/Oda_5" unique_id=1322640669]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(960, 600)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(70, 70)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Cop" unique_id=912760786]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-26, -26, 26, -24, 22, 26, -22, 24)
+
+[node name="Leke2" type="Node2D" parent="RoomManager/Oda_5" unique_id=141873632]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(1300, 440)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(120, 120)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Leke2" unique_id=20432287]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-56, -56, 56, -50, 50, 56, -52, 52)
+
+[node name="Cop2" type="Node2D" parent="RoomManager/Oda_5" unique_id=1059351325]
+modulate = Color(0.5, 0.55, 0.4, 1)
+position = Vector2(1150, 740)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(64, 64)
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Cop2" unique_id=677980188]
+color = Color(0.35, 0.4, 0.25, 1)
+polygon = PackedVector2Array(-24, -24, 24, -22, 20, 24, -20, 22)
+
+[node name="Leke3" type="Node2D" parent="RoomManager/Oda_5" unique_id=312789731]
+modulate = Color(0.6, 0.45, 0.35, 1)
+position = Vector2(760, 700)
+script = ExtResource("7_cleanable")
+hitbox_size = Vector2(110, 80)
+requires_scrub = true
+
+[node name="Visual" type="Polygon2D" parent="RoomManager/Oda_5/Leke3" unique_id=2052777723]
+color = Color(0.45, 0.3, 0.2, 0.9)
+polygon = PackedVector2Array(-50, -34, 50, -28, 44, 38, -46, 32)
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=531795412]
+
+[node name="ProgressBar" type="ProgressBar" parent="UI" unique_id=798444352]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 220.0
+offset_bottom = 47.0
+value = 100.0
+
+[node name="KarakterPortresi" type="Sprite2D" parent="UI" unique_id=350438037]
+position = Vector2(1800, 100)
+
+[node name="StersYuzdeLAbel" type="Label" parent="UI" unique_id=1896669479]
+offset_left = 20.0
+offset_top = 60.0
+offset_right = 120.0
+offset_bottom = 83.0
+text = "0%"
+
+[node name="MopChargeLabel" type="Label" parent="UI" unique_id=14691500]
+offset_left = 20.0
+offset_top = 92.0
+offset_right = 220.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(1, 0.7, 0.35, 1)
+theme_override_font_sizes/font_size = 14
+text = "PASPAS KİRİ"
+
+[node name="MopChargeBar" type="ProgressBar" parent="UI" unique_id=1627183474]
+offset_left = 20.0
+offset_top = 112.0
+offset_right = 220.0
+offset_bottom = 130.0
+show_percentage = false
+
+[node name="RoomCounterLabel" type="Label" parent="UI" unique_id=1631618211]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -200.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 43.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 20
+text = "Room 1 / 5"
+horizontal_alignment = 2
+
+[node name="ObjectiveLabel" type="Label" parent="UI" unique_id=219732668]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 24.0
+offset_right = 300.0
+offset_bottom = 60.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 28
+text = "HEDEF: 0 / 3 kir temizlendi"
+horizontal_alignment = 1
+
+[node name="ComboLabel" type="Label" parent="UI" unique_id=728647838]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -220.0
+offset_top = 120.0
+offset_right = 220.0
+offset_bottom = 172.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.3, 1)
+theme_override_font_sizes/font_size = 42
+horizontal_alignment = 1
+
+[node name="RoomFeedbackUI" type="Control" parent="UI" unique_id=940912692]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("13_feedback")
+
+[node name="Flash" type="ColorRect" parent="UI/RoomFeedbackUI" unique_id=133828077]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.95, 0.92, 0.85, 1)
+
+[node name="Panel" type="Control" parent="UI/RoomFeedbackUI" unique_id=620220861]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -120.0
+offset_right = 280.0
+offset_bottom = 120.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="GradeLabel" type="Label" parent="UI/RoomFeedbackUI/Panel" unique_id=975091842]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 80.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 72
+text = "SWEET!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ScoreLabel" type="Label" parent="UI/RoomFeedbackUI/Panel" unique_id=1553393172]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 70.0
+offset_bottom = 110.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 28
+text = "850 PTS"
+horizontal_alignment = 1
+
+[node name="SubtitleLabel" type="Label" parent="UI/RoomFeedbackUI/Panel" unique_id=301785165]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 110.0
+offset_bottom = 140.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.75, 0.75, 0.75, 1)
+theme_override_font_sizes/font_size = 18
+text = "Flawless sweep!"
+horizontal_alignment = 1
+
+[node name="GameScreens" type="CanvasLayer" parent="." unique_id=1285678272]
+layer = 20
+script = ExtResource("14_screens")
+
+[node name="StartScreen" type="Control" parent="GameScreens" unique_id=1871315697]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BG" type="ColorRect" parent="GameScreens/StartScreen" unique_id=1071750822]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.08, 0.06, 0.1, 0.96)
+
+[node name="Center" type="Control" parent="GameScreens/StartScreen" unique_id=828806970]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -360.0
+offset_top = -220.0
+offset_right = 360.0
+offset_bottom = 220.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="GameScreens/StartScreen/Center" unique_id=536129150]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 90.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.85, 0.8, 0.95, 1)
+theme_override_font_sizes/font_size = 60
+text = "THE GARGOYLE'S MESS"
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="SubtitleLabel" type="Label" parent="GameScreens/StartScreen/Center" unique_id=1081122661]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 120.0
+offset_bottom = 200.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.6, 0.58, 0.7, 1)
+theme_override_font_sizes/font_size = 22
+text = "Odaları temizle · Abur cuburdan kaç · Sakin kal"
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="StartButton" type="Button" parent="GameScreens/StartScreen/Center" unique_id=1545294408]
+custom_minimum_size = Vector2(320, 72)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -160.0
+offset_top = -90.0
+offset_right = 160.0
+offset_bottom = -18.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 28
+text = "TEMİZLİĞE BAŞLA"
+
+[node name="GameOverScreen" type="Control" parent="GameScreens" unique_id=715423064]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BG" type="ColorRect" parent="GameScreens/GameOverScreen" unique_id=103549549]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.15, 0.03, 0.04, 0.96)
+
+[node name="Center" type="Control" parent="GameScreens/GameOverScreen" unique_id=1427235632]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -360.0
+offset_top = -220.0
+offset_right = 360.0
+offset_bottom = 220.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="GameScreens/GameOverScreen/Center" unique_id=1808922449]
+layout_mode = 0
+anchor_right = 1.0
+offset_bottom = 100.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.4, 0.35, 1)
+theme_override_font_sizes/font_size = 80
+text = "SPLAT!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="InfoLabel" type="Label" parent="GameScreens/GameOverScreen/Center" unique_id=1246896443]
+layout_mode = 0
+anchor_right = 1.0
+offset_top = 130.0
+offset_bottom = 220.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.85, 0.8, 0.8, 1)
+theme_override_font_sizes/font_size = 24
+text = "Gargoyle patladı!"
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="RestartButton" type="Button" parent="GameScreens/GameOverScreen/Center" unique_id=153129544]
+custom_minimum_size = Vector2(320, 72)
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -160.0
+offset_top = -90.0
+offset_right = 160.0
+offset_bottom = -18.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 28
+text = "TEKRAR DENE"

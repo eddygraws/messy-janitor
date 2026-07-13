@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="AIAssistantResource" format=3 uid="uid://dch6j6ms6t4c3"]
+
+[ext_resource type="Script" uid="uid://bl6ybgupnupix" path="res://addons/ai_assistant_hub/quick_prompts/ai_quick_prompt_resource.gd" id="1_nttcd"]
+[ext_resource type="Resource" uid="uid://c0xq2vafep0gu" path="res://addons/ai_assistant_hub/llm_providers/ollama.tres" id="1_t6vto"]
+[ext_resource type="Script" uid="uid://tjdn0nqxem7g" path="res://addons/ai_assistant_hub/assistants/ai_assistant_resource.gd" id="2_t6vto"]
+
+[sub_resource type="Resource" id="Resource_g62uw"]
+script = ExtResource("1_nttcd")
+action_name = "Coder-Asisstant"
+action_prompt = "You are my Coder Asisstant to develop the game i am making.
+"
+response_target = 1
+code_placement = 2
+metadata/_custom_type_script = "uid://bl6ybgupnupix"
+
+[resource]
+script = ExtResource("2_t6vto")
+type_name = "coder assistant"
+llm_provider = ExtResource("1_t6vto")
+quick_prompts = Array[ExtResource("1_nttcd")]([SubResource("Resource_g62uw")])
+metadata/_custom_type_script = "uid://tjdn0nqxem7g"

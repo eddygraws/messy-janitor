@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="AIQuickPromptResource" format=3 uid="uid://brtea3a2q7h6q"]
+
+[ext_resource type="Script" uid="uid://bl6ybgupnupix" path="res://addons/ai_assistant_hub/quick_prompts/ai_quick_prompt_resource.gd" id="1_ecbqb"]
+
+[resource]
+script = ExtResource("1_ecbqb")
+action_name = "Code Review"
+action_prompt = "Review this code:
+'''gdscript
+{CODE}
+'''"
+response_target = 1
+code_placement = 2
+format_response_as_comment = true
+metadata/_custom_type_script = "uid://bl6ybgupnupix"
