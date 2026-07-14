@@ -70,15 +70,33 @@ func present(commission: Dictionary, room: Node) -> void:
 func present_level_intro(info: Dictionary) -> void:
 	if _card == null:
 		return
+	var desc := String(info.get("intro_desc", ""))
+	if desc == "":
+		desc = "Hedef: tüm odaları temizle. Yeni odalarda yeni mekanikler seni bekliyor!"
 	var intro := {
 		"npc": String(info.get("subtitle", "")),
 		"icon": "🧹",
 		"title": String(info.get("name", "Seviye")),
-		"desc": "Hedef: tüm odaları temizle. Yeni odalarda yeni mekanikler seni bekliyor!",
+		"desc": desc,
 		"rule": CommissionData.Rule.NONE,
 		"param": 0.0,
 	}
 	await _card.show_card(intro)
+
+
+## Serbest diyalog kartı (kural yok) — outro / hikâye için.
+## Sadece tıklayınca geçer; önceki kart timer'ı yeni kartı ezmez.
+func present_dialogue(npc: String, icon: String, title: String, desc: String) -> void:
+	if _card == null:
+		return
+	await _card.show_card({
+		"npc": npc,
+		"icon": icon,
+		"title": title,
+		"desc": desc,
+		"rule": CommissionData.Rule.NONE,
+		"param": 0.0,
+	}, 0.0, true)
 
 
 func clear() -> void:

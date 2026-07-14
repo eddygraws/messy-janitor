@@ -9,6 +9,7 @@ signal pause_resume_pressed
 signal pause_main_menu_pressed
 signal pause_shown
 signal pause_hidden
+signal intro_finished
 
 @onready var _start_screen: Control = $StartScreen
 @onready var _over_screen: Control = $GameOverScreen
@@ -24,6 +25,7 @@ var _over_title: WavyLabel
 @onready var _pause_screen: Control = $PauseScreen
 @onready var _pause_resume: Button = $PauseScreen/Center/ResumeButton
 @onready var _pause_menu: Button = $PauseScreen/Center/MainMenuButton
+var _intro: IntroSequence
 
 
 func _ready() -> void:
@@ -37,6 +39,12 @@ func _ready() -> void:
 	_over_screen.visible = false
 	_level_screen.visible = false
 	_pause_screen.visible = false
+	_intro = IntroSequence.new()
+	_intro.name = "IntroSequence"
+	add_child(_intro)
+	_intro.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_intro.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_intro.grow_vertical = Control.GROW_DIRECTION_BOTH
 	show_start()
 	call_deferred("_setup_wavy_menu_titles")
 
@@ -50,12 +58,30 @@ func show_start() -> void:
 	_level_screen.visible = false
 	_over_screen.visible = false
 	_pause_screen.visible = false
+	if _intro != null:
+		_intro.visible = false
 	_start_screen.visible = true
 	_start_screen.modulate.a = 0.0
 	var tween := create_tween()
 	tween.tween_property(_start_screen, "modulate:a", 1.0, 0.35)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_pop_button(_adventure_button)
+
+
+func play_intro() -> void:
+	_start_screen.visible = false
+	_level_screen.visible = false
+	_over_screen.visible = false
+	_pause_screen.visible = false
+	if _intro == null:
+		intro_finished.emit()
+		return
+	await _intro.play()
+	intro_finished.emit()
+
+
+func is_intro_open() -> bool:
+	return _intro != null and _intro.visible
 
 
 func hide_start() -> void:
@@ -71,6 +97,7 @@ func is_in_active_game() -> bool:
 		and not _level_screen.visible
 		and not _over_screen.visible
 		and not _pause_screen.visible
+		and not is_intro_open()
 	)
 
 
@@ -108,7 +135,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if key.keycode != KEY_ESCAPE and key.keycode != KEY_PAUSE:
 		return
-	if _over_screen.visible or _start_screen.visible or _level_screen.visible:
+	if _over_screen.visible or _start_screen.visible or _level_screen.visible or is_intro_open():
 		return
 	if is_pause_open():
 		pause_resume_pressed.emit()

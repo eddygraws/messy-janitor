@@ -13,6 +13,9 @@ signal stamina_recovered
 
 var current_stamina: float = 100.0
 var _was_depleted: bool = false
+## Tutorial L1: düşük drain, yüksek regen
+var drain_scale: float = 1.0
+var regen_scale: float = 1.0
 
 
 func _ready() -> void:
@@ -22,7 +25,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	if current_stamina < max_stamina:
-		restore(passive_regen * delta)
+		restore(passive_regen * regen_scale * delta)
 
 
 func get_ratio() -> float:
@@ -50,7 +53,7 @@ func drain_instant(amount: float) -> void:
 
 func drain(delta: float, rate_multiplier: float = 1.0) -> void:
 	var before := current_stamina
-	current_stamina = maxf(0.0, current_stamina - drain_rate * rate_multiplier * delta)
+	current_stamina = maxf(0.0, current_stamina - drain_rate * drain_scale * rate_multiplier * delta)
 	if current_stamina == before:
 		return
 

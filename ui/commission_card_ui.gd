@@ -2,13 +2,16 @@ class_name CommissionCardUI
 extends Control
 
 # Oda başında gösterilen "Görev Kartı": NPC + absürt istek + twist kural.
-# Tıklayınca (veya kısa süre sonra) kapanır. show() beklenebilir (await).
+# Tıklayınca (veya süre dolunca) kapanır. show_card() await edilebilir.
 
 signal dismissed
 
 @export var auto_dismiss_time: float = 7.0
+## Hikâye diyalogları için varsayılan süre (0 = sadece tıkla)
+@export var story_dismiss_time: float = 0.0
 
 var _panel: PanelContainer
+var _header: Label
 var _icon: Label
 var _npc: Label
 var _title: Label
@@ -16,11 +19,13 @@ var _desc: Label
 var _rule: Label
 var _hint: Label
 var _awaiting: bool = false
+var _timer: SceneTreeTimer = null
+var _timer_gen: int = 0
 
 
 func _ready() -> void:
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build()
 	visible = false
 
@@ -28,8 +33,9 @@ func _ready() -> void:
 func _build() -> void:
 	var dim := ColorRect.new()
 	dim.color = Color(0.05, 0.04, 0.07, 0.72)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(_on_dim_input)
 	add_child(dim)
 
 	_panel = PanelContainer.new()
@@ -59,12 +65,12 @@ func _build() -> void:
 	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.add_child(vb)
 
-	var header := Label.new()
-	header.text = "📜 KOMİSYON"
-	header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	header.add_theme_font_size_override("font_size", 22)
-	header.add_theme_color_override("font_color", Color(0.8, 0.7, 0.5))
-	vb.add_child(header)
+	_header = Label.new()
+	_header.text = "📜 KOMİSYON"
+	_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_header.add_theme_font_size_override("font_size", 22)
+	_header.add_theme_color_override("font_color", Color(0.8, 0.7, 0.5))
+	vb.add_child(_header)
 
 	_icon = Label.new()
 	_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -105,7 +111,9 @@ func _build() -> void:
 	vb.add_child(_hint)
 
 
-func show_card(commission: Dictionary) -> void:
+## auto_secs: < 0 → varsayılan auto_dismiss_time; 0 → sadece tıkla; >0 → o süre
+func show_card(commission: Dictionary, auto_secs: float = -1.0, story: bool = false) -> void:
+	_cancel_timer()
 	_icon.text = String(commission.get("icon", "📜"))
 	_npc.text = String(commission.get("npc", ""))
 	_title.text = String(commission.get("title", ""))
@@ -114,36 +122,72 @@ func show_card(commission: Dictionary) -> void:
 	_rule.text = rule_text
 	_rule.visible = rule_text != ""
 
+	if story:
+		_header.text = "📖 HİKÂYE"
+		_hint.text = "▸ Okuduktan sonra tıkla"
+	else:
+		_header.text = "📜 KOMİSYON"
+		_hint.text = "▸ Devam etmek için tıkla"
+
+	var wait := auto_secs
+	if wait < 0.0:
+		wait = story_dismiss_time if story else auto_dismiss_time
+
 	visible = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	modulate.a = 0.0
 	_panel.pivot_offset = Vector2(380, 230)
 	_panel.scale = Vector2(0.7, 0.7)
 	var tin := create_tween().set_parallel(true)
-	tin.tween_property(self, "modulate:a", 1.0, 0.2)
+	tin.tween_property(self, "modulate:a", 1.0, 0.25)
 	tin.tween_property(_panel, "scale", Vector2.ONE, 0.35)\
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 	_awaiting = true
-	var timer := get_tree().create_timer(auto_dismiss_time)
-	timer.timeout.connect(_dismiss)
+	if wait > 0.0:
+		_timer_gen += 1
+		var gen := _timer_gen
+		_timer = get_tree().create_timer(wait)
+		_timer.timeout.connect(func() -> void:
+			if gen == _timer_gen:
+				_dismiss()
+		)
 	await dismissed
 
+	_cancel_timer()
 	var tout := create_tween()
-	tout.tween_property(self, "modulate:a", 0.0, 0.2)
+	tout.tween_property(self, "modulate:a", 0.0, 0.25)
 	await tout.finished
 	visible = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
-func _input(event: InputEvent) -> void:
+func _cancel_timer() -> void:
+	_timer_gen += 1
+	_timer = null
+
+
+func _on_dim_input(event: InputEvent) -> void:
 	if not _awaiting:
 		return
 	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
-		get_viewport().set_input_as_handled()
+		accept_event()
 		_dismiss()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not _awaiting or not visible:
+		return
+	if event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo:
+		var key := (event as InputEventKey).keycode
+		if key == KEY_SPACE or key == KEY_ENTER:
+			get_viewport().set_input_as_handled()
+			_dismiss()
 
 
 func _dismiss() -> void:
 	if not _awaiting:
 		return
 	_awaiting = false
+	_cancel_timer()
 	dismissed.emit()

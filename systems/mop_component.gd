@@ -53,6 +53,20 @@ func _bind_bucket() -> void:
 	_refresh_bucket()
 
 
+## Tutorial: paspası kirli başlat (kova durulama öğretimi).
+func force_dirty(amount: float = 1.0) -> void:
+	var before := charge
+	charge = clampf(amount, 0.0, 1.0)
+	if charge != before:
+		charge_changed.emit(charge)
+		_refresh_bucket()
+	if charge >= overheat_threshold and not _overheated:
+		_overheated = true
+		overheated.emit()
+		if _bucket != null and _bucket.has_method("set_ready_glow"):
+			_bucket.set_ready_glow(true)
+
+
 func add_heat(pixels: float) -> void:
 	var ref := maxf(1.0, motion_reference_px)
 	var gain := (pixels / ref) * heat_per_100px * dirt_rate_multiplier

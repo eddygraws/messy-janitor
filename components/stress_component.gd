@@ -17,6 +17,8 @@ var current_stress: float = 0.0
 var _exploded: bool = false
 var _in_panic: bool = false
 var mistake_multiplier: float = 1.0   # Riskli Temizlik modu bunu yükseltir
+## Tutorial L1: 0.2 gibi düşük tut — sistem var ama cezalandırmaz
+var gain_scale: float = 1.0
 
 
 func register_mistake() -> void:
@@ -31,7 +33,7 @@ func add_stress(amount: float) -> void:
 		return
 
 	var before := current_stress
-	current_stress = minf(max_stress, current_stress + amount)
+	current_stress = minf(max_stress, current_stress + amount * gain_scale)
 	stress_changed.emit(current_stress, max_stress)
 	_update_panic()
 

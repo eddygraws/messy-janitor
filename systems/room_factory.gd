@@ -9,7 +9,7 @@ const ROAM_SLIME_SCRIPT := preload("res://components/roaming_slime.gd")
 
 const MIN_DIST := RoomSpawnBounds.MIN_DIST
 ## Kir görseli büyüdü — tıklama kutusu aynı oranda
-const HITBOX_SCALE := 1.7
+const HITBOX_SCALE := 3.4
 
 const DEFAULT_BG := Color(0.58, 0.64, 0.62)
 
@@ -29,7 +29,8 @@ static func build_room(spec: Dictionary, index: int) -> Node2D:
 	room.add_to_group("Room")
 
 	var bg_color: Color = spec.get("bg", DEFAULT_BG)
-	RoomSpawnBounds.add_isometric_shell(room, bg_color)
+	var bg_path := String(spec.get("background", ""))
+	RoomSpawnBounds.add_isometric_shell(room, bg_color, bg_path)
 
 	var label_text := String(spec.get("label", ""))
 	if label_text != "":
@@ -78,6 +79,8 @@ static func build_room(spec: Dictionary, index: int) -> Node2D:
 
 	room.set_meta("tutorial", String(spec.get("tutorial", "")))
 	room.set_meta("commission", spec.get("commission", {}))
+	room.set_meta("allow_junk", bool(spec.get("allow_junk", false)))
+	room.set_meta("force_mop_dirty", bool(spec.get("force_mop_dirty", false)))
 	return room
 
 

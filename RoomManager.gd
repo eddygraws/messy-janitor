@@ -20,6 +20,7 @@ enum Mode { ADVENTURE, ENDLESS }
 @export var tempo_path: NodePath = ^"../TempoDirector"
 @export var commission_path: NodePath = ^"../CommissionDirector"
 @export var run_modifier_path: NodePath = ^"../RunModifierDirector"
+@export var mop_path: NodePath = ^"../MopComponent"
 
 @export var viewport_height: float = 1080.0
 @export var slide_duration: float = 1.15
@@ -47,6 +48,7 @@ var _equipment: EquipmentComponent
 var _tempo: TempoDirector
 var _commission: CommissionDirector
 var _run_modifiers: RunModifierDirector
+var _mop: MopComponent
 
 
 func _ready() -> void:
@@ -60,6 +62,7 @@ func _ready() -> void:
 	_tempo = get_node_or_null(tempo_path) as TempoDirector
 	_commission = get_node_or_null(commission_path) as CommissionDirector
 	_run_modifiers = get_node_or_null(run_modifier_path) as RunModifierDirector
+	_mop = get_node_or_null(mop_path) as MopComponent
 
 	# Güvenlik: RoomManager altına yanlışlıkla eklenmiş "Room" çocuklarını temizle.
 	# Odalar seviye sahnelerinden (Adventure) veya EndlessGenerator'dan gelir.
@@ -111,12 +114,13 @@ func _reset_run_stats() -> void:
 func _begin_adventure() -> void:
 	_load_level(current_level_index)
 	_apply_level_equipment()
+	_apply_survival_tuning()
 	_current_room_node = get_current_room()
 
 	_transitioning = true
-	if _commission != null:
-		var info := _level_info()
-		await _commission.present_level_intro(info)
+	# Tutorial L1: seviye kartı atlanır — Kuzen komisyonu oda 1'de gelir.
+	if _commission != null and not LevelData.is_tutorial_level(current_level_index):
+		await _commission.present_level_intro(_level_info())
 	await _enter_room_present()
 	_transitioning = false
 	_score_tracker.begin_room()
@@ -163,6 +167,8 @@ func _enter_room_present() -> void:
 	var room := get_current_room()
 	if room == null:
 		return
+	if bool(room.get_meta("force_mop_dirty", false)) and _mop != null:
+		_mop.force_dirty(1.0)
 	var tutorial := ""
 	if room.has_meta("tutorial"):
 		tutorial = String(room.get_meta("tutorial"))
@@ -180,6 +186,7 @@ func _enter_room_present() -> void:
 # ---------------------------------------------------------------------------
 
 func _begin_endless() -> void:
+	_apply_survival_tuning()
 	total_rooms = -1
 	if _level_node != null and is_instance_valid(_level_node):
 		_level_node.queue_free()
@@ -344,9 +351,33 @@ func _start_room_transition() -> void:
 
 func _finish_level() -> void:
 	var average := _level_total_score / maxi(_rooms_cleared, 1)
+	# Hikâye önce — skor kartı diyalogu ezmesin
+	if LevelData.is_tutorial_level(current_level_index) and _commission != null:
+		await _present_tutorial_outro()
 	await _feedback_ui.show_level_summary(_level_total_score, average, _rooms_cleared)
+	_apply_survival_tuning(true)
 	_transitioning = false
 	level_completed.emit(_level_total_score, average)
+
+
+func _present_tutorial_outro() -> void:
+	await _commission.present_dialogue(
+		"Kuzen Marv", "🧰", "Teşekkürler!",
+		"Vay be, süpersin! Garaj pırıl pırıl — abur cubur stokumu da... ehem, görmedin diyelim. Bak, arkadaşım bir gargoyle tanıyor, onun da yardıma ihtiyacı varmış."
+	)
+	await _commission.present_dialogue(
+		"Remzi", "🧹", "(iç ses)",
+		"Paspası durulamayı öğrendim, cipse hayır demeyi... henüz öğrenmedim. Gargoyle'lar mı? Tamam. Asıl iş başlıyor."
+	)
+
+
+func _apply_survival_tuning(force_normal: bool = false) -> void:
+	var soft := (not force_normal) and mode == Mode.ADVENTURE and LevelData.is_tutorial_level(current_level_index)
+	if _stress != null:
+		_stress.gain_scale = 0.18 if soft else 1.0
+	if _stamina != null:
+		_stamina.drain_scale = 0.28 if soft else 1.0
+		_stamina.regen_scale = 1.8 if soft else 1.0
 
 
 func _animate_to_next_room() -> void:

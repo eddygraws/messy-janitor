@@ -20,9 +20,14 @@ func build_rooms(viewport_height: float) -> Array[Node2D]:
 			_rooms.append(child)
 
 	if _rooms.is_empty():
-		var specs: Array = get_level_info().get("rooms", [])
+		var info := get_level_info()
+		var level_bg := String(info.get("background", ""))
+		var specs: Array = info.get("rooms", [])
 		for i in specs.size():
-			var room := RoomFactory.build_room(specs[i], i)
+			var spec: Dictionary = (specs[i] as Dictionary).duplicate(true)
+			if not spec.has("background") and level_bg != "":
+				spec["background"] = level_bg
+			var room := RoomFactory.build_room(spec, i)
 			add_child(room)
 			_rooms.append(room)
 

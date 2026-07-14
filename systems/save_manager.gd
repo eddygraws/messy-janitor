@@ -16,6 +16,7 @@ var data := {
 	"runs_played": 0,
 	"highest_level_unlocked": 1,   # 1..10 (1 = sadece 1. seviye açık)
 	"level_best": {},              # {"0": skor, "1": skor, ...}
+	"intro_seen": false,
 }
 
 
@@ -93,11 +94,12 @@ func record_level_complete(level_index: int, score: int, max_combo: int) -> Arra
 
 	# Sonraki seviyeyi aç (1 tabanlı sayı).
 	var next_level := level_index + 2
-	if next_level > int(data["highest_level_unlocked"]) and next_level <= 10:
+	var max_level := LevelData.level_count()
+	if next_level > int(data["highest_level_unlocked"]) and next_level <= max_level:
 		data["highest_level_unlocked"] = next_level
 		records.append("🔓 Seviye %d açıldı!" % next_level)
 
-	if level_index >= 9:
+	if level_index >= max_level - 1:
 		data["adventure_cleared"] = true
 
 	_save()
@@ -138,3 +140,12 @@ func get_best_combo() -> int:
 
 func has_any_record() -> bool:
 	return int(data["runs_played"]) > 0
+
+
+func has_seen_intro() -> bool:
+	return bool(data.get("intro_seen", false))
+
+
+func mark_intro_seen() -> void:
+	data["intro_seen"] = true
+	_save()

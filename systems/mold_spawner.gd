@@ -4,7 +4,7 @@ extends Node
 @export var room_manager_path: NodePath = ^"../RoomManager"
 @export var tempo_path: NodePath = ^"../TempoDirector"
 @export var max_spread_per_room: int = 6
-@export var mold_hitbox: Vector2 = Vector2(161, 136)
+@export var mold_hitbox: Vector2 = Vector2(322, 272)
 @export var child_spread_time: float = 6.5      # yayılan küfün tekrar yayılma süresi
 @export var min_gap: float = 120.0              # diğer objelerle min mesafe
 
@@ -59,6 +59,10 @@ func _on_spread(origin: Vector2) -> void:
 	if _room_manager == null:
 		return
 	if _room_manager.has_method("is_transitioning") and _room_manager.is_transitioning():
+		return
+	if _room_manager.has_method("get_mode") and _room_manager.has_method("get_level_index") \
+			and int(_room_manager.get_mode()) == 0 \
+			and LevelData.is_tutorial_level(int(_room_manager.get_level_index())):
 		return
 	# Sadece ekranda görünen (aktif odadaki) küfler yayılabilir.
 	if origin.y < 0.0 or origin.y > 1080.0 or origin.x < 0.0 or origin.x > 1920.0:

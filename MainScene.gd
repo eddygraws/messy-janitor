@@ -118,7 +118,16 @@ func _enter_playing_state() -> void:
 func _on_mode_selected(mode: int) -> void:
 	_reset_run_timer_state()
 	if mode == 0:
-		# Macera: seviye seçim ekranını aç.
+		# İlk macera: intro → doğrudan Level 1 (seviye seçim yok).
+		if _save != null and not _save.has_seen_intro():
+			_screens.hide_start()
+			await _screens.play_intro()
+			_save.mark_intro_seen()
+			_screens.hide_level_select()
+			_enter_playing_state()
+			await _room_manager.start_adventure_level(0)
+			_update_room_counter()
+			return
 		_screens.show_level_select(_save.get_highest_unlocked(), _level_best_array())
 	else:
 		_screens.hide_start()
@@ -131,7 +140,7 @@ func _on_level_selected(idx: int) -> void:
 	_reset_run_timer_state()
 	_screens.hide_level_select()
 	_enter_playing_state()
-	_room_manager.start_adventure_level(idx)
+	await _room_manager.start_adventure_level(idx)
 	_update_room_counter()
 
 
@@ -286,7 +295,8 @@ func _build_over_info(records: Array[String]) -> String:
 
 
 func _build_all_clear_info(total: int, records: Array[String]) -> String:
-	var line := "TÜM 10 SEVİYE TAMAMLANDI!\nSon seviye: %d puan · En yüksek combo x%d" % [
+	var line := "TÜM %d SEVİYE TAMAMLANDI!\nSon seviye: %d puan · En yüksek combo x%d" % [
+		LevelData.level_count(),
 		total, _room_manager.get_run_max_combo()
 	]
 	return line + _records_or_best(records)

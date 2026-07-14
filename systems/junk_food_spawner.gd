@@ -61,6 +61,17 @@ func _is_blocked() -> bool:
 		return true
 	if _room_manager != null and _room_manager.is_transitioning():
 		return true
+	# Tutorial: sadece allow_junk meta'sı olan odalarda spawn
+	if _room_manager != null \
+			and _room_manager.has_method("get_mode") \
+			and _room_manager.has_method("get_level_index") \
+			and int(_room_manager.get_mode()) == 0 \
+			and LevelData.is_tutorial_level(int(_room_manager.get_level_index())):
+		var room: Node = null
+		if _room_manager.has_method("get_current_room"):
+			room = _room_manager.get_current_room()
+		if room == null or not bool(room.get_meta("allow_junk", false)):
+			return true
 	return false
 
 

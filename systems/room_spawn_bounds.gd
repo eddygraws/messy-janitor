@@ -5,10 +5,11 @@ extends RefCounted
 ## Katman: arcade karo shader (en arka) → contact shadow → custom oda sprite.
 
 const VIEWPORT := Vector2i(1920, 1080)
-const MIN_DIST := 210.0
+const MIN_DIST := 280.0
 const DRAIN_POS := Vector2(720, 740)
 const TRASH_POS := Vector2(1180, 740)
 const BACKGROUND_PATH := "res://assets/potion-shop.png"
+const GARAGE_BACKGROUND_PATH := "res://assets/garage-background.png"
 const ARCADE_SHADER := preload("res://shaders/arcade_tile_bg.gdshader")
 const SHADOW_SHADER := preload("res://shaders/room_contact_shadow.gdshader")
 const ALPHA_THRESHOLD := 0.35
@@ -16,25 +17,27 @@ const VOID_LUMA_MAX := 0.12
 
 ## HUD altında leke spawn olmasın (ekran uzayı, 1920x1080).
 const UI_BLOCK_ZONES: Array[Rect2] = [
-	Rect2(0, 0, 360, 170),       # stamina / mop bars
-	Rect2(600, 0, 720, 100),     # objective
-	Rect2(1540, 0, 380, 110),    # room / time
-	Rect2(0, 740, 360, 340),     # portrait dock
-	Rect2(540, 940, 840, 140),   # equipment bar
+	Rect2(0, 0, 360, 170),
+	Rect2(600, 0, 720, 100),
+	Rect2(1540, 0, 380, 110),
+	Rect2(0, 740, 360, 340),
+	Rect2(540, 940, 840, 140),
 ]
 
+## path -> { "mask": Image, "size": Vector2i, "cache": PackedVector2Array }
+static var _mask_bank: Dictionary = {}
+static var _active_path: String = ""
 static var _mask: Image = null
 static var _mask_size: Vector2i = Vector2i.ZERO
 static var _opaque_cache: PackedVector2Array = PackedVector2Array()
 
 
 static func random_point(placed: Array[Vector2], min_dist: float = MIN_DIST, max_tries: int = 40) -> Vector2:
-	_ensure_mask()
+	_ensure_mask(_active_path if _active_path != "" else BACKGROUND_PATH)
 	for _try in max_tries:
 		var p := _random_opaque_point()
 		if _is_clear(p, placed, min_dist) and is_on_surface(p):
 			return p
-	# Son çare: UI dışı opak nokta
 	for _try2 in 24:
 		var p2 := _random_opaque_point()
 		if is_on_surface(p2):
@@ -46,10 +49,10 @@ static func random_near(
 	origin: Vector2,
 	radius: Vector2,
 	placed: Array[Vector2],
-	min_dist: float = 120.0,
+	min_dist: float = 140.0,
 	max_tries: int = 18,
 ) -> Vector2:
-	_ensure_mask()
+	_ensure_mask(_active_path if _active_path != "" else BACKGROUND_PATH)
 	for _try in max_tries:
 		var offset := Vector2(randf_range(-radius.x, radius.x), randf_range(-radius.y, radius.y))
 		var p := origin + offset
@@ -59,7 +62,7 @@ static func random_near(
 
 
 static func is_on_surface(p: Vector2) -> bool:
-	_ensure_mask()
+	_ensure_mask(_active_path if _active_path != "" else BACKGROUND_PATH)
 	if p.x < 0.0 or p.y < 0.0 or p.x >= VIEWPORT.x or p.y >= VIEWPORT.y:
 		return false
 	if _is_in_ui_zone(p):
@@ -77,7 +80,7 @@ static func is_on_surface(p: Vector2) -> bool:
 
 
 static func snap_to_surface(preferred: Vector2) -> Vector2:
-	_ensure_mask()
+	_ensure_mask(_active_path if _active_path != "" else BACKGROUND_PATH)
 	if is_on_surface(preferred):
 		return preferred
 	if _opaque_cache.is_empty():
@@ -95,16 +98,22 @@ static func snap_to_surface(preferred: Vector2) -> Vector2:
 
 
 static func depth_z(y: float) -> int:
-	# Oda sprite (-10) ve shadow'un net üstünde kalsın
 	return clampi(int((y / 1080.0) * 7.0) + 4, 4, 12)
 
 
-static func add_isometric_shell(room: Node2D, floor_color: Color = Color(0.58, 0.64, 0.62)) -> void:
-	_ensure_mask()
+static func add_isometric_shell(
+	room: Node2D,
+	floor_color: Color = Color(0.58, 0.64, 0.62),
+	background_path: String = "",
+) -> void:
+	var path := background_path
+	if path == "":
+		path = BACKGROUND_PATH
+	_ensure_mask(path)
 	_add_arcade_tile_backdrop(room, floor_color)
 
-	if ResourceLoader.exists(BACKGROUND_PATH):
-		var tex := load(BACKGROUND_PATH) as Texture2D
+	if ResourceLoader.exists(path):
+		var tex := load(path) as Texture2D
 		if tex != null:
 			_add_room_contact_shadow(room)
 			var spr := Sprite2D.new()
@@ -190,25 +199,45 @@ static func _add_legacy_shell(room: Node2D, floor_color: Color) -> void:
 	room.add_child(floor_poly)
 
 
-static func _ensure_mask() -> void:
-	if _mask != null:
+static func _ensure_mask(path: String) -> void:
+	if path == "":
+		path = BACKGROUND_PATH
+	if _active_path == path and _mask != null:
 		return
-	if not ResourceLoader.exists(BACKGROUND_PATH):
+	if _mask_bank.has(path):
+		var entry: Dictionary = _mask_bank[path]
+		_mask = entry["mask"]
+		_mask_size = entry["size"]
+		_opaque_cache = entry["cache"]
+		_active_path = path
 		return
-	var tex := load(BACKGROUND_PATH) as Texture2D
+	if not ResourceLoader.exists(path):
+		push_warning("RoomSpawnBounds: arkaplan yok: %s" % path)
+		_mask = null
+		_mask_size = Vector2i.ZERO
+		_opaque_cache = PackedVector2Array()
+		_active_path = path
+		return
+	var tex := load(path) as Texture2D
 	if tex == null:
 		return
 	var img := tex.get_image()
 	if img == null:
 		img = Image.new()
-		if img.load(BACKGROUND_PATH) != OK:
-			push_warning("RoomSpawnBounds: potion-shop mask yüklenemedi")
+		if img.load(path) != OK:
+			push_warning("RoomSpawnBounds: mask yüklenemedi: %s" % path)
 			return
 	if img.is_compressed():
 		img.decompress()
 	_mask = img.duplicate()
 	_mask_size = Vector2i(_mask.get_width(), _mask.get_height())
+	_active_path = path
 	_build_opaque_cache()
+	_mask_bank[path] = {
+		"mask": _mask,
+		"size": _mask_size,
+		"cache": _opaque_cache,
+	}
 
 
 static func _build_opaque_cache() -> void:
@@ -234,7 +263,7 @@ static func _random_opaque_point() -> Vector2:
 	if _opaque_cache.size() > 0:
 		var base: Vector2 = _opaque_cache[randi() % _opaque_cache.size()]
 		for _j in 6:
-			var jittered := base + Vector2(randf_range(-10.0, 10.0), randf_range(-10.0, 10.0))
+			var jittered := base + Vector2(randf_range(-12.0, 12.0), randf_range(-12.0, 12.0))
 			if is_on_surface(jittered):
 				return jittered
 		return base
