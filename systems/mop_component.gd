@@ -128,6 +128,22 @@ func get_charge() -> float:
 	return charge
 
 
+## Powerup: paspası anında durula.
+func force_rinse() -> void:
+	var before := charge
+	charge = 0.0
+	if _overheated:
+		_overheated = false
+		if _bucket != null and _bucket.has_method("set_ready_glow"):
+			_bucket.set_ready_glow(false)
+	charge_changed.emit(0.0)
+	_refresh_bucket()
+	if before > 0.0:
+		if _stamina != null:
+			_stamina.restore(reload_stamina_bonus * 0.5)
+		rinsed.emit()
+
+
 func _resolved_good_clean_ratio() -> float:
 	var ratio := skill_good_clean_ratio
 	if _modifiers != null:

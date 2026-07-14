@@ -10,8 +10,8 @@ signal time_expired
 @export var room_manager_path: NodePath = ^"../RoomManager"
 @export var modifier_path: NodePath = ^"../RunModifierDirector"
 
-@export var adventure_start: float = 240.0
-@export var endless_start: float = 300.0
+@export var adventure_start: float = 360.0
+@export var endless_start: float = 320.0
 @export var clean_bonus: float = 2.5
 @export var combo_milestone_bonus: float = 6.0
 @export var mistake_penalty: float = 5.0

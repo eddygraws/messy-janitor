@@ -25,6 +25,7 @@ extends Node2D
 @onready var _skill_check: MopSkillCheckDirector = $MopSkillCheckDirector
 @onready var _run_modifiers: RunModifierDirector = $RunModifierDirector
 @onready var _post_process: PostProcessDirector = $PostProcessDirector
+@onready var _powerups: ComboPowerupDirector = $ComboPowerupDirector
 @onready var _bucket_glow: Sprite2D = $WorldLayer/MopBucket/Glow
 
 var _timer_started: bool = false
@@ -45,6 +46,8 @@ func _ready() -> void:
 	_combo.combo_changed.connect(_on_combo_changed)
 	_combo.combo_milestone.connect(_on_combo_milestone)
 	_on_combo_changed(0)
+	if _powerups != null:
+		_powerups.powerup_triggered.connect(_on_powerup_triggered)
 	_tempo.climax_entered.connect(_on_climax_entered)
 	_tempo.climax_exited.connect(_on_climax_exited)
 	_risk.risk_changed.connect(_on_risk_changed)
@@ -162,7 +165,7 @@ func _on_pause_main_menu() -> void:
 
 func _level_best_array() -> Array:
 	var arr: Array = []
-	for i in 10:
+	for i in LevelData.level_count():
 		arr.append(_save.get_level_best(i) if _save != null else 0)
 	return arr
 
@@ -355,6 +358,18 @@ func _on_combo_milestone(combo: int) -> void:
 	var tween := create_tween()
 	tween.tween_property(_combo_label, "scale", Vector2.ONE, 0.28)\
 		.set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+
+
+func _on_powerup_triggered(_kind: StringName, title: String) -> void:
+	if _combo_label == null:
+		return
+	_combo_label.text = title
+	_combo_label.modulate = Color(0.55, 0.95, 1.0)
+	_combo_label.scale = Vector2(1.55, 1.55)
+	_combo_label.pivot_offset = _combo_label.size * 0.5
+	var tween := create_tween()
+	tween.tween_property(_combo_label, "scale", Vector2.ONE, 0.35)\
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 var _climax_active: bool = false

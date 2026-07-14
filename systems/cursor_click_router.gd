@@ -223,6 +223,9 @@ func _handle_press(pos: Vector2) -> void:
 	# Sürüklenebilir: slime (paspas) / süpürülen çöp (süpürge)
 	var drag := _query_draggable(pos)
 	if drag != null:
+		# Miniboss henüz küçülmediyse sürüklenemez
+		if drag.has_method("is_capturable") and not bool(drag.call("is_capturable")):
+			return
 		if int(drag.get("required_equipment")) == eq:
 			_dragging = drag
 			on_drag_start.emit(drag.global_position)

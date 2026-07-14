@@ -140,7 +140,7 @@ func _build_level_buttons(unlocked: int, best_scores: Array) -> void:
 	for child in _level_grid.get_children():
 		child.queue_free()
 
-	for i in 10:
+	for i in LevelData.level_count():
 		var level_num := i + 1
 		var is_unlocked := level_num <= unlocked
 		var btn := Button.new()

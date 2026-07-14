@@ -34,6 +34,7 @@
 [ext_resource type="Script" uid="uid://wbhdio03m6n3" path="res://ui/draft_card_ui.gd" id="34_draft"]
 [ext_resource type="Script" uid="uid://dxtrowymkl4kg" path="res://ui/active_cards_strip.gd" id="35_strip"]
 [ext_resource type="Script" uid="uid://baf21yl1g0yx4" path="res://ui/post_process_director.gd" id="36_post"]
+[ext_resource type="Script" uid="uid://hpog8felywrj" path="res://systems/combo_powerup_director.gd" id="37_power"]
 
 [node name="Main" type="Node2D" unique_id=1997389448]
 script = ExtResource("1_main")
@@ -120,6 +121,9 @@ script = ExtResource("31_skill")
 [node name="RunModifierDirector" type="Node" parent="." unique_id=742815099]
 script = ExtResource("33_mods")
 
+[node name="ComboPowerupDirector" type="Node" parent="." unique_id=742815101]
+script = ExtResource("37_power")
+
 [node name="PostProcessDirector" type="CanvasLayer" parent="." unique_id=742815100]
 script = ExtResource("36_post")
 
@@ -129,7 +133,8 @@ child_spread_time = 3.5
 mold_color = Color(0.83720696, 0.2759009, 0.23884636, 1)
 
 [node name="TiredCursor" type="Node2D" parent="." unique_id=1908703759 groups=["PlayerCursor"]]
-z_index = 10
+z_index = 20
+z_as_relative = false
 script = ExtResource("3_cursor")
 
 [node name="RoomManager" type="Node2D" parent="." unique_id=559059836 groups=["RoomManagerGroup"]]

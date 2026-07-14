@@ -37,9 +37,5 @@ func is_over_target() -> bool:
 func deliver() -> void:
 	if is_cleaned():
 		return
+	# _finish_clean zaten fade + queue_free yapar.
 	_finish_clean()
-	var tween := create_tween()
-	tween.tween_property(self, "scale", Vector2(0.2, 0.2), 0.18)\
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
-	tween.parallel().tween_property(self, "modulate:a", 0.0, 0.18)
-	tween.tween_callback(queue_free)

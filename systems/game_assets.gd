@@ -4,6 +4,29 @@ extends RefCounted
 ## Kendi PNG'lerini `res://assets/tools/` altına koy — dosya yoksa renkli placeholder kullanılır.
 
 const TOOL_DIR := "res://assets/tools/"
+const ASSET_DIR := "res://assets/"
+
+# Dosya adı farklıysa buradan eşleştir (senin asset isimlerin dahil)
+const DIRT_ALIASES: Dictionary = {
+	"stain": ["dirt_stain.png", "dust_stain.png"],
+	"scrub": ["dirt_scrub.png", "dust-export.png", "dust-export2.png", "dust-export3.png"],
+	"hidden": ["dirt_hidden.png", "dust-export3.png"],
+	"slime": ["dirt_slime.png"],
+	"slime_boss": ["dirt_slime.png"],
+	"slime_trail": ["dirt_slime.png", "dirt_scrub.png"],
+	"potion": ["dirt_potion.png", "dirt_hidden.png", "dust_stain.png", "dirt_scrub.png"],
+	"broom": ["dirt_crumbs.png"],
+	"brush": ["dirt_brush.png"],
+	"spray": ["dirt_spray.png"],
+	"tweezers": ["dirt_tweezers.png"],
+	"fragile": ["dirt_fragile.png"],
+	"mold": ["dirt_mold.png", "dust-export2.png"],
+	"mop_fragile": ["dirt_fragile.png"],
+	"mop_mold": ["dirt_mold.png", "dust-export2.png"],
+	"mop_stain": ["dirt_scrub.png", "dust-export.png"],
+}
+
+const DIRT_GLOBAL_SCALE := 0.125
 
 # Eski / alternatif konumlar (assets/ kökündeki dosyalar da okunur)
 const LEGACY_EQUIPMENT: Array[String] = [
@@ -47,6 +70,9 @@ const DIRT_FILES: Dictionary = {
 	"scrub": "dirt_scrub.png",
 	"hidden": "dirt_hidden.png",
 	"slime": "dirt_slime.png",
+	"slime_boss": "dirt_slime.png",
+	"slime_trail": "dirt_slime.png",
+	"potion": "dirt_potion.png",
 	"broom": "dirt_crumbs.png",
 	"brush": "dirt_brush.png",
 	"spray": "dirt_spray.png",
@@ -63,6 +89,9 @@ const DIRT_SCALES: Dictionary = {
 	"scrub": 1.0,
 	"hidden": 0.95,
 	"slime": 0.8,
+	"slime_boss": 1.2,
+	"slime_trail": 0.55,
+	"potion": 1.05,
 	"broom": 0.75,
 	"brush": 0.95,
 	"spray": 1.15,
@@ -79,6 +108,9 @@ const DIRT_FALLBACK: Dictionary = {
 	"scrub": Color(0.45, 0.3, 0.2),
 	"hidden": Color(0.5, 0.35, 0.6),
 	"slime": Color(0.35, 0.7, 0.42),
+	"slime_boss": Color(0.25, 0.9, 0.45),
+	"slime_trail": Color(0.4, 0.75, 0.48),
+	"potion": Color(0.7, 0.3, 0.9),
 	"broom": Color(0.6, 0.48, 0.3),
 	"brush": Color(0.3, 0.28, 0.24),
 	"spray": Color(0.55, 0.75, 0.9),
@@ -95,10 +127,13 @@ static var _cache: Dictionary = {}
 
 static func get_cursor_texture(equipment_type: int) -> Texture2D:
 	var idx := clampi(equipment_type, 0, CURSOR_FILES.size() - 1)
-	return _load_first([
+	var paths: Array[String] = [
 		TOOL_DIR + CURSOR_FILES[idx],
-		LEGACY_EQUIPMENT[idx],
-	], CURSOR_FALLBACK_COLOR(idx), Vector2i(96, 96))
+		ASSET_DIR + CURSOR_FILES[idx],
+	]
+	if LEGACY_EQUIPMENT[idx] != "":
+		paths.append(LEGACY_EQUIPMENT[idx])
+	return _load_first(paths, CURSOR_FALLBACK_COLOR(idx), Vector2i(96, 96))
 
 
 static func get_cursor_offset(equipment_type: int) -> Vector2:
@@ -113,20 +148,27 @@ static func get_cursor_scale(equipment_type: int) -> float:
 
 static func get_equipment_icon(equipment_type: int) -> Texture2D:
 	var idx := clampi(equipment_type, 0, ICON_FILES.size() - 1)
-	return _load_first([
+	var paths: Array[String] = [
 		TOOL_DIR + ICON_FILES[idx],
-		LEGACY_EQUIPMENT[idx],
-	], EquipmentComponent.COLORS[idx], Vector2i(48, 48))
+		ASSET_DIR + ICON_FILES[idx],
+	]
+	if LEGACY_EQUIPMENT[idx] != "":
+		paths.append(LEGACY_EQUIPMENT[idx])
+	return _load_first(paths, EquipmentComponent.COLORS[idx], Vector2i(48, 48))
 
 
 static func get_dirt_texture(dirt_type: String) -> Texture2D:
-	var file: String = DIRT_FILES.get(dirt_type, "dirt_scrub.png")
 	var fallback: Color = DIRT_FALLBACK.get(dirt_type, Color(0.45, 0.35, 0.28))
-	return _load(TOOL_DIR + file, fallback, Vector2i(128, 128))
+	var names: Array = DIRT_ALIASES.get(dirt_type, [DIRT_FILES.get(dirt_type, "dirt_scrub.png")])
+	var paths: Array[String] = []
+	for file_name in names:
+		paths.append(TOOL_DIR + String(file_name))
+		paths.append(ASSET_DIR + String(file_name))
+	return _load_first(paths, fallback, Vector2i(128, 128))
 
 
 static func get_dirt_scale(dirt_type: String) -> float:
-	return float(DIRT_SCALES.get(dirt_type, 1.0))
+	return float(DIRT_SCALES.get(dirt_type, 1.0)) * DIRT_GLOBAL_SCALE
 
 
 static func get_bucket_body() -> Texture2D:

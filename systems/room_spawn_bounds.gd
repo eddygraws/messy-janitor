@@ -40,7 +40,8 @@ static func is_on_surface(p: Vector2) -> bool:
 
 
 static func depth_z(y: float) -> int:
-	return clampi(int(y), 1, 900)
+	# İmleç z_index=10; kirler her zaman altında kalsın (1..8).
+	return clampi(int((y / 1080.0) * 7.0) + 1, 1, 8)
 
 
 static func add_isometric_shell(room: Node2D, floor_color: Color = Color(0.58, 0.64, 0.62)) -> void:
@@ -115,7 +116,7 @@ static func _add_room_props(room: Node2D) -> void:
 	shelf.polygon = PackedVector2Array([
 		Vector2(548, 468), Vector2(612, 448), Vector2(618, 760), Vector2(554, 780),
 	])
-	shelf.z_index = 40
+	shelf.z_index = 2
 	room.add_child(shelf)
 
 	for y in [500, 580, 660, 740]:
@@ -124,7 +125,7 @@ static func _add_room_props(room: Node2D) -> void:
 		plank.polygon = PackedVector2Array([
 			Vector2(548, y), Vector2(612, y - 14), Vector2(612, y - 4), Vector2(548, y + 10),
 		])
-		plank.z_index = 41
+		plank.z_index = 3
 		room.add_child(plank)
 
 	var door := Polygon2D.new()
@@ -132,7 +133,7 @@ static func _add_room_props(room: Node2D) -> void:
 	door.polygon = PackedVector2Array([
 		Vector2(1180, 468), Vector2(1360, 420), Vector2(1360, 760), Vector2(1180, 808),
 	])
-	door.z_index = 40
+	door.z_index = 2
 	room.add_child(door)
 
 	for i in 6:
@@ -143,7 +144,7 @@ static func _add_room_props(room: Node2D) -> void:
 			Vector2(1190, slat_y), Vector2(1350, slat_y - 10),
 			Vector2(1350, slat_y + 6), Vector2(1190, slat_y + 16),
 		])
-		slat.z_index = 41
+		slat.z_index = 3
 		room.add_child(slat)
 
 

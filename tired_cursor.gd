@@ -13,6 +13,8 @@ signal cursor_clicked(position: Vector2)
 @export var noise_frequency: float = 3.0
 @export var panic_shake_multiplier: float = 2.4
 @export var panic_freq_multiplier: float = 1.8
+@export var drunk_decay: float = 0.22
+@export var max_drunk: float = 1.0
 
 var _stamina: StaminaComponent
 var _stress: StressComponent
@@ -23,6 +25,28 @@ var _crosshair: Sprite2D
 var _noise := FastNoiseLite.new()
 var _time: float = 0.0
 var _panic: bool = false
+var _drunk: float = 0.0
+var _antidote_timer: float = 0.0
+
+
+func add_drunk(amount: float) -> void:
+	if _antidote_timer > 0.0:
+		return
+	_drunk = minf(max_drunk, _drunk + amount)
+	if _tool_sprite != null:
+		_tool_sprite.modulate = Color(0.75, 0.55, 1.0).lerp(Color.WHITE, 1.0 - _drunk)
+
+
+func clear_drunk() -> void:
+	_drunk = 0.0
+	if _tool_sprite != null:
+		_tool_sprite.modulate = Color.WHITE
+		_tool_sprite.rotation = 0.0
+
+
+func grant_antidote(seconds: float) -> void:
+	_antidote_timer = maxf(_antidote_timer, seconds)
+	clear_drunk()
 
 
 func _ready() -> void:
@@ -46,9 +70,13 @@ func _setup_sprites() -> void:
 	for child in get_children():
 		child.queue_free()
 
+	z_as_relative = false
+	z_index = 20
+
 	_tool_sprite = Sprite2D.new()
 	_tool_sprite.name = "ToolSprite"
 	_tool_sprite.centered = true
+	_tool_sprite.z_as_relative = true
 	_tool_sprite.z_index = 0
 	add_child(_tool_sprite)
 
@@ -56,6 +84,7 @@ func _setup_sprites() -> void:
 	_crosshair.name = "Crosshair"
 	_crosshair.centered = true
 	_crosshair.texture = GameAssets.get_crosshair()
+	_crosshair.z_as_relative = true
 	_crosshair.z_index = 1
 	add_child(_crosshair)
 
@@ -75,13 +104,29 @@ func _on_equipment_changed(type: int) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	if _antidote_timer > 0.0:
+		_antidote_timer = maxf(0.0, _antidote_timer - delta)
+	if _drunk > 0.0:
+		_drunk = maxf(0.0, _drunk - drunk_decay * delta)
+		if _tool_sprite != null:
+			_tool_sprite.modulate = Color(0.75, 0.55, 1.0).lerp(Color.WHITE, 1.0 - _drunk)
 
 	var target := _get_world_mouse_pos()
 	var control := _stamina.get_control_factor() if _stamina else 1.0
 	if _mop != null:
 		var charge := _mop.get_charge()
 		control *= lerpf(1.0, dirty_control_penalty, pow(charge, 1.45))
+	# İksir sarhoşluğu: takip gecikir, kontrol bozulur
+	control *= lerpf(1.0, 0.28, _drunk)
 	var lag := lerpf(3.0, 20.0, 1.0 - control)
+
+	# Sarhoşken hedef kayar (dalgalı ofset)
+	if _drunk > 0.05:
+		var sway := Vector2(
+			sin(_time * 2.8 + _drunk * 4.0) * (18.0 + _drunk * 42.0),
+			cos(_time * 2.1) * (12.0 + _drunk * 28.0)
+		)
+		target += sway
 
 	global_position = global_position.lerp(target, lag * delta)
 
@@ -90,6 +135,8 @@ func _process(delta: float) -> void:
 	if _panic:
 		shake_strength *= panic_shake_multiplier
 		freq *= panic_freq_multiplier
+	shake_strength *= 1.0 + _drunk * 1.8
+	freq *= 1.0 + _drunk * 1.4
 
 	var shake := Vector2(
 		_noise.get_noise_2d(_time * freq, 0.0),
@@ -97,6 +144,12 @@ func _process(delta: float) -> void:
 	) * shake_strength
 
 	global_position += shake
+
+	if _tool_sprite != null and _drunk > 0.05:
+		_tool_sprite.rotation = sin(_time * 5.0) * _drunk * 0.35
+	elif _tool_sprite != null:
+		_tool_sprite.rotation = 0.0
+
 	cursor_moved.emit(global_position)
 
 

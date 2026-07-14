@@ -5,6 +5,7 @@ extends RefCounted
 # oda/kir üretim fabrikası. Kir tiplerini tek yerde tanımlar.
 
 const DRAG_SCRIPT := preload("res://components/draggable_cleanable.gd")
+const ROAM_SLIME_SCRIPT := preload("res://components/roaming_slime.gd")
 
 const MIN_DIST := RoomSpawnBounds.MIN_DIST
 
@@ -54,11 +55,14 @@ static func build_room(spec: Dictionary, index: int) -> Node2D:
 			var pos: Vector2 = fixed_pos if fixed_pos != null else free_pos(placed)
 			placed.append(pos)
 			var dirt := make_dirt(type, pos)
+			dirt.set_meta("dirt_type", type)
+			if "dirt_kind" in dirt:
+				dirt.set("dirt_kind", type)
 			dirt.z_index = RoomSpawnBounds.depth_z(pos.y)
 			room.add_child(dirt)
 			if type == "broom":
 				need_trashbin = true
-			elif type == "slime":
+			elif type == "slime" or type == "slime_boss":
 				need_drain = true
 
 	if need_trashbin:
@@ -112,6 +116,37 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			sl.position = pos
 			_add_dirt_visual(sl, "slime")
 			return sl
+		"slime_boss":
+			var boss: Node2D = ROAM_SLIME_SCRIPT.new()
+			boss.set("hitbox_size", Vector2(110, 96))
+			boss.set("required_equipment", 0)
+			boss.set("target_group", &"Drain")
+			boss.modulate = Color(0.35, 0.95, 0.55)
+			boss.position = pos
+			_add_dirt_visual(boss, "slime", Color(0.45, 1.0, 0.6))
+			return boss
+		"slime_trail":
+			var trail := CleanableObject.new()
+			trail.hitbox_size = Vector2(72, 56)
+			trail.requires_scrub = true
+			trail.scrub_move_factor = 0.0011
+			trail.modulate = Color(0.4, 0.8, 0.5, 0.9)
+			trail.position = pos
+			trail.add_to_group("SlimeTrail")
+			_add_dirt_visual(trail, "slime", Color(0.5, 0.9, 0.55, 0.85))
+			return trail
+		"potion":
+			var pot := CleanableObject.new()
+			pot.hitbox_size = Vector2(118, 100)
+			pot.requires_scrub = true
+			pot.scrub_move_factor = 0.00042
+			pot.reversal_bonus = 0.035
+			pot.applies_drunk = true
+			pot.drunk_on_scrub = 0.32
+			pot.modulate = Color(0.75, 0.35, 0.95)
+			pot.position = pos
+			_add_dirt_visual(pot, "potion", Color(0.85, 0.4, 1.0))
+			return pot
 		"broom":
 			var b: Node2D = DRAG_SCRIPT.new()
 			b.set("hitbox_size", Vector2(76, 76))
