@@ -535,7 +535,7 @@ offset_bottom = 200.0
 grow_horizontal = 2
 theme_override_colors/font_color = Color(0.6, 0.58, 0.7, 1)
 theme_override_font_sizes/font_size = 20
-text = "MACERA: 10 seviye (3-5 oda) · SONSUZ: skor avı  |  Aletler kademeli açılır · Risk: R"
+text = "MACERA: 11 seviye · SONSUZ: skor avı  |  Aletler kademeli açılır"
 horizontal_alignment = 1
 autowrap_mode = 2
 

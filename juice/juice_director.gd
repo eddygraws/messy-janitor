@@ -77,6 +77,7 @@ func _on_stress_exploded() -> void:
 
 func _on_object_cleaned(world_pos: Vector2) -> void:
 	_shake.shake(0.12)
+	# CLEAN burst içinde altın parıltı katmanı da var
 	_particles.spawn(ParticleBurst.BurstType.CLEAN, world_pos)
 
 

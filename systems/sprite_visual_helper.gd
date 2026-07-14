@@ -15,6 +15,7 @@ static func make_sprite(
 	spr.centered = true
 	spr.modulate = tint
 	spr.scale = Vector2.ONE * scale_factor
+	spr.material = null
 	if apply_grime:
 		spr.set_meta(GRIME_META, true)
 	return spr

@@ -10,6 +10,8 @@ signal risk_changed(active: bool)
 
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var toggle_action_keycode: int = KEY_R
+## Şimdilik rafa kalktı — R ile açılmaz.
+@export var enabled: bool = false
 
 @export var score_multiplier: float = 1.6      # oda puanına uygulanır
 @export var stress_multiplier: float = 1.6     # hataların stres cezası
@@ -22,9 +24,13 @@ var _active: bool = false
 
 func _ready() -> void:
 	_stress = get_node_or_null(stress_path) as StressComponent
+	if not enabled and _active:
+		set_active(false)
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not enabled:
+		return
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		if key.pressed and not key.echo and key.keycode == toggle_action_keycode:
@@ -32,6 +38,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func set_active(value: bool) -> void:
+	if not enabled:
+		value = false
 	if value == _active:
 		return
 	_active = value

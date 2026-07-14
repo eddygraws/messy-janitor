@@ -322,11 +322,11 @@ func _notify_room() -> void:
 
 
 func _setup_grime_shaders() -> void:
+	# Shader kapalı — orijinal sprite + alpha fade
 	_grime_materials.clear()
 	for child in get_children():
 		if child is CanvasItem and child.z_index >= 0 and _is_grime_target(child):
-			_grime_materials.append(GrimeShaderHelper.apply_to_canvas_item(child as CanvasItem))
-	_update_grime_dissolve()
+			(child as CanvasItem).material = null
 	_apply_highlight()
 
 
@@ -355,17 +355,8 @@ func _update_target_highlight(delta: float) -> void:
 
 
 func _apply_highlight() -> void:
-	var amount := 0.0
-	var pulse := 0.0
-	if not _is_clean and not _is_broken and not is_forbidden:
-		if not is_hidden or _in_range:
-			var fade := 1.0 - _scrub_progress * 0.65
-			if is_hidden:
-				fade *= _reveal_amount
-			amount = target_highlight * fade
-			pulse = (sin(_highlight_time) * 0.5 + 0.5) * amount
-	for mat in _grime_materials:
-		GrimeShaderHelper.set_highlight(mat, amount, pulse)
+	# Grime shader kapalı — ek highlight yok
+	pass
 
 
 # Alfayı hem temizlik ilerlemesine hem de (gizliyse) imleç aydınlatmasına göre ayarlar.

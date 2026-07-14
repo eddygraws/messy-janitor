@@ -3,10 +3,13 @@ extends Node2D
 signal cursor_moved(position: Vector2)
 signal cursor_clicked(position: Vector2)
 
+const MOP_SCRUB_SHADER := preload("res://shaders/mop_scrub.gdshader")
+
 @export var stamina_path: NodePath = ^"../StaminaComponent"
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var mop_path: NodePath = ^"../MopComponent"
 @export var equipment_path: NodePath = ^"../EquipmentComponent"
+@export var router_path: NodePath = ^"../CursorClickerRouter"
 @export var dirty_control_penalty: float = 0.38
 @export var follow_speed: float = 14.0
 @export var max_shake: float = 6.0
@@ -15,13 +18,17 @@ signal cursor_clicked(position: Vector2)
 @export var panic_freq_multiplier: float = 1.8
 @export var drunk_decay: float = 0.22
 @export var max_drunk: float = 1.0
+@export var scrub_fade_speed: float = 10.0
 
 var _stamina: StaminaComponent
 var _stress: StressComponent
 var _mop: MopComponent
 var _equipment: EquipmentComponent
+var _router: CursorClickRouter
 var _tool_sprite: Sprite2D
 var _crosshair: Sprite2D
+var _mop_scrub_mat: ShaderMaterial
+var _scrub_intensity: float = 0.0
 var _noise := FastNoiseLite.new()
 var _time: float = 0.0
 var _panic: bool = false
@@ -54,6 +61,7 @@ func _ready() -> void:
 	_stress = get_node_or_null(stress_path) as StressComponent
 	_mop = get_node_or_null(mop_path) as MopComponent
 	_equipment = get_node_or_null(equipment_path) as EquipmentComponent
+	_router = get_node_or_null(router_path) as CursorClickRouter
 	if _stress != null:
 		_stress.panic_mode_entered.connect(_on_panic_entered)
 		_stress.panic_mode_exited.connect(_on_panic_exited)
@@ -78,6 +86,10 @@ func _setup_sprites() -> void:
 	_tool_sprite.centered = true
 	_tool_sprite.z_as_relative = true
 	_tool_sprite.z_index = 0
+	_mop_scrub_mat = ShaderMaterial.new()
+	_mop_scrub_mat.shader = MOP_SCRUB_SHADER
+	_mop_scrub_mat.set_shader_parameter("intensity", 0.0)
+	_tool_sprite.material = _mop_scrub_mat
 	add_child(_tool_sprite)
 
 	_crosshair = Sprite2D.new()
@@ -145,12 +157,38 @@ func _process(delta: float) -> void:
 
 	global_position += shake
 
+	_update_mop_scrub_fx(delta)
+
 	if _tool_sprite != null and _drunk > 0.05:
 		_tool_sprite.rotation = sin(_time * 5.0) * _drunk * 0.35
+		_tool_sprite.modulate = Color(0.75, 0.55, 1.0).lerp(Color.WHITE, 1.0 - _drunk)
 	elif _tool_sprite != null:
-		_tool_sprite.rotation = 0.0
+		var scrub_wobble := sin(_time * 28.0) * 0.12 * _scrub_intensity
+		_tool_sprite.rotation = scrub_wobble
+		# Paspas kirliliği imleçte de görünsün
+		if _mop != null and _equipment != null and _equipment.get_current() == 0:
+			var ch := _mop.get_charge()
+			_tool_sprite.modulate = Color.WHITE.lerp(Color(0.38, 0.2, 0.08), pow(ch, 0.55))
+		else:
+			_tool_sprite.modulate = Color.WHITE
 
 	cursor_moved.emit(global_position)
+
+
+func _update_mop_scrub_fx(delta: float) -> void:
+	if _mop_scrub_mat == null or _tool_sprite == null:
+		return
+	var mop_out := _equipment != null and _equipment.get_current() == 0
+	var scrubbing := mop_out and _router != null and _router.is_actively_scrubbing()
+	var target := 1.0 if scrubbing else 0.0
+	_scrub_intensity = move_toward(_scrub_intensity, target, scrub_fade_speed * delta)
+	_mop_scrub_mat.set_shader_parameter("intensity", _scrub_intensity)
+	var dirt := _mop.get_charge() if (_mop != null and mop_out) else 0.0
+	_mop_scrub_mat.set_shader_parameter("dirt", dirt)
+	# Scrub yokken ve başka alette material etkisiz kalsın (intensity 0)
+	if not mop_out and _scrub_intensity < 0.01:
+		_scrub_intensity = 0.0
+		_mop_scrub_mat.set_shader_parameter("intensity", 0.0)
 
 
 func _on_panic_entered() -> void:

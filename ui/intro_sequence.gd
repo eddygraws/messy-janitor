@@ -164,14 +164,17 @@ func _build() -> void:
 
 
 func play() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_apply_full_rect()
 	_panel_idx = 0
 	visible = true
-	# Bir frame layout çözülsün
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	# Pause altında da ilerlesin
 	await get_tree().process_frame
 	_apply_full_rect()
 	modulate.a = 0.0
 	var fade := create_tween()
+	fade.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	fade.tween_property(self, "modulate:a", 1.0, 0.35)
 	await fade.finished
 	for i in PANELS.size():
@@ -206,6 +209,7 @@ func _show_panel(idx: int) -> void:
 
 	modulate.a = 0.0
 	var tween := create_tween()
+	tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	tween.tween_property(self, "modulate:a", 1.0, 0.28)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	await tween.finished

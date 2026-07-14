@@ -76,6 +76,10 @@ func play_intro() -> void:
 	if _intro == null:
 		intro_finished.emit()
 		return
+	_intro.process_mode = Node.PROCESS_MODE_ALWAYS
+	_intro.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_intro.move_to_front()
+	_intro.mouse_filter = Control.MOUSE_FILTER_STOP
 	await _intro.play()
 	intro_finished.emit()
 

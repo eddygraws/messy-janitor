@@ -8,8 +8,8 @@ extends Node2D
 @onready var _glow: Sprite2D = get_node_or_null("Glow")
 
 var _glow_tween: Tween
-var _clean_water_color := Color(0.35, 0.62, 0.9)
-var _dirty_water_color := Color(0.42, 0.32, 0.2)
+var _clean_water_color := Color(0.35, 0.72, 1.0)
+var _dirty_water_color := Color(0.28, 0.14, 0.06)
 
 
 func _ready() -> void:
@@ -42,7 +42,11 @@ func get_hitbox() -> Rect2:
 func set_dirty(ratio: float) -> void:
 	if _water == null:
 		return
-	_water.modulate = _clean_water_color.lerp(_dirty_water_color, clampf(ratio, 0.0, 1.0))
+	var t := clampf(ratio, 0.0, 1.0)
+	# Erken kirlenmede de net görünsün (eğri)
+	t = pow(t, 0.65)
+	_water.modulate = _clean_water_color.lerp(_dirty_water_color, t)
+	_water.scale = Vector2(1.0 + t * 0.08, 1.0 - t * 0.05)
 
 
 func set_ready_glow(on: bool) -> void:

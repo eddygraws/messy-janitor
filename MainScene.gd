@@ -15,6 +15,7 @@ extends Node2D
 @onready var _combo_label: Label = $UI/ComboLabel
 @onready var _combo: ComboComponent = $ComboComponent
 @onready var _equipment: EquipmentComponent = $EquipmentComponent
+@onready var _equipment_bar: EquipmentBar = $UI/EquipmentBar
 @onready var _tempo: TempoDirector = $TempoDirector
 @onready var _risk: RiskModeComponent = $RiskModeComponent
 @onready var _risk_label: Label = $UI/RiskLabel
@@ -56,6 +57,13 @@ func _ready() -> void:
 	_tempo.climax_exited.connect(_on_climax_exited)
 	_risk.risk_changed.connect(_on_risk_changed)
 	_on_risk_changed(_risk.is_active())
+	# Eski HUD paspas barı / risk etiketi — bar artık alet yuvasında
+	if _mop_charge_bar != null:
+		_mop_charge_bar.visible = false
+	if _mop_charge_label != null:
+		_mop_charge_label.visible = false
+	if _risk_label != null:
+		_risk_label.visible = false
 
 	_room_manager.level_completed.connect(_on_level_completed)
 	_room_manager.tutorial_requested.connect(_show_tutorial)
@@ -118,11 +126,14 @@ func _enter_playing_state() -> void:
 func _on_mode_selected(mode: int) -> void:
 	_reset_run_timer_state()
 	if mode == 0:
-		# İlk macera: intro → doğrudan Level 1 (seviye seçim yok).
-		if _save != null and not _save.has_seen_intro():
+		# Intro await'i pause altında kilitlenmesin.
+		if _should_play_intro():
+			get_tree().paused = false
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 			_screens.hide_start()
 			await _screens.play_intro()
-			_save.mark_intro_seen()
+			if _save != null:
+				_save.mark_intro_seen()
 			_screens.hide_level_select()
 			_enter_playing_state()
 			await _room_manager.start_adventure_level(0)
@@ -134,6 +145,15 @@ func _on_mode_selected(mode: int) -> void:
 		_room_manager.start_run(1)
 		_update_room_counter()
 		_enter_playing_state()
+
+
+func _should_play_intro() -> bool:
+	if _save == null:
+		return true
+	if not _save.has_seen_intro():
+		return true
+	# Önceki bug'da intro yarım kalıp işaretlenmiş olabilir — L1 bitmeden yeniden göster.
+	return _save.get_level_best(0) <= 0 and _save.get_highest_unlocked() <= 1
 
 
 func _on_level_selected(idx: int) -> void:
@@ -228,7 +248,7 @@ func _on_stress_exploded() -> void:
 	_game_over_pending = true
 	if _run_timer != null:
 		_run_timer.stop()
-	print("GAME OVER — Gargoyle patladı!")
+	print("GAME OVER — Remzi patladı!")
 	var records := _record_current_run(false)
 	# Patlama partikülü ve sarsıntısının oynaması için pause'u kısa geciktir.
 	await get_tree().create_timer(0.9).timeout
@@ -274,7 +294,7 @@ func _record_current_run(completed: bool) -> Array[String]:
 
 
 func _build_over_title() -> String:
-	return "SPLAT!"
+	return "PATLADI GİTTİ!"
 
 
 func _build_over_info(records: Array[String]) -> String:
@@ -282,10 +302,10 @@ func _build_over_info(records: Array[String]) -> String:
 	var line: String
 	if _room_manager.get_mode() == RoomManager.Mode.ENDLESS:
 		var survived := _room_manager.get_rooms_cleared()
-		line = "Gargoyle patladı!\n%d tur temizlendi · %ds dayandın" % [survived, run_time]
+		line = "Remzi strese dayanamayıp patladı!\n%d tur temizlendi · %ds dayandın" % [survived, run_time]
 		line += "\nEn yüksek combo: x%d · %d puan" % [_room_manager.get_run_max_combo(), _room_manager.get_level_score()]
 	else:
-		line = "Gargoyle patladı!\nSeviye %d · Oda %d/%d · %d puan" % [
+		line = "Ana karakter patladı gitti!\nSeviye %d · Oda %d/%d · %d puan" % [
 			_room_manager.get_level_index() + 1,
 			_room_manager.current_room_index + 1,
 			_room_manager.total_rooms,
@@ -325,26 +345,26 @@ func _build_menu_records() -> String:
 
 
 func _on_mop_charge_changed(ratio: float) -> void:
-	if _mop_charge_bar:
-		_mop_charge_bar.value = ratio * 100.0
+	if _equipment_bar != null:
+		_equipment_bar.set_mop_charge(ratio)
 
 
 func _on_mop_overheated() -> void:
-	if _mop_charge_label:
-		_mop_charge_label.text = "PASPAS KİRLİ! → KOVADA DURULA"
-		_mop_charge_label.modulate = Color(1.0, 0.4, 0.35)
+	if _equipment_bar != null:
+		_equipment_bar.set_mop_overheated(true)
 	if _bucket_glow_mat != null and _bucket_glow != null:
-		_bucket_glow_mat.set_shader_parameter("intensity", 1.1)
-		_bucket_glow_mat.set_shader_parameter("glow_color", Color(1.0, 0.65, 0.2))
+		_bucket_glow_mat.set_shader_parameter("intensity", 1.6)
+		_bucket_glow_mat.set_shader_parameter("glow_color", Color(1.0, 0.45, 0.15))
 		_bucket_glow.material = _bucket_glow_mat
+		_bucket_glow.modulate = Color(1.0, 0.7, 0.3, 1.0)
 
 
 func _on_mop_rinsed() -> void:
-	if _mop_charge_label:
-		_mop_charge_label.text = "PASPAS KİRİ"
-		_mop_charge_label.modulate = Color(1.0, 0.7, 0.35)
+	if _equipment_bar != null:
+		_equipment_bar.set_mop_rinsed()
 	if _bucket_glow != null:
 		_bucket_glow.material = null
+		_bucket_glow.modulate.a = 0.0
 
 
 func _on_combo_changed(combo: int) -> void:
@@ -405,20 +425,10 @@ func _on_climax_exited() -> void:
 	_room_manager.emit_current_objective()
 
 
-func _on_risk_changed(active: bool) -> void:
-	if _risk_label == null:
-		return
-	if active:
-		_risk_label.text = "⚡ RİSKLİ TEMİZLİK AÇIK  ×%.1f PUAN" % _risk.score_multiplier
-		_risk_label.modulate = Color(1.0, 0.4, 0.35)
-		_risk_label.pivot_offset = _risk_label.size * 0.5
-		_risk_label.scale = Vector2(1.3, 1.3)
-		var tween := create_tween()
-		tween.tween_property(_risk_label, "scale", Vector2.ONE, 0.25)\
-			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	else:
-		_risk_label.text = "⚡ Riskli Temizlik: R"
-		_risk_label.modulate = Color(0.7, 0.7, 0.72, 0.55)
+func _on_risk_changed(_active: bool) -> void:
+	# Riskli Temizlik (R) rafa kalktı
+	if _risk_label != null:
+		_risk_label.visible = false
 
 
 func _on_room_transition_finished() -> void:
@@ -475,33 +485,26 @@ func _build_time_up_info(records: Array[String]) -> String:
 
 
 func _on_skill_check_resolved(tier: int) -> void:
-	if _mop_charge_label == null:
+	if _combo_label == null:
 		return
 	match tier:
 		2:
-			_mop_charge_label.text = "MÜKEMMEL DURULAMA! +SÜRE"
-			_mop_charge_label.modulate = Color(0.45, 1.0, 0.55)
+			_combo_label.text = "MÜKEMMEL DURULAMA! +SÜRE"
+			_combo_label.modulate = Color(0.45, 1.0, 0.55)
 		1:
-			_mop_charge_label.text = "İYİ DURULAMA"
-			_mop_charge_label.modulate = Color(0.65, 0.95, 0.7)
+			_combo_label.text = "İYİ DURULAMA"
+			_combo_label.modulate = Color(0.65, 0.95, 0.7)
 		0:
-			_mop_charge_label.text = "ISLAK PASPAS KAÇTI! -SÜRE"
-			_mop_charge_label.modulate = Color(1.0, 0.35, 0.3)
+			_combo_label.text = "ISLAK PASPAS KAÇTI! -SÜRE"
+			_combo_label.modulate = Color(1.0, 0.35, 0.3)
 	var tween := create_tween()
 	tween.tween_interval(1.1)
-	tween.tween_callback(_refresh_mop_label)
-
-
-func _refresh_mop_label() -> void:
-	if _mop == null or _mop_charge_label == null:
-		return
-	if _mop.is_overheated():
-		_on_mop_overheated()
-	elif _mop.get_charge() > 0.15:
-		_mop_charge_label.text = "PASPAS KİRLİ! → KOVADA DURULA"
-		_mop_charge_label.modulate = Color(1.0, 0.55, 0.35)
-	else:
-		_on_mop_rinsed()
+	tween.tween_callback(func() -> void:
+		if _combo != null:
+			_on_combo_changed(_combo.get_combo())
+		elif _combo_label != null:
+			_combo_label.text = ""
+	)
 
 
 func _reset_run_timer_state() -> void:
