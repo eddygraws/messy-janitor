@@ -2,15 +2,26 @@ class_name RoomSpawnBounds
 extends RefCounted
 
 ## Oda arkaplanı + alpha mask: kirler yalnızca opak yüzeylerde spawn olur.
+## Katman: arcade karo shader (en arka) → contact shadow → custom oda sprite.
 
 const VIEWPORT := Vector2i(1920, 1080)
-const MIN_DIST := 165.0
+const MIN_DIST := 210.0
 const DRAIN_POS := Vector2(720, 740)
 const TRASH_POS := Vector2(1180, 740)
 const BACKGROUND_PATH := "res://assets/potion-shop.png"
+const ARCADE_SHADER := preload("res://shaders/arcade_tile_bg.gdshader")
+const SHADOW_SHADER := preload("res://shaders/room_contact_shadow.gdshader")
 const ALPHA_THRESHOLD := 0.35
-## Siyah void (alpha yoksa bile) — stain yok.
 const VOID_LUMA_MAX := 0.12
+
+## HUD altında leke spawn olmasın (ekran uzayı, 1920x1080).
+const UI_BLOCK_ZONES: Array[Rect2] = [
+	Rect2(0, 0, 360, 170),       # stamina / mop bars
+	Rect2(600, 0, 720, 100),     # objective
+	Rect2(1540, 0, 380, 110),    # room / time
+	Rect2(0, 740, 360, 340),     # portrait dock
+	Rect2(540, 940, 840, 140),   # equipment bar
+]
 
 static var _mask: Image = null
 static var _mask_size: Vector2i = Vector2i.ZERO
@@ -23,7 +34,12 @@ static func random_point(placed: Array[Vector2], min_dist: float = MIN_DIST, max
 		var p := _random_opaque_point()
 		if _is_clear(p, placed, min_dist) and is_on_surface(p):
 			return p
-	return _random_opaque_point()
+	# Son çare: UI dışı opak nokta
+	for _try2 in 24:
+		var p2 := _random_opaque_point()
+		if is_on_surface(p2):
+			return p2
+	return Vector2(VIEWPORT) * 0.5
 
 
 static func random_near(
@@ -46,13 +62,14 @@ static func is_on_surface(p: Vector2) -> bool:
 	_ensure_mask()
 	if p.x < 0.0 or p.y < 0.0 or p.x >= VIEWPORT.x or p.y >= VIEWPORT.y:
 		return false
+	if _is_in_ui_zone(p):
+		return false
 	if _mask == null:
 		return _legacy_polygon_surface(p)
 	var px := _world_to_mask(p)
 	if px.x < 0 or px.y < 0 or px.x >= _mask_size.x or px.y >= _mask_size.y:
 		return false
 	var c := _mask.get_pixel(px.x, px.y)
-	# Şeffaf veya siyah void — stain yok
 	if c.a < ALPHA_THRESHOLD:
 		return false
 	var luma := c.r * 0.299 + c.g * 0.587 + c.b * 0.114
@@ -68,6 +85,8 @@ static func snap_to_surface(preferred: Vector2) -> Vector2:
 	var best := preferred
 	var best_d := INF
 	for p in _opaque_cache:
+		if not is_on_surface(p):
+			continue
 		var d := preferred.distance_squared_to(p)
 		if d < best_d:
 			best_d = d
@@ -76,30 +95,23 @@ static func snap_to_surface(preferred: Vector2) -> Vector2:
 
 
 static func depth_z(y: float) -> int:
-	return clampi(int((y / 1080.0) * 7.0) + 1, 1, 8)
+	# Oda sprite (-10) ve shadow'un net üstünde kalsın
+	return clampi(int((y / 1080.0) * 7.0) + 4, 4, 12)
 
 
-static func add_isometric_shell(room: Node2D, _floor_color: Color = Color(0.58, 0.64, 0.62)) -> void:
+static func add_isometric_shell(room: Node2D, floor_color: Color = Color(0.58, 0.64, 0.62)) -> void:
 	_ensure_mask()
-
-	var void_bg := Polygon2D.new()
-	void_bg.color = Color(0.0, 0.0, 0.0)
-	void_bg.polygon = PackedVector2Array([
-		Vector2.ZERO, Vector2(VIEWPORT.x, 0),
-		Vector2(VIEWPORT), Vector2(0, VIEWPORT.y),
-	])
-	void_bg.z_index = -20
-	room.add_child(void_bg)
+	_add_arcade_tile_backdrop(room, floor_color)
 
 	if ResourceLoader.exists(BACKGROUND_PATH):
 		var tex := load(BACKGROUND_PATH) as Texture2D
 		if tex != null:
+			_add_room_contact_shadow(room)
 			var spr := Sprite2D.new()
 			spr.name = "RoomBackground"
 			spr.texture = tex
 			spr.centered = false
 			spr.position = Vector2.ZERO
-			# Viewport'a sığdır
 			var tex_size := tex.get_size()
 			if tex_size.x > 0.0 and tex_size.y > 0.0:
 				spr.scale = Vector2(VIEWPORT.x / tex_size.x, VIEWPORT.y / tex_size.y)
@@ -107,8 +119,51 @@ static func add_isometric_shell(room: Node2D, _floor_color: Color = Color(0.58, 
 			room.add_child(spr)
 			return
 
-	# Fallback: eski izometrik poligon kabuk
-	_add_legacy_shell(room, _floor_color)
+	_add_legacy_shell(room, floor_color)
+
+
+static func _add_arcade_tile_backdrop(room: Node2D, theme: Color) -> void:
+	var pal: Dictionary = LevelData.arcade_palette(theme)
+	var mat := ShaderMaterial.new()
+	mat.shader = ARCADE_SHADER
+	mat.set_shader_parameter("color_a", pal["color_a"])
+	mat.set_shader_parameter("color_b", pal["color_b"])
+	mat.set_shader_parameter("color_line", pal["color_line"])
+	mat.set_shader_parameter("color_accent", pal["color_accent"])
+	mat.set_shader_parameter("tile_size", 52.0)
+	mat.set_shader_parameter("scroll_speed", float(pal.get("scroll_speed", 0.11)))
+	mat.set_shader_parameter("diagonal_angle", 0.785398)
+	mat.set_shader_parameter("line_width", 0.07)
+	mat.set_shader_parameter("vignette", 0.58)
+	mat.set_shader_parameter("pulse_amount", 0.03)
+	mat.set_shader_parameter("accent_chance", float(pal.get("accent_chance", 0.08)))
+	mat.set_shader_parameter("glow_strength", 0.42)
+	mat.set_shader_parameter("viewport_size", Vector2(VIEWPORT))
+
+	var rect := ColorRect.new()
+	rect.name = "ArcadeTileBackdrop"
+	rect.size = Vector2(VIEWPORT)
+	rect.position = Vector2.ZERO
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.material = mat
+	rect.z_index = -30
+	room.add_child(rect)
+
+
+static func _add_room_contact_shadow(room: Node2D) -> void:
+	var mat := ShaderMaterial.new()
+	mat.shader = SHADOW_SHADER
+	mat.set_shader_parameter("shadow_color", Color(0.0, 0.0, 0.0, 0.5))
+	mat.set_shader_parameter("softness", 0.4)
+
+	var shadow := ColorRect.new()
+	shadow.name = "RoomContactShadow"
+	shadow.size = Vector2(980, 420)
+	shadow.position = Vector2(470, 520)
+	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shadow.material = mat
+	shadow.z_index = -12
+	room.add_child(shadow)
 
 
 static func _add_legacy_shell(room: Node2D, floor_color: Color) -> void:
@@ -160,7 +215,6 @@ static func _build_opaque_cache() -> void:
 	_opaque_cache = PackedVector2Array()
 	if _mask == null:
 		return
-	# Her 8 px örnekle — spawn havuzu
 	var step := 8
 	for y in range(0, _mask_size.y, step):
 		for x in range(0, _mask_size.x, step):
@@ -171,20 +225,27 @@ static func _build_opaque_cache() -> void:
 			if luma <= VOID_LUMA_MAX:
 				continue
 			var world := _mask_to_world(Vector2i(x, y))
+			if _is_in_ui_zone(world):
+				continue
 			_opaque_cache.append(world)
 
 
 static func _random_opaque_point() -> Vector2:
 	if _opaque_cache.size() > 0:
 		var base: Vector2 = _opaque_cache[randi() % _opaque_cache.size()]
-		# Küçük jitter; alpha kontrolünden geçerse kalsın
 		for _j in 6:
 			var jittered := base + Vector2(randf_range(-10.0, 10.0), randf_range(-10.0, 10.0))
 			if is_on_surface(jittered):
 				return jittered
 		return base
-	# Fallback polygon
 	return _random_in_polygon(_floor_poly())
+
+
+static func _is_in_ui_zone(p: Vector2) -> bool:
+	for r in UI_BLOCK_ZONES:
+		if r.has_point(p):
+			return true
+	return false
 
 
 static func _world_to_mask(p: Vector2) -> Vector2i:

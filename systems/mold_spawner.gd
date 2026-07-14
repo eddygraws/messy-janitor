@@ -4,7 +4,7 @@ extends Node
 @export var room_manager_path: NodePath = ^"../RoomManager"
 @export var tempo_path: NodePath = ^"../TempoDirector"
 @export var max_spread_per_room: int = 6
-@export var mold_hitbox: Vector2 = Vector2(95, 80)
+@export var mold_hitbox: Vector2 = Vector2(161, 136)
 @export var child_spread_time: float = 6.5      # yayılan küfün tekrar yayılma süresi
 @export var min_gap: float = 120.0              # diğer objelerle min mesafe
 

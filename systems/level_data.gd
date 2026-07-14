@@ -19,7 +19,65 @@ const BG_TWEEZERS := Color(0.2, 0.2, 0.28)
 const BG_DARK := Color(0.07, 0.07, 0.1)
 const BG_CHAOS := Color(0.26, 0.12, 0.12)
 const BG_RITUAL := Color(0.2, 0.1, 0.22)
-const BG_FINALE := Color(0.3, 0.08, 0.1)
+const BG_FINALE := Color(0.3, 0.08, 0.1) # vampir / kan kırmızısı final
+
+
+## Arcade karo paleti: {color_a, color_b, color_line, color_accent, scroll_speed, accent_chance}
+static func arcade_palette(theme: Color) -> Dictionary:
+	var key := _nearest_theme_key(theme)
+	match key:
+		"witch":
+			return _pal(Color(0.14, 0.06, 0.22), Color(0.28, 0.10, 0.40), Color(0.06, 0.02, 0.10), Color(0.78, 0.35, 1.0), 0.13, 0.11)
+		"ritual":
+			return _pal(Color(0.12, 0.04, 0.18), Color(0.24, 0.08, 0.32), Color(0.05, 0.02, 0.08), Color(0.95, 0.40, 0.85), 0.14, 0.12)
+		"vampire":
+			return _pal(Color(0.16, 0.03, 0.05), Color(0.32, 0.06, 0.08), Color(0.06, 0.01, 0.02), Color(1.0, 0.22, 0.28), 0.15, 0.10)
+		"mold":
+			return _pal(Color(0.05, 0.14, 0.07), Color(0.10, 0.26, 0.12), Color(0.02, 0.06, 0.03), Color(0.45, 0.95, 0.40), 0.10, 0.09)
+		"slime":
+			return _pal(Color(0.04, 0.14, 0.13), Color(0.08, 0.28, 0.24), Color(0.02, 0.06, 0.06), Color(0.35, 1.0, 0.72), 0.12, 0.10)
+		"appetite":
+			return _pal(Color(0.16, 0.07, 0.06), Color(0.30, 0.14, 0.10), Color(0.07, 0.03, 0.02), Color(1.0, 0.55, 0.28), 0.11, 0.08)
+		"broom":
+			return _pal(Color(0.14, 0.10, 0.06), Color(0.26, 0.18, 0.10), Color(0.06, 0.04, 0.02), Color(0.95, 0.72, 0.35), 0.09, 0.07)
+		"brush":
+			return _pal(Color(0.12, 0.09, 0.07), Color(0.22, 0.16, 0.12), Color(0.05, 0.04, 0.03), Color(0.85, 0.58, 0.38), 0.09, 0.07)
+		"spray":
+			return _pal(Color(0.05, 0.10, 0.18), Color(0.10, 0.20, 0.34), Color(0.02, 0.04, 0.08), Color(0.40, 0.85, 1.0), 0.12, 0.09)
+		"tweezers":
+			return _pal(Color(0.08, 0.09, 0.16), Color(0.16, 0.18, 0.30), Color(0.03, 0.04, 0.07), Color(0.75, 0.85, 1.0), 0.10, 0.08)
+		"dark":
+			return _pal(Color(0.03, 0.03, 0.05), Color(0.08, 0.08, 0.12), Color(0.01, 0.01, 0.02), Color(0.45, 0.85, 1.0), 0.07, 0.06)
+		_: # apprentice / default — soğuk taş mavisi
+			return _pal(Color(0.07, 0.09, 0.14), Color(0.14, 0.17, 0.26), Color(0.03, 0.04, 0.07), Color(0.55, 0.75, 1.0), 0.10, 0.07)
+
+
+static func _pal(a: Color, b: Color, line: Color, accent: Color, scroll: float, chance: float) -> Dictionary:
+	return {
+		"color_a": a, "color_b": b, "color_line": line, "color_accent": accent,
+		"scroll_speed": scroll, "accent_chance": chance,
+	}
+
+
+static func _nearest_theme_key(theme: Color) -> String:
+	var pairs: Array = [
+		[BG_WITCH, "witch"], [BG_RITUAL, "ritual"], [BG_FINALE, "vampire"],
+		[BG_CHAOS, "vampire"], [BG_MOLD, "mold"], [BG_SLIME, "slime"],
+		[BG_APPETITE, "appetite"], [BG_BROOM, "broom"], [BG_BRUSH, "brush"],
+		[BG_SPRAY, "spray"], [BG_TWEEZERS, "tweezers"], [BG_DARK, "dark"],
+		[BG_APPRENTICE, "apprentice"],
+	]
+	var best := "apprentice"
+	var best_d := INF
+	for pair in pairs:
+		var c: Color = pair[0]
+		var d := (theme.r - c.r) * (theme.r - c.r) \
+			+ (theme.g - c.g) * (theme.g - c.g) \
+			+ (theme.b - c.b) * (theme.b - c.b)
+		if d < best_d:
+			best_d = d
+			best = String(pair[1])
+	return best
 
 
 static func level_count() -> int:

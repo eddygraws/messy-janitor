@@ -8,8 +8,14 @@ const DRAG_SCRIPT := preload("res://components/draggable_cleanable.gd")
 const ROAM_SLIME_SCRIPT := preload("res://components/roaming_slime.gd")
 
 const MIN_DIST := RoomSpawnBounds.MIN_DIST
+## Kir görseli büyüdü — tıklama kutusu aynı oranda
+const HITBOX_SCALE := 1.7
 
 const DEFAULT_BG := Color(0.58, 0.64, 0.62)
+
+
+static func _hb(size: Vector2) -> Vector2:
+	return size * HITBOX_SCALE
 
 
 # spec: {
@@ -83,7 +89,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 	match type:
 		"stain":
 			var cl := CleanableObject.new()
-			cl.hitbox_size = Vector2(84, 84)
+			cl.hitbox_size = _hb(Vector2(84, 84))
 			cl.required_equipment = 0
 			cl.modulate = Color(0.5, 0.4, 0.32)
 			cl.position = pos
@@ -91,7 +97,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return cl
 		"scrub":
 			var st := CleanableObject.new()
-			st.hitbox_size = Vector2(126, 92)
+			st.hitbox_size = _hb(Vector2(126, 92))
 			st.requires_scrub = true
 			st.modulate = Color(0.6, 0.45, 0.35)
 			st.position = pos
@@ -99,7 +105,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return st
 		"hidden":
 			var hd := CleanableObject.new()
-			hd.hitbox_size = Vector2(120, 90)
+			hd.hitbox_size = _hb(Vector2(120, 90))
 			hd.requires_scrub = true
 			hd.is_hidden = true
 			hd.reveal_radius = 150.0
@@ -109,7 +115,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return hd
 		"slime":
 			var sl: Node2D = DRAG_SCRIPT.new()
-			sl.set("hitbox_size", Vector2(82, 82))
+			sl.set("hitbox_size", _hb(Vector2(82, 82)))
 			sl.set("required_equipment", 0)
 			sl.set("target_group", &"Drain")
 			sl.modulate = Color(0.45, 0.85, 0.55)
@@ -118,7 +124,9 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return sl
 		"slime_boss":
 			var boss: Node2D = ROAM_SLIME_SCRIPT.new()
-			boss.set("hitbox_size", Vector2(110, 96))
+			var boss_hb := _hb(Vector2(110, 96))
+			boss.set("base_hitbox", boss_hb)
+			boss.set("hitbox_size", boss_hb)
 			boss.set("required_equipment", 0)
 			boss.set("target_group", &"Drain")
 			boss.modulate = Color(0.35, 0.95, 0.55)
@@ -127,7 +135,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return boss
 		"slime_trail":
 			var trail := CleanableObject.new()
-			trail.hitbox_size = Vector2(72, 56)
+			trail.hitbox_size = _hb(Vector2(72, 56))
 			trail.requires_scrub = true
 			trail.scrub_move_factor = 0.0011
 			trail.modulate = Color(0.4, 0.8, 0.5, 0.9)
@@ -137,7 +145,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return trail
 		"potion":
 			var pot := CleanableObject.new()
-			pot.hitbox_size = Vector2(118, 100)
+			pot.hitbox_size = _hb(Vector2(118, 100))
 			pot.requires_scrub = true
 			pot.scrub_move_factor = 0.00042
 			pot.reversal_bonus = 0.035
@@ -149,7 +157,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return pot
 		"broom":
 			var b: Node2D = DRAG_SCRIPT.new()
-			b.set("hitbox_size", Vector2(76, 76))
+			b.set("hitbox_size", _hb(Vector2(76, 76)))
 			b.set("required_equipment", 1)
 			b.set("target_group", &"TrashBin")
 			b.modulate = Color(0.72, 0.6, 0.42)
@@ -158,7 +166,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return b
 		"brush":
 			var br := CleanableObject.new()
-			br.hitbox_size = Vector2(110, 96)
+			br.hitbox_size = _hb(Vector2(110, 96))
 			br.required_equipment = 2
 			br.mash_per_hit = 0.2
 			br.modulate = Color(0.42, 0.4, 0.36)
@@ -167,7 +175,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return br
 		"spray":
 			var sp := CleanableObject.new()
-			sp.hitbox_size = Vector2(140, 118)
+			sp.hitbox_size = _hb(Vector2(140, 118))
 			sp.requires_scrub = true
 			sp.required_equipment = 3
 			sp.modulate = Color(0.7, 0.85, 0.95)
@@ -179,7 +187,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return sp
 		"tweezers":
 			var tw := CleanableObject.new()
-			tw.hitbox_size = Vector2(54, 54)
+			tw.hitbox_size = _hb(Vector2(54, 54))
 			tw.required_equipment = 4
 			tw.modulate = Color(0.9, 0.95, 1.0)
 			tw.position = pos
@@ -187,7 +195,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return tw
 		"fragile":
 			var fr := CleanableObject.new()
-			fr.hitbox_size = Vector2(84, 120)
+			fr.hitbox_size = _hb(Vector2(84, 120))
 			fr.requires_scrub = true
 			fr.is_fragile = true
 			fr.fragile_threshold = 30.0
@@ -197,7 +205,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			return fr
 		"mold":
 			var mo := CleanableObject.new()
-			mo.hitbox_size = Vector2(118, 84)
+			mo.hitbox_size = _hb(Vector2(118, 84))
 			mo.requires_scrub = true
 			mo.spreads = true
 			mo.spread_time = 6.0

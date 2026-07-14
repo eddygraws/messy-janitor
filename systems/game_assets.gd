@@ -26,7 +26,8 @@ const DIRT_ALIASES: Dictionary = {
 	"mop_stain": ["dirt_scrub.png", "dust-export.png"],
 }
 
-const DIRT_GLOBAL_SCALE := 0.125
+## Map kir sprite ölçeği (önce 0.125 — ~1.85× büyütüldü)
+const DIRT_GLOBAL_SCALE := 0.23
 
 # Eski / alternatif konumlar (assets/ kökündeki dosyalar da okunur)
 const LEGACY_EQUIPMENT: Array[String] = [

@@ -141,6 +141,7 @@ script = ExtResource("3_cursor")
 script = ExtResource("2_room")
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=531795412]
+layer = 110
 
 [node name="ProgressBar" type="ProgressBar" parent="UI" unique_id=798444352]
 offset_left = 20.0
@@ -481,7 +482,7 @@ text = "Flawless sweep!"
 horizontal_alignment = 1
 
 [node name="GameScreens" type="CanvasLayer" parent="." unique_id=1285678272]
-layer = 20
+layer = 120
 script = ExtResource("14_screens")
 
 [node name="StartScreen" type="Control" parent="GameScreens" unique_id=1871315697]

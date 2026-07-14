@@ -34,6 +34,10 @@ var _bucket_glow_mat: ShaderMaterial
 
 
 func _ready() -> void:
+	# PostFX (100) altında dünya; HUD ve menüler her zaman üstte kalsın.
+	$UI.layer = 110
+	_screens.layer = 120
+
 	_stamina.stamina_changed.connect(_on_stamina_changed)
 	_stress.stress_changed.connect(_on_stress_changed)
 	_stress.stress_critical.connect(_on_stress_critical)

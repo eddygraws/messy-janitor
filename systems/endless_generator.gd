@@ -5,9 +5,12 @@ extends RefCounted
 
 const MIN_DIST := RoomSpawnBounds.MIN_DIST
 
+## Seviye temalarıyla aynı arcade palet anahtarları
 const BG_COLORS: Array[Color] = [
-	Color(0.58, 0.64, 0.62), Color(0.56, 0.58, 0.66), Color(0.54, 0.62, 0.58),
-	Color(0.6, 0.58, 0.52), Color(0.58, 0.54, 0.62), Color(0.52, 0.6, 0.64),
+	LevelData.BG_APPRENTICE, LevelData.BG_APPETITE, LevelData.BG_MOLD,
+	LevelData.BG_BROOM, LevelData.BG_SLIME, LevelData.BG_WITCH,
+	LevelData.BG_BRUSH, LevelData.BG_SPRAY, LevelData.BG_TWEEZERS,
+	LevelData.BG_DARK, LevelData.BG_RITUAL, LevelData.BG_FINALE,
 ]
 
 
