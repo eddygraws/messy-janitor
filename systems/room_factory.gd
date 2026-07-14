@@ -66,9 +66,9 @@ static func build_room(spec: Dictionary, index: int) -> Node2D:
 				need_drain = true
 
 	if need_trashbin:
-		room.add_child(make_zone(&"TrashBin", RoomSpawnBounds.TRASH_POS, "ÇÖP KOVASI"))
+		room.add_child(make_zone(&"TrashBin", RoomSpawnBounds.snap_to_surface(RoomSpawnBounds.TRASH_POS), "ÇÖP KOVASI"))
 	if need_drain:
-		room.add_child(make_zone(&"Drain", RoomSpawnBounds.DRAIN_POS, "GİDER"))
+		room.add_child(make_zone(&"Drain", RoomSpawnBounds.snap_to_surface(RoomSpawnBounds.DRAIN_POS), "GİDER"))
 
 	room.set_meta("tutorial", String(spec.get("tutorial", "")))
 	room.set_meta("commission", spec.get("commission", {}))

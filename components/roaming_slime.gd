@@ -152,6 +152,8 @@ func _try_drop_trail() -> void:
 	var room := get_parent() as Node2D
 	if room == null:
 		return
+	if not RoomSpawnBounds.is_on_surface(global_position):
+		return
 	for child in room.get_children():
 		if child.is_in_group("SlimeTrail") and child.has_method("is_cleaned") and not child.is_cleaned():
 			if child.global_position.distance_to(global_position) < trail_gap:

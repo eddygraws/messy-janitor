@@ -45,9 +45,9 @@ static func build_room(index: int, unlocked: int) -> Node2D:
 			need_drain = true
 
 	if need_trashbin:
-		room.add_child(RoomFactory.make_zone(&"TrashBin", RoomSpawnBounds.TRASH_POS, "ÇÖP KOVASI"))
+		room.add_child(RoomFactory.make_zone(&"TrashBin", RoomSpawnBounds.snap_to_surface(RoomSpawnBounds.TRASH_POS), "ÇÖP KOVASI"))
 	if need_drain:
-		room.add_child(RoomFactory.make_zone(&"Drain", RoomSpawnBounds.DRAIN_POS, "GİDER"))
+		room.add_child(RoomFactory.make_zone(&"Drain", RoomSpawnBounds.snap_to_surface(RoomSpawnBounds.DRAIN_POS), "GİDER"))
 
 	return room
 
