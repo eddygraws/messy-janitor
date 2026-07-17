@@ -23,15 +23,17 @@ var _text: String = ""
 @export var enable_shimmer: bool = true
 @export var glow_on_high_wave: bool = false
 
+const UI_GLOW_SHADER: Shader = preload("res://shaders/ui_glow.gdshader")
+
 var _time: float = 0.0
 var _glow_material: ShaderMaterial
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if glow_on_high_wave:
+	if glow_on_high_wave and UI_GLOW_SHADER != null:
 		_glow_material = ShaderMaterial.new()
-		_glow_material.shader = load("res://shaders/ui_glow.gdshader")
+		_glow_material.shader = UI_GLOW_SHADER
 		_glow_material.set_shader_parameter("intensity", 0.35)
 		material = _glow_material
 

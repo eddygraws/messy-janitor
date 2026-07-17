@@ -74,14 +74,30 @@ func present_level_intro(info: Dictionary) -> void:
 	if desc == "":
 		desc = "Hedef: tüm odaları temizle. Yeni odalarda yeni mekanikler seni bekliyor!"
 	var intro := {
-		"npc": String(info.get("subtitle", "")),
-		"icon": "🧹",
+		"npc": String(info.get("story_npc", info.get("subtitle", "Remzi"))),
+		"icon": String(info.get("story_icon", "🧹")),
 		"title": String(info.get("name", "Seviye")),
 		"desc": desc,
 		"rule": CommissionData.Rule.NONE,
 		"param": 0.0,
 	}
-	await _card.show_card(intro)
+	await _card.show_card(intro, 0.0, true)
+
+
+## Seviye bitiş diyalogları (LevelData.outro).
+func present_outro(lines: Array) -> void:
+	if _card == null or lines.is_empty():
+		return
+	for entry in lines:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = entry
+		await present_dialogue(
+			String(d.get("npc", "")),
+			String(d.get("icon", "📖")),
+			String(d.get("title", "")),
+			String(d.get("desc", ""))
+		)
 
 
 ## Serbest diyalog kartı (kural yok) — outro / hikâye için.

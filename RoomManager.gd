@@ -352,23 +352,30 @@ func _start_room_transition() -> void:
 func _finish_level() -> void:
 	var average := _level_total_score / maxi(_rooms_cleared, 1)
 	# Hikâye önce — skor kartı diyalogu ezmesin
-	if LevelData.is_tutorial_level(current_level_index) and _commission != null:
-		await _present_tutorial_outro()
+	if _commission != null:
+		await _present_level_outro()
 	await _feedback_ui.show_level_summary(_level_total_score, average, _rooms_cleared)
 	_apply_survival_tuning(true)
 	_transitioning = false
 	level_completed.emit(_level_total_score, average)
 
 
-func _present_tutorial_outro() -> void:
-	await _commission.present_dialogue(
-		"Kuzen Marv", "🧰", "Teşekkürler!",
-		"Vay be, süpersin! Garaj pırıl pırıl — abur cubur stokumu da... ehem, görmedin diyelim. Bak, arkadaşım bir gargoyle tanıyor, onun da yardıma ihtiyacı varmış."
-	)
-	await _commission.present_dialogue(
-		"Remzi", "🧹", "(iç ses)",
-		"Paspası durulamayı öğrendim, cipse hayır demeyi... henüz öğrenmedim. Gargoyle'lar mı? Tamam. Asıl iş başlıyor."
-	)
+func _present_level_outro() -> void:
+	var info := _level_info()
+	var outro: Array = info.get("outro", [])
+	if not outro.is_empty():
+		await _commission.present_outro(outro)
+		return
+	# Eski tutorial fallback
+	if LevelData.is_tutorial_level(current_level_index):
+		await _commission.present_dialogue(
+			"Kuzen Marv", "🧰", "Teşekkürler!",
+			"Vay be, süpersin! Garaj pırıl pırıl — abur cubur stokumu da... ehem, görmedin diyelim. Bak, arkadaşım bir gargoyle tanıyor, onun da yardıma ihtiyacı varmış."
+		)
+		await _commission.present_dialogue(
+			"Remzi", "🧹", "(iç ses)",
+			"Paspası durulamayı öğrendim, cipse hayır demeyi... henüz öğrenmedim. Gargoyle'lar mı? Tamam. Asıl iş başlıyor."
+		)
 
 
 func _apply_survival_tuning(force_normal: bool = false) -> void:

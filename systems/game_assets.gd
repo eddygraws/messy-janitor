@@ -173,15 +173,30 @@ static func get_dirt_scale(dirt_type: String) -> float:
 
 
 static func get_bucket_body() -> Texture2D:
-	return _load(TOOL_DIR + "bucket_body.png", Color(0.32, 0.34, 0.4), Vector2i(140, 152))
+	return _load_first([
+		ASSET_DIR + "bucket-body.png",
+		ASSET_DIR + "bucket_body.png",
+		TOOL_DIR + "bucket_body.png",
+		TOOL_DIR + "bucket-body.png",
+	], Color(0.32, 0.34, 0.4), Vector2i(140, 152))
 
 
 static func get_bucket_water() -> Texture2D:
-	return _load(TOOL_DIR + "bucket_water.png", Color(0.35, 0.62, 0.9), Vector2i(128, 64))
+	return _load_first([
+		ASSET_DIR + "bucket-water.png",
+		ASSET_DIR + "bucket_water.png",
+		TOOL_DIR + "bucket_water.png",
+		TOOL_DIR + "bucket-water.png",
+	], Color(0.35, 0.62, 0.9), Vector2i(128, 64))
 
 
 static func get_bucket_glow() -> Texture2D:
-	return _load(TOOL_DIR + "bucket_glow.png", Color(1.0, 0.7, 0.25, 0.55), Vector2i(196, 224))
+	return _load_first([
+		ASSET_DIR + "bucket-glow.png",
+		ASSET_DIR + "bucket_glow.png",
+		TOOL_DIR + "bucket_glow.png",
+		TOOL_DIR + "bucket-glow.png",
+	], Color(1.0, 0.7, 0.25, 0.55), Vector2i(196, 224))
 
 
 static func get_zone_texture(group: StringName) -> Texture2D:

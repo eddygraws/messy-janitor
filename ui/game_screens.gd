@@ -74,12 +74,16 @@ func play_intro() -> void:
 	_over_screen.visible = false
 	_pause_screen.visible = false
 	if _intro == null:
-		intro_finished.emit()
-		return
+		_intro = IntroSequence.new()
+		_intro.name = "IntroSequence"
+		add_child(_intro)
 	_intro.process_mode = Node.PROCESS_MODE_ALWAYS
+	_intro.visible = true
 	_intro.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_intro.move_to_front()
 	_intro.mouse_filter = Control.MOUSE_FILTER_STOP
+	_intro.z_as_relative = false
+	_intro.z_index = 200
+	_intro.move_to_front()
 	await _intro.play()
 	intro_finished.emit()
 

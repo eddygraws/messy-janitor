@@ -3,7 +3,7 @@ extends Node2D
 signal cursor_moved(position: Vector2)
 signal cursor_clicked(position: Vector2)
 
-const MOP_SCRUB_SHADER := preload("res://shaders/mop_scrub.gdshader")
+const MOP_SCRUB_SHADER: Shader = preload("res://shaders/mop_scrub.gdshader")
 
 @export var stamina_path: NodePath = ^"../StaminaComponent"
 @export var stress_path: NodePath = ^"../StressComponent"
@@ -86,10 +86,10 @@ func _setup_sprites() -> void:
 	_tool_sprite.centered = true
 	_tool_sprite.z_as_relative = true
 	_tool_sprite.z_index = 0
-	_mop_scrub_mat = ShaderMaterial.new()
-	_mop_scrub_mat.shader = MOP_SCRUB_SHADER
-	_mop_scrub_mat.set_shader_parameter("intensity", 0.0)
-	_tool_sprite.material = _mop_scrub_mat
+	if MOP_SCRUB_SHADER != null:
+		_mop_scrub_mat = ShaderMaterial.new()
+		_mop_scrub_mat.shader = MOP_SCRUB_SHADER
+		_mop_scrub_mat.set_shader_parameter("intensity", 0.0)
 	add_child(_tool_sprite)
 
 	_crosshair = Sprite2D.new()
@@ -108,6 +108,7 @@ func set_equipment(type: int) -> void:
 	_tool_sprite.offset = GameAssets.get_cursor_offset(type)
 	_tool_sprite.scale = Vector2.ONE * GameAssets.get_cursor_scale(type)
 	modulate = Color.WHITE
+	_apply_tool_scrub_material()
 
 
 func _on_equipment_changed(type: int) -> void:
@@ -176,19 +177,31 @@ func _process(delta: float) -> void:
 
 
 func _update_mop_scrub_fx(delta: float) -> void:
-	if _mop_scrub_mat == null or _tool_sprite == null:
+	if _tool_sprite == null:
 		return
 	var mop_out := _equipment != null and _equipment.get_current() == 0
 	var scrubbing := mop_out and _router != null and _router.is_actively_scrubbing()
 	var target := 1.0 if scrubbing else 0.0
 	_scrub_intensity = move_toward(_scrub_intensity, target, scrub_fade_speed * delta)
-	_mop_scrub_mat.set_shader_parameter("intensity", _scrub_intensity)
-	var dirt := _mop.get_charge() if (_mop != null and mop_out) else 0.0
-	_mop_scrub_mat.set_shader_parameter("dirt", dirt)
-	# Scrub yokken ve başka alette material etkisiz kalsın (intensity 0)
-	if not mop_out and _scrub_intensity < 0.01:
+	if not mop_out:
 		_scrub_intensity = 0.0
-		_mop_scrub_mat.set_shader_parameter("intensity", 0.0)
+	if _mop_scrub_mat != null and _mop_scrub_mat.shader != null:
+		_mop_scrub_mat.set_shader_parameter("intensity", _scrub_intensity)
+		var dirt := _mop.get_charge() if (_mop != null and mop_out) else 0.0
+		_mop_scrub_mat.set_shader_parameter("dirt", dirt)
+	_apply_tool_scrub_material()
+
+
+func _apply_tool_scrub_material() -> void:
+	if _tool_sprite == null:
+		return
+	var use_shader := _mop_scrub_mat != null \
+		and _mop_scrub_mat.shader != null \
+		and _equipment != null \
+		and _equipment.get_current() == 0 \
+		and _tool_sprite.texture != null \
+		and _scrub_intensity > 0.02
+	_tool_sprite.material = _mop_scrub_mat if use_shader else null
 
 
 func _on_panic_entered() -> void:

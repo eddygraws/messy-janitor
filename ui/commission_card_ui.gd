@@ -24,8 +24,11 @@ var _timer_gen: int = 0
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	z_as_relative = false
+	z_index = 50
 	_build()
 	visible = false
 
@@ -147,7 +150,8 @@ func show_card(commission: Dictionary, auto_secs: float = -1.0, story: bool = fa
 	if wait > 0.0:
 		_timer_gen += 1
 		var gen := _timer_gen
-		_timer = get_tree().create_timer(wait)
+		# Pause altında da saysın (menüden dönüş / hikâye)
+		_timer = get_tree().create_timer(wait, true, false, true)
 		_timer.timeout.connect(func() -> void:
 			if gen == _timer_gen:
 				_dismiss()

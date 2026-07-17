@@ -9,11 +9,39 @@ const MIN_DIST := 280.0
 const DRAIN_POS := Vector2(720, 740)
 const TRASH_POS := Vector2(1180, 740)
 const BACKGROUND_PATH := "res://assets/potion-shop.png"
-const GARAGE_BACKGROUND_PATH := "res://assets/garage-background.png"
+const GARAGE_BACKGROUND_PATH := "res://assets/garage-background2.png"
+const GARAGE_BACKGROUND_LEGACY := "res://assets/garage-background.png"
 const ARCADE_SHADER := preload("res://shaders/arcade_tile_bg.gdshader")
 const SHADOW_SHADER := preload("res://shaders/room_contact_shadow.gdshader")
 const ALPHA_THRESHOLD := 0.35
 const VOID_LUMA_MAX := 0.12
+
+## Arka plan başına gölge + maske ince ayarı
+const BACKGROUND_PROFILES: Dictionary = {
+	GARAGE_BACKGROUND_PATH: {
+		"shadow_pos": Vector2(400, 590),
+		"shadow_size": Vector2(1120, 430),
+		"shadow_color": Color(0.0, 0.0, 0.0, 0.68),
+		"softness": 0.34,
+		"vignette": 0.72,
+		"glow_strength": 0.22,
+		"void_luma_max": 0.09,
+		"alpha_threshold": 0.30,
+	},
+	GARAGE_BACKGROUND_LEGACY: {
+		"shadow_pos": Vector2(470, 520),
+		"shadow_size": Vector2(980, 420),
+		"shadow_color": Color(0.0, 0.0, 0.0, 0.5),
+		"softness": 0.4,
+		"vignette": 0.58,
+		"glow_strength": 0.42,
+		"void_luma_max": 0.12,
+		"alpha_threshold": 0.35,
+	},
+}
+
+static var _void_luma_max: float = VOID_LUMA_MAX
+static var _alpha_threshold: float = ALPHA_THRESHOLD
 
 ## HUD altında leke spawn olmasın (ekran uzayı, 1920x1080).
 const UI_BLOCK_ZONES: Array[Rect2] = [
@@ -73,10 +101,10 @@ static func is_on_surface(p: Vector2) -> bool:
 	if px.x < 0 or px.y < 0 or px.x >= _mask_size.x or px.y >= _mask_size.y:
 		return false
 	var c := _mask.get_pixel(px.x, px.y)
-	if c.a < ALPHA_THRESHOLD:
+	if c.a < _alpha_threshold:
 		return false
 	var luma := c.r * 0.299 + c.g * 0.587 + c.b * 0.114
-	return luma > VOID_LUMA_MAX
+	return luma > _void_luma_max
 
 
 static func snap_to_surface(preferred: Vector2) -> Vector2:
@@ -109,13 +137,14 @@ static func add_isometric_shell(
 	var path := background_path
 	if path == "":
 		path = BACKGROUND_PATH
+	_apply_background_profile(path)
 	_ensure_mask(path)
-	_add_arcade_tile_backdrop(room, floor_color)
+	_add_arcade_tile_backdrop(room, floor_color, path)
 
 	if ResourceLoader.exists(path):
 		var tex := load(path) as Texture2D
 		if tex != null:
-			_add_room_contact_shadow(room)
+			_add_room_contact_shadow(room, path)
 			var spr := Sprite2D.new()
 			spr.name = "RoomBackground"
 			spr.texture = tex
@@ -131,8 +160,9 @@ static func add_isometric_shell(
 	_add_legacy_shell(room, floor_color)
 
 
-static func _add_arcade_tile_backdrop(room: Node2D, theme: Color) -> void:
+static func _add_arcade_tile_backdrop(room: Node2D, theme: Color, bg_path: String = "") -> void:
 	var pal: Dictionary = LevelData.arcade_palette(theme)
+	var prof := _background_profile(bg_path)
 	var mat := ShaderMaterial.new()
 	mat.shader = ARCADE_SHADER
 	mat.set_shader_parameter("color_a", pal["color_a"])
@@ -143,10 +173,10 @@ static func _add_arcade_tile_backdrop(room: Node2D, theme: Color) -> void:
 	mat.set_shader_parameter("scroll_speed", float(pal.get("scroll_speed", 0.11)))
 	mat.set_shader_parameter("diagonal_angle", 0.785398)
 	mat.set_shader_parameter("line_width", 0.07)
-	mat.set_shader_parameter("vignette", 0.58)
+	mat.set_shader_parameter("vignette", float(prof.get("vignette", 0.58)))
 	mat.set_shader_parameter("pulse_amount", 0.03)
 	mat.set_shader_parameter("accent_chance", float(pal.get("accent_chance", 0.08)))
-	mat.set_shader_parameter("glow_strength", 0.42)
+	mat.set_shader_parameter("glow_strength", float(prof.get("glow_strength", 0.42)))
 	mat.set_shader_parameter("viewport_size", Vector2(VIEWPORT))
 
 	var rect := ColorRect.new()
@@ -159,20 +189,33 @@ static func _add_arcade_tile_backdrop(room: Node2D, theme: Color) -> void:
 	room.add_child(rect)
 
 
-static func _add_room_contact_shadow(room: Node2D) -> void:
+static func _add_room_contact_shadow(room: Node2D, bg_path: String = "") -> void:
+	var prof := _background_profile(bg_path)
 	var mat := ShaderMaterial.new()
 	mat.shader = SHADOW_SHADER
-	mat.set_shader_parameter("shadow_color", Color(0.0, 0.0, 0.0, 0.5))
-	mat.set_shader_parameter("softness", 0.4)
+	mat.set_shader_parameter("shadow_color", prof.get("shadow_color", Color(0.0, 0.0, 0.0, 0.5)))
+	mat.set_shader_parameter("softness", float(prof.get("softness", 0.4)))
 
 	var shadow := ColorRect.new()
 	shadow.name = "RoomContactShadow"
-	shadow.size = Vector2(980, 420)
-	shadow.position = Vector2(470, 520)
+	shadow.size = prof.get("shadow_size", Vector2(980, 420))
+	shadow.position = prof.get("shadow_pos", Vector2(470, 520))
 	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shadow.material = mat
 	shadow.z_index = -12
 	room.add_child(shadow)
+
+
+static func _background_profile(path: String) -> Dictionary:
+	if BACKGROUND_PROFILES.has(path):
+		return BACKGROUND_PROFILES[path]
+	return {}
+
+
+static func _apply_background_profile(path: String) -> void:
+	var prof := _background_profile(path)
+	_void_luma_max = float(prof.get("void_luma_max", VOID_LUMA_MAX))
+	_alpha_threshold = float(prof.get("alpha_threshold", ALPHA_THRESHOLD))
 
 
 static func _add_legacy_shell(room: Node2D, floor_color: Color) -> void:
@@ -202,6 +245,7 @@ static func _add_legacy_shell(room: Node2D, floor_color: Color) -> void:
 static func _ensure_mask(path: String) -> void:
 	if path == "":
 		path = BACKGROUND_PATH
+	_apply_background_profile(path)
 	if _active_path == path and _mask != null:
 		return
 	if _mask_bank.has(path):
@@ -248,10 +292,10 @@ static func _build_opaque_cache() -> void:
 	for y in range(0, _mask_size.y, step):
 		for x in range(0, _mask_size.x, step):
 			var c := _mask.get_pixel(x, y)
-			if c.a < ALPHA_THRESHOLD:
+			if c.a < _alpha_threshold:
 				continue
 			var luma := c.r * 0.299 + c.g * 0.587 + c.b * 0.114
-			if luma <= VOID_LUMA_MAX:
+			if luma <= _void_luma_max:
 				continue
 			var world := _mask_to_world(Vector2i(x, y))
 			if _is_in_ui_zone(world):
@@ -304,6 +348,14 @@ static func _legacy_polygon_surface(p: Vector2) -> bool:
 
 
 static func _floor_poly() -> PackedVector2Array:
+	# garage-background2 izometrik zemin (fallback — PNG maskası birincil)
+	if _active_path == GARAGE_BACKGROUND_PATH:
+		return PackedVector2Array([
+			Vector2(468, 430),
+			Vector2(1452, 430),
+			Vector2(1620, 860),
+			Vector2(300, 860),
+		])
 	return PackedVector2Array([
 		Vector2(512, 448),
 		Vector2(1408, 448),

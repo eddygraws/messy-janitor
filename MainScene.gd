@@ -27,6 +27,8 @@ extends Node2D
 @onready var _run_modifiers: RunModifierDirector = $RunModifierDirector
 @onready var _post_process: PostProcessDirector = $PostProcessDirector
 @onready var _powerups: ComboPowerupDirector = $ComboPowerupDirector
+const UI_GLOW_SHADER: Shader = preload("res://shaders/ui_glow.gdshader")
+
 @onready var _bucket_glow: Sprite2D = $WorldLayer/MopBucket/Glow
 
 var _timer_started: bool = false
@@ -96,10 +98,10 @@ func _ready() -> void:
 
 
 func _setup_bucket_glow_shader() -> void:
-	if _bucket_glow == null:
+	if _bucket_glow == null or UI_GLOW_SHADER == null:
 		return
 	_bucket_glow_mat = ShaderMaterial.new()
-	_bucket_glow_mat.shader = load("res://shaders/ui_glow.gdshader")
+	_bucket_glow_mat.shader = UI_GLOW_SHADER
 	_bucket_glow_mat.set_shader_parameter("intensity", 0.0)
 
 
@@ -126,14 +128,19 @@ func _enter_playing_state() -> void:
 func _on_mode_selected(mode: int) -> void:
 	_reset_run_timer_state()
 	if mode == 0:
-		# Intro await'i pause altında kilitlenmesin.
+		# Intro await'i pause / inherit process altında kilitlenmesin.
 		if _should_play_intro():
+			var prev_mode := process_mode
+			process_mode = Node.PROCESS_MODE_ALWAYS
 			get_tree().paused = false
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			if _cursor != null:
+				_cursor.visible = false
 			_screens.hide_start()
 			await _screens.play_intro()
 			if _save != null:
 				_save.mark_intro_seen()
+			process_mode = prev_mode
 			_screens.hide_level_select()
 			_enter_playing_state()
 			await _room_manager.start_adventure_level(0)
@@ -150,10 +157,10 @@ func _on_mode_selected(mode: int) -> void:
 func _should_play_intro() -> bool:
 	if _save == null:
 		return true
-	if not _save.has_seen_intro():
+	# L1 bitmeden her Macera girişinde VN göster (save bayrağı takılı kalsa bile).
+	if _save.get_level_best(0) <= 0 and _save.get_highest_unlocked() <= 1:
 		return true
-	# Önceki bug'da intro yarım kalıp işaretlenmiş olabilir — L1 bitmeden yeniden göster.
-	return _save.get_level_best(0) <= 0 and _save.get_highest_unlocked() <= 1
+	return not _save.has_seen_intro()
 
 
 func _on_level_selected(idx: int) -> void:
@@ -352,11 +359,17 @@ func _on_mop_charge_changed(ratio: float) -> void:
 func _on_mop_overheated() -> void:
 	if _equipment_bar != null:
 		_equipment_bar.set_mop_overheated(true)
-	if _bucket_glow_mat != null and _bucket_glow != null:
+	if _bucket_glow == null:
+		return
+	if _bucket_glow.texture == null:
+		_bucket_glow.texture = GameAssets.get_bucket_glow()
+	_bucket_glow.modulate = Color(1.0, 0.7, 0.3, 1.0)
+	if _bucket_glow_mat != null and _bucket_glow_mat.shader != null:
 		_bucket_glow_mat.set_shader_parameter("intensity", 1.6)
 		_bucket_glow_mat.set_shader_parameter("glow_color", Color(1.0, 0.45, 0.15))
 		_bucket_glow.material = _bucket_glow_mat
-		_bucket_glow.modulate = Color(1.0, 0.7, 0.3, 1.0)
+	else:
+		_bucket_glow.material = null
 
 
 func _on_mop_rinsed() -> void:

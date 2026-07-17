@@ -1,7 +1,7 @@
 class_name IntroSequence
 extends Control
 
-## Görsel novel tarzı 4+1 panel karakter girişi. Tıkla / boşluk ile ilerler.
+## Görsel novel tarzı karakter girişi. Tıkla / boşluk ile ilerler.
 
 signal finished
 
@@ -42,6 +42,7 @@ const PANELS: Array[Dictionary] = [
 var _panel_idx: int = 0
 var _busy: bool = false
 var _awaiting_input: bool = false
+var _playing: bool = false
 
 var _mood: ColorRect
 var _emoji: Label
@@ -55,36 +56,44 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
+	z_as_relative = false
+	z_index = 200
 	_apply_full_rect()
 	_build()
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_ENTER_TREE or what == NOTIFICATION_RESIZED:
+	if what == NOTIFICATION_ENTER_TREE or what == NOTIFICATION_RESIZED \
+			or what == NOTIFICATION_VISIBILITY_CHANGED:
 		_apply_full_rect()
 
 
 func _apply_full_rect() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	offset_left = 0.0
+	offset_top = 0.0
+	offset_right = 0.0
+	offset_bottom = 0.0
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	grow_vertical = Control.GROW_DIRECTION_BOTH
-	# CanvasLayer altında boyut garanti
 	var vp := get_viewport()
 	if vp != null:
 		var r := vp.get_visible_rect().size
-		if size.x < 8.0 or size.y < 8.0:
-			size = r
-			position = Vector2.ZERO
+		custom_minimum_size = r
+		size = r
+		position = Vector2.ZERO
 
 
 func _build() -> void:
 	var bg := ColorRect.new()
+	bg.name = "BG"
 	bg.color = Color(0.05, 0.04, 0.08, 0.97)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
 	var center := CenterContainer.new()
+	center.name = "Center"
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(center)
@@ -155,7 +164,7 @@ func _build() -> void:
 	box.add_child(_body)
 
 	var hint := Label.new()
-	hint.text = "▸ Devam etmek için tıkla  ·  Esc ile atla"
+	hint.text = "▸ Devam etmek için tıkla / Space  ·  Esc ile atla"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 18)
 	hint.add_theme_color_override("font_color", Color(0.65, 0.62, 0.7))
@@ -164,42 +173,60 @@ func _build() -> void:
 
 
 func play() -> void:
+	_playing = true
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	modulate = Color.WHITE
 	_apply_full_rect()
 	_panel_idx = 0
 	visible = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	# Pause altında da ilerlesin
-	await get_tree().process_frame
-	_apply_full_rect()
+	move_to_front()
+
+	# Layout otursun (CanvasLayer altında ilk karede size 0 olabiliyor)
+	for _i in 3:
+		await get_tree().process_frame
+		_apply_full_rect()
+
 	modulate.a = 0.0
 	var fade := create_tween()
 	fade.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	fade.tween_property(self, "modulate:a", 1.0, 0.35)
 	await fade.finished
+
 	for i in PANELS.size():
-		if not is_inside_tree():
-			finished.emit()
+		if not _playing or not is_inside_tree():
+			_finish()
 			return
 		_panel_idx = i
 		await _show_panel(i)
-		if not visible:
-			finished.emit()
+		if not _playing:
+			_finish()
 			return
 		await _wait_advance()
-		if not visible:
-			finished.emit()
+		if not _playing:
+			_finish()
 			return
+
 	var out := create_tween()
+	out.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	out.tween_property(self, "modulate:a", 0.0, 0.3)
 	await out.finished
+	_finish()
+
+
+func _finish() -> void:
+	_playing = false
+	_awaiting_input = false
+	_busy = false
 	visible = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	finished.emit()
 
 
 func _show_panel(idx: int) -> void:
 	_busy = true
 	_awaiting_input = false
+	_apply_full_rect()
 	var p: Dictionary = PANELS[idx]
 	_emoji.text = String(p["emoji"])
 	_title.text = String(p["title"])
@@ -218,12 +245,12 @@ func _show_panel(idx: int) -> void:
 
 
 func _wait_advance() -> void:
-	while _awaiting_input and visible:
+	while _awaiting_input and _playing and visible:
 		await get_tree().process_frame
 
 
 func _advance() -> void:
-	if _busy or not _awaiting_input:
+	if not _playing or _busy or not _awaiting_input:
 		return
 	_awaiting_input = false
 
@@ -231,19 +258,20 @@ func _advance() -> void:
 func _skip_all() -> void:
 	_awaiting_input = false
 	_busy = false
+	_playing = false
 	visible = false
 
 
 func _gui_input(event: InputEvent) -> void:
-	if not visible:
+	if not _playing or not visible:
 		return
 	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		accept_event()
 		_advance()
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if not visible:
+func _input(event: InputEvent) -> void:
+	if not _playing or not visible:
 		return
 	if event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo:
 		var key := (event as InputEventKey).keycode

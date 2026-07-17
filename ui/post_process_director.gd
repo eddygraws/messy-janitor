@@ -1,6 +1,8 @@
 class_name PostProcessDirector
 extends CanvasLayer
 
+const POST_SHADER: Shader = preload("res://shaders/post_gothic.gdshader")
+
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var enabled_in_menu: bool = false
 
@@ -17,7 +19,8 @@ func _ready() -> void:
 		_stress.stress_changed.connect(_on_stress_changed)
 
 	_material = ShaderMaterial.new()
-	_material.shader = load("res://shaders/post_gothic.gdshader")
+	if POST_SHADER != null:
+		_material.shader = POST_SHADER
 	_material.set_shader_parameter("stress", 0.0)
 
 	var copy := BackBufferCopy.new()
@@ -27,7 +30,8 @@ func _ready() -> void:
 	var rect := ColorRect.new()
 	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rect.material = _material
+	if _material.shader != null:
+		rect.material = _material
 	add_child(rect)
 
 	if _stress != null:
