@@ -12,13 +12,24 @@ signal panic_mode_exited
 @export var mistake_stress: float = 12.0
 @export var panic_threshold: float = 0.7
 @export var critical_threshold: float = 0.85
+## Pasif soğuma — heat bar / müzik yavaşlatması buna bağlı düşer
+@export var decay_per_second: float = 11.0
 
 var current_stress: float = 0.0
 var _exploded: bool = false
 var _in_panic: bool = false
-var mistake_multiplier: float = 1.0   # Riskli Temizlik modu bunu yükseltir
-## Tutorial L1: 0.2 gibi düşük tut — sistem var ama cezalandırmaz
+var mistake_multiplier: float = 1.0
 var gain_scale: float = 1.0
+
+
+func _process(delta: float) -> void:
+	if _exploded or current_stress <= 0.0 or decay_per_second <= 0.0:
+		return
+	var before := current_stress
+	current_stress = maxf(0.0, current_stress - decay_per_second * delta)
+	if not is_equal_approx(before, current_stress):
+		stress_changed.emit(current_stress, max_stress)
+		_update_panic()
 
 
 func register_mistake() -> void:

@@ -128,6 +128,9 @@ static func _all() -> Array[Dictionary]:
 			"commission": _commission("Cadı Morgana", "☠", "Karışan İksirler",
 				"Malzemelerim birbirine karıştı. Hata payın dar — stres daha hızlı dolar!",
 				CommissionData.Rule.HIGH_RISK, 2.2),
+			"is_boss_room": true,
+			"boss_mode": "mega_scrub",
+			"boss_title": "SET-PIECE · İKSİR PATLAMASI",
 			"props": [
 				{"type": "potion", "count": 4},
 				{"type": "crust", "count": 4},
@@ -216,6 +219,9 @@ static func _all() -> Array[Dictionary]:
 			"commission": _commission("Cadı Morgana", "🔮", "Titrek Eller",
 				"Yanlış hareket canını yakar. Stres cezan sertleşti!",
 				CommissionData.Rule.HIGH_RISK, 2.5),
+			"is_boss_room": true,
+			"boss_mode": "ritual_rush",
+			"boss_title": "SET-PIECE · CADI RİTÜELİ",
 			"props": [
 				{"type": "potion", "count": 4},
 				{"type": "slime", "count": 4},
@@ -239,8 +245,11 @@ static func _all() -> Array[Dictionary]:
 			"commission": _commission("Remzi", "🔥", "BÜYÜK FİNAL",
 				"Son gece. Süreye karşı her şeyi temizle — dans sonra!",
 				CommissionData.Rule.TIME_LIMIT, 75.0),
+			"is_boss_room": true,
+			"boss_mode": "box_rain",
+			"boss_title": "BOSS · KUTU YAĞMURU",
 			"props": [
-				{"type": "box", "count": 3},
+				{"type": "box", "count": 5},
 				{"type": "tv", "count": 2},
 				{"type": "mold", "count": 3},
 				{"type": "crumb", "count": 3},

@@ -26,9 +26,22 @@ var _combo: RunCombo3D
 var _ui_sfx: AudioStreamPlayer
 var _stress_label: Label
 var _combo_label: Label
+var _heat_bar: ProgressBar
+var _heat_fill_style: StyleBoxFlat
 var _commission: CommissionDirector3D
 var _commission_card: CommissionCardUI
 var _commission_info: Label
+var _hazards: HazardDirector
+var _curses: CurseDirector3D
+var _curse_label: Label
+var _hard_mode_btn: Button
+var _diff_btn: Button
+var _difficulty: int = DifficultyProfile3D.Tier.NORMAL
+var _score: ScoreTracker3D
+var _score_label: Label
+var _result_ui: RunResultUI
+var _daily_mode: bool = false
+var _pending_next_level: int = -1
 var _level_index: int = 0
 var _highest_unlocked: int = 1
 var _menu_open: bool = false
@@ -97,6 +110,7 @@ func _setup_tempo_and_tasks() -> void:
 	_stress.name = "StressComponent"
 	_stress.mistake_stress = task_fail_stress
 	_stress.gain_scale = 0.85
+	_stress.decay_per_second = 12.0
 	add_child(_stress)
 	_stress.stress_changed.connect(_on_stress_changed)
 	_stress.stress_critical.connect(_on_stress_critical)
@@ -134,6 +148,47 @@ func _setup_tempo_and_tasks() -> void:
 	_commission.setup(_commission_card, _commission_info, _stress, _spawner, _player, _camera_rig)
 	_commission.time_up.connect(_on_commission_time_up)
 
+	_hazards = HazardDirector.new()
+	_hazards.name = "HazardDirector"
+	add_child(_hazards)
+	_hazards.setup(_player, _stress, _spawner, $World as Node3D, _tempo)
+	_hazards.fall_impact.connect(_on_hazard_fall_impact)
+	_hazards.slippery_spawned.connect(_on_hazard_slippery)
+	_hazards.furniture_shifted.connect(_on_hazard_furniture)
+	if _player != null:
+		_player.floor_scrubbed.connect(_on_floor_scrubbed)
+
+	_curses = CurseDirector3D.new()
+	_curses.name = "CurseDirector3D"
+	add_child(_curses)
+	_curses.roll_daily()
+	_curses.curses_rolled.connect(func(_c: Array) -> void: _refresh_curse_hud())
+
+	_score = ScoreTracker3D.new()
+	_score.name = "ScoreTracker3D"
+	add_child(_score)
+	_score.score_changed.connect(_on_score_changed)
+
+	_result_ui = RunResultUI.new()
+	_result_ui.name = "RunResultUI"
+	$UI.add_child(_result_ui)
+	_result_ui.closed.connect(_on_result_closed)
+
+	_curse_label = Label.new()
+	_curse_label.name = "CurseLabel"
+	_curse_label.anchor_left = 1.0
+	_curse_label.anchor_right = 1.0
+	_curse_label.offset_left = -420.0
+	_curse_label.offset_right = -24.0
+	_curse_label.offset_top = 92.0
+	_curse_label.offset_bottom = 140.0
+	_curse_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_curse_label.add_theme_font_size_override("font_size", 16)
+	_curse_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.45))
+	_curse_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	$UI.add_child(_curse_label)
+	_refresh_curse_hud()
+
 	_ui_sfx = AudioStreamPlayer.new()
 	_ui_sfx.name = "UiSfx"
 	_ui_sfx.bus = &"Master"
@@ -148,6 +203,8 @@ func _process(_delta: float) -> void:
 	if _banner != null and _micro != null and _micro.has_active_task():
 		_banner.set_time_ratio(_micro.get_time_ratio())
 	_update_phase_progress_hud()
+	if _music != null and _tempo != null and _tempo.is_running():
+		_music.set_intensity(_tempo.get_elapsed_ratio())
 
 
 func _update_phase_progress_hud() -> void:
@@ -162,21 +219,27 @@ func _update_phase_progress_hud() -> void:
 		TempoPhaseDirector.PHASE_FINALE:
 			phase_name = "Son Patlama"
 	_phase_hud.text = "FAZ %d · %s  (%d%%)" % [phase, phase_name, int(ratio * 100.0)]
-	if _banner != null:
-		if phase >= TempoPhaseDirector.PHASE_FINALE:
-			_banner.set_vignette_heat(0.55 + ratio * 0.35)
-		elif phase >= TempoPhaseDirector.PHASE_RAMP:
-			_banner.set_vignette_heat(0.12)
-		else:
-			_banner.set_vignette_heat(0.0)
+	# Vignette heat bar / stres üzerinden güncellenir (_on_stress_changed)
 
 
 func _on_fx_burst(kind: StringName, world_pos: Vector3, strength: float) -> void:
 	if _particles != null:
 		_particles.burst(kind, world_pos, strength)
+	# Başarı micro-shake (fail ~2.4 ile karışmasın)
+	if _camera_rig != null and (kind == &"dispose" or kind == &"clean"):
+		_camera_rig.shake(clampf(0.35 + strength * 0.22, 0.35, 0.7))
 
 
-func start_level(index: int) -> void:
+func _spawn_pop(text: String, color: Color = Color(1.0, 0.92, 0.45), font_px: int = 64) -> void:
+	if _player == null:
+		return
+	var host: Node = $World if has_node("World") else self
+	FloatingPop3D.spawn(host, _player.global_position, text, color, font_px)
+
+
+func start_level(index: int, daily: bool = false) -> void:
+	_daily_mode = daily
+	_pending_next_level = -1
 	_level_index = clampi(index, 0, LevelData3D.level_count() - 1)
 	_show_menu(false)
 	if _player != null:
@@ -186,6 +249,10 @@ func start_level(index: int) -> void:
 		_tempo.stop_room()
 	if _micro != null:
 		_micro.stop_session()
+	if _hazards != null:
+		_hazards.stop_session()
+	if _curses != null:
+		_curses.revert_defaults(_stress, _player, _micro, _hazards)
 	if _spawner != null:
 		_spawner.stop_pressure()
 	if _music != null:
@@ -219,23 +286,41 @@ func start_level(index: int) -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.05)
 
 	# Tempo + mikro-görev seansı
-	var duration := lerpf(78.0, 58.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
+	var is_boss := bool(spec.get("is_boss_room", false))
+	var boss_mode := String(spec.get("boss_mode", ""))
+	var duration := lerpf(62.0, 48.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
+	if is_boss:
+		duration = lerpf(55.0, 70.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
 	if _camera_rig != null:
-		_camera_rig.set_finale_zoom(false)
+		_camera_rig.set_finale_zoom(is_boss)
 	if _tempo != null:
-		_tempo.start_room(duration)
+		if is_boss:
+			_tempo.start_boss_room(duration)
+		else:
+			_tempo.start_room(duration)
 	if _spawner != null:
 		_spawner.bind_tempo(_tempo)
-		_spawner.start_pressure()
+		_spawner.start_pressure(boss_mode if is_boss else "")
 	if _micro != null:
 		_micro.setup(_tempo, _spawner, _player)
 		_micro.configure_for_level(_level_index)
+		if is_boss:
+			_micro.configure_boss_mode(boss_mode)
 		_micro.start_session()
+	if _hazards != null:
+		_hazards.setup(_player, _stress, _spawner, $World as Node3D, _tempo)
+		_hazards.start_session(_level_index, mop_ok)
+	# Günlük lanet — level/boss ayarlarından sonra uygula
+	if _curses != null:
+		if not _curses.has_curses():
+			_curses.roll_daily()
+		_curses.apply_to(_stress, _player, _micro, _hazards)
+		_refresh_curse_hud()
+	_apply_difficulty_profile()
 	if _music != null:
-		_music.start(1)
+		_music.start(3 if is_boss else 1)
 	if _stress != null:
 		_stress.reset_stress()
-		# HIGH_RISK multiplier komisyon apply sonrası yeniden set edilmiş olabilir
 		if _commission != null:
 			var c := _commission.get_current()
 			if int(c.get("rule", 0)) == CommissionData.Rule.HIGH_RISK:
@@ -243,10 +328,43 @@ func start_level(index: int) -> void:
 	if _combo != null:
 		_combo.reset()
 	if _phase_hud != null:
-		_phase_hud.text = "FAZ 1 · Isınma  (0%)"
-		_phase_hud.modulate = Color(0.75, 0.9, 1.0)
+		if is_boss:
+			_phase_hud.text = "BOSS · Son Patlama"
+			_phase_hud.modulate = Color(1.0, 0.35, 0.4)
+		else:
+			_phase_hud.text = "FAZ 1 · Isınma  (0%)"
+			_phase_hud.modulate = Color(0.75, 0.9, 1.0)
 	_on_stress_changed(_stress.current_stress if _stress else 0.0, _stress.max_stress if _stress else 100.0)
 	_on_combo_changed(0)
+	if _score != null:
+		_score.begin_level()
+		_on_score_changed(0)
+	if is_boss:
+		_flash_boss_intro(String(spec.get("boss_title", "SET-PIECE")))
+	if _daily_mode and _hint != null:
+		_hint.text = "📅 Günlük meydan okuma — kendini geç!"
+
+
+func _start_daily_challenge() -> void:
+	var lv := DailyChallenge3D.todays_level_index(LevelData3D.level_count())
+	# Kilidi açılmış olmalı; değilse en yüksek açık seviyeyi kullan
+	if lv + 1 > _highest_unlocked:
+		lv = clampi(_highest_unlocked - 1, 0, LevelData3D.level_count() - 1)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 1.1)
+	start_level(lv, true)
+
+
+func _flash_boss_intro(title: String) -> void:
+	if _banner != null:
+		_banner.flash_boss(title)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 1.2)
+	if _camera_rig != null:
+		_camera_rig.punch_fov(8.0)
+		_camera_rig.shake(1.8)
+	if _hint != null:
+		_hint.text = "%s — ısınma yok, direkt kaos!" % title
+	if _particles != null and _player != null:
+		_particles.burst(&"bump", _player.global_position, 1.6)
 
 
 func _on_commission_time_up() -> void:
@@ -255,11 +373,13 @@ func _on_commission_time_up() -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.8)
 	if _banner != null:
 		_banner.flash_fail()
+	if _music != null and _stress != null:
+		_music.on_mistake(_stress.get_stress_ratio())
 
 
 func _on_tempo_phase_changed(phase: int) -> void:
 	if _music != null:
-		_music.set_phase(phase)
+		_music.set_phase(phase, true)
 	if _phase_hud == null:
 		return
 	match phase:
@@ -305,35 +425,36 @@ func _on_reinforcement_spawned(count: int) -> void:
 
 
 func _on_task_issued(task_type: String, duration: float, color: Color) -> void:
-	var label := "AT!"
+	# Şekil öneki — renk körü dostu (sadece renge güvenme)
+	var label := "▲ AT!"
 	var sub := "İşaretli kutuyu çöpe at!"
 	match task_type:
 		MicroTaskDirector.TASK_SCRUB:
-			label = "SİL!"
+			label = "● SİL!"
 			sub = "İşaretli lekeye sol tık / Space spam!"
 		MicroTaskDirector.TASK_GATHER:
-			label = "TOPLA!"
+			label = "■ TOPLA!"
 			sub = "İşaretli kutuları hızlıca çöpe!"
 		MicroTaskDirector.TASK_CHOOSE:
-			label = "SEÇ!"
+			label = "◆ SEÇ!"
 			sub = "★ yıldızlıyı at — ✕ olanı atma!"
 		MicroTaskDirector.TASK_DOUBLE:
-			label = "ÇİFTE!"
+			label = "✚ ÇİFTE!"
 			sub = "Kutu AT + leke SİL — ikisini bitir!"
 		MicroTaskDirector.TASK_DODGE:
-			label = "KAÇ!"
+			label = "◇ KAÇ!"
 			sub = "Kırmızı bölgeden DIŞARI çık!"
 		MicroTaskDirector.TASK_STOP:
-			label = "DUR!"
+			label = "✕ DUR!"
 			sub = "Hiçbir şeye DOKUNMA!"
 		MicroTaskDirector.TASK_ALL:
-			label = "HEPSİNİ AT!"
+			label = "▣ HEPSİNİ AT!"
 			sub = "İşaretli kutuların hepsini çöpe!"
 		MicroTaskDirector.TASK_LAST:
-			label = "SON KUTU!"
+			label = "★ SON KUTU!"
 			sub = "En uzaktaki yıldızlı kutuyu at!"
 		_:
-			label = "AT!"
+			label = "▲ AT!"
 			sub = "İşaretli kutuyu çöpe at!"
 	var special := "stop" if task_type == MicroTaskDirector.TASK_STOP else ""
 	if _banner != null:
@@ -352,12 +473,20 @@ func _on_task_succeeded(_task_type: String) -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.1)
 	if _combo != null:
 		_combo.register_success()
+	var combo_n := _combo.get_combo() if _combo else 0
+	if _score != null:
+		_score.on_task_ok(combo_n)
 	if _stress != null:
 		_stress.reduce_stress(task_success_relief)
+	if _music != null:
+		_music.pulse_upbeat(0.05 + 0.01 * float(combo_n))
 	if _particles != null and _player != null:
-		_particles.burst(&"dispose", _player.global_position + Vector3(0, 1, 0), 1.1)
+		_particles.burst(&"clean", _player.global_position + Vector3(0, 1, 0), 1.1)
+	if _camera_rig != null:
+		_camera_rig.shake(0.55)
+	_spawn_pop("+%d" % (80 + mini(combo_n, 8) * 12), Color(0.55, 1.0, 0.7), 72)
 	if _hint != null:
-		_hint.text = "Emir tamam! ★  combo x%d" % (_combo.get_combo() if _combo else 0)
+		_hint.text = "Emir tamam! ★  combo x%d" % combo_n
 
 
 func _on_task_failed(_task_type: String) -> void:
@@ -368,8 +497,12 @@ func _on_task_failed(_task_type: String) -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.BUMP, 0.65)
 	if _combo != null:
 		_combo.register_fail()
+	if _score != null:
+		_score.on_task_fail()
 	if _stress != null:
 		_stress.register_mistake()
+	if _music != null and _stress != null:
+		_music.on_mistake(_stress.get_stress_ratio())
 	if _camera_rig != null:
 		_camera_rig.punch_fov(10.0)
 		_camera_rig.shake(2.4)
@@ -388,12 +521,38 @@ func _on_task_failed(_task_type: String) -> void:
 
 
 func _on_stress_changed(current: float, maximum: float) -> void:
-	if _stress_label == null:
-		return
-	var pct := int((current / maxf(maximum, 1.0)) * 100.0)
-	_stress_label.text = "STRES: %d%%" % pct
-	_stress_label.modulate = Color(1.0, lerpf(1.0, 0.35, current / maximum), lerpf(1.0, 0.35, current / maximum))
+	var ratio := current / maxf(maximum, 1.0)
+	if _stress_label != null:
+		var pct := int(ratio * 100.0)
+		_stress_label.text = "HEAT: %d%%" % pct
+		_stress_label.modulate = Color(1.0, lerpf(1.0, 0.35, ratio), lerpf(1.0, 0.35, ratio))
+	if _heat_bar != null:
+		_heat_bar.value = ratio * 100.0
+		if _heat_fill_style != null:
+			_heat_fill_style.bg_color = Color(1.0, lerpf(0.75, 0.15, ratio), lerpf(0.25, 0.1, ratio))
+	if _music != null:
+		_music.set_heat(ratio)
+	if _banner != null and _tempo != null and _tempo.is_running():
+		# Faz vignette + heat birleşimi
+		var phase_heat := 0.0
+		var phase := _tempo.get_phase()
+		if phase >= TempoPhaseDirector.PHASE_FINALE:
+			phase_heat = 0.35
+		elif phase >= TempoPhaseDirector.PHASE_RAMP:
+			phase_heat = 0.1
+		_banner.set_vignette_heat(maxi(phase_heat, ratio * 0.85))
 
+
+func _on_forbidden_touched() -> void:
+	if _commission != null:
+		_commission.notify_forbidden_touched()
+	if _score != null:
+		_score.on_mistake()
+	if _music != null and _stress != null:
+		_music.on_mistake(_stress.get_stress_ratio())
+	if _hint != null:
+		_hint.text = "⛔ Yasak! Ona dokunma!"
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.STOP, 0.9)
 
 func _on_stress_critical() -> void:
 	if _camera_rig != null:
@@ -423,6 +582,15 @@ func _on_combo_changed(combo: int) -> void:
 		return
 	_combo_label.text = "COMBO x%d" % combo
 	_combo_label.modulate = Color(1.0, 0.9, 0.4) if combo > 0 else Color(0.6, 0.65, 0.7)
+	if _score != null and combo > 0:
+		_score.on_combo(combo)
+
+
+func _on_score_changed(score: int) -> void:
+	if _score_label != null:
+		_score_label.text = "SKOR: %d" % score
+		if _daily_mode:
+			_score_label.text = "📅 SKOR: %d" % score
 
 
 func _on_combo_milestone(combo: int) -> void:
@@ -430,6 +598,9 @@ func _on_combo_milestone(combo: int) -> void:
 		_hint.text = "🔥 Combo x%d — tempo yüksek!" % combo
 	if _particles != null and _player != null:
 		_particles.burst(&"dance", _player.global_position, 1.3)
+	if _camera_rig != null:
+		_camera_rig.shake(0.5)
+	_spawn_pop("COMBO x%d" % combo, Color(1.0, 0.75, 0.35), 80)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.25)
 
 
@@ -441,35 +612,34 @@ func _apply_theme(spec: Dictionary) -> void:
 	var floor_c: Color = spec.get("floor", Color(0.34, 0.36, 0.38)) as Color
 	var wall_c: Color = spec.get("wall", Color(0.5, 0.5, 0.5)) as Color
 	if _floor_mesh != null:
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = floor_c
-		mat.roughness = 0.92
-		_floor_mesh.material_override = mat
+		_floor_mesh.material_override = HitWobbleMaterial.create_flat(floor_c, 0.94, 0.08)
 		_floor_mesh.set_surface_override_material(0, null)
 	_apply_arcade_void(floor_c, spec.get("accent", Color(0.7, 0.5, 0.3)) as Color)
 	for wall_name in ["WallBack", "WallLeft"]:
 		var wall: MeshInstance3D = $World.get_node_or_null(wall_name) as MeshInstance3D
 		if wall == null:
 			continue
-		var wmat := StandardMaterial3D.new()
-		wmat.albedo_color = wall_c
-		wmat.roughness = 0.9
-		wall.material_override = wmat
+		# Duvar: ince outline — oda silueti
+		wall.material_override = HitWobbleMaterial.create(
+			wall_c, 0.9, Color.BLACK, 0.0, 0.0, true, 0.02
+		)
 
 
 func _ensure_arcade_void() -> void:
+	var void_size := Vector3(90.0, 70.0, 90.0)
+	# Sadece duvarlar — zemin/tavan yok
+	var mesh := BeveledBoxMesh.create_walls(void_size, 0.28, 16)
 	if _arcade_void != null and is_instance_valid(_arcade_void):
+		_arcade_void.mesh = mesh
+		_arcade_void.position = Vector3(0.0, 12.0, 0.0)
+		if _arcade_void_mat == null:
+			_arcade_void_mat = _arcade_void.material_override as ShaderMaterial
 		return
 	_arcade_void = MeshInstance3D.new()
 	_arcade_void.name = "ArcadeTileVoid"
-	var sphere := SphereMesh.new()
-	sphere.radius = 48.0
-	sphere.height = 96.0
-	sphere.radial_segments = 48
-	sphere.rings = 24
-	_arcade_void.mesh = sphere
+	_arcade_void.mesh = mesh
 	_arcade_void.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_arcade_void.position = Vector3(0.0, 8.0, 0.0)
+	_arcade_void.position = Vector3(0.0, 12.0, 0.0)
 	add_child(_arcade_void)
 	_arcade_void_mat = ShaderMaterial.new()
 	_arcade_void_mat.shader = ARCADE_VOID_SHADER
@@ -484,26 +654,35 @@ func _pastelize(c: Color, lift: float = 0.2) -> Color:
 	return out
 
 
+## Arka plan void — pastel değil; doygun + parlak arcade.
+func _vividize(c: Color, sat_mul: float = 1.55, val_lift: float = 0.12) -> Color:
+	var out := c
+	out.s = clampf(out.s * sat_mul, 0.45, 1.0)
+	out.v = clampf(out.v + val_lift, 0.38, 0.98)
+	return out
+
+
 func _apply_arcade_void(theme: Color, accent_fallback: Color) -> void:
 	_ensure_arcade_void()
 	if _arcade_void_mat == null:
 		return
 	var pal: Dictionary = LevelData.arcade_palette(theme)
-	var a := _pastelize(pal.get("color_a", theme) as Color, 0.12)
-	var b := _pastelize(pal.get("color_b", theme.lightened(0.2)) as Color, 0.18)
-	var accent := _pastelize(pal.get("color_accent", accent_fallback) as Color, 0.05)
-	# Karolar arasında net renk farkı
-	b = a.lerp(b, 0.85).lightened(0.06)
-	accent.s = clampf(accent.s * 1.25, 0.4, 0.95)
+	var a := _vividize(pal.get("color_a", theme) as Color, 1.65, 0.18)
+	var b := _vividize(pal.get("color_b", theme.lightened(0.15)) as Color, 1.7, 0.28)
+	var accent := _vividize(pal.get("color_accent", accent_fallback) as Color, 1.45, 0.2)
+	# Karolar arası net fark — pastel yıkama yok
+	b = a.lerp(b, 0.92)
+	b.v = clampf(b.v + 0.08, 0.45, 1.0)
+	accent.s = clampf(accent.s * 1.2, 0.55, 1.0)
+	accent.v = clampf(accent.v + 0.05, 0.55, 1.0)
 	_arcade_void_mat.set_shader_parameter("color_a", a)
 	_arcade_void_mat.set_shader_parameter("color_b", b)
 	_arcade_void_mat.set_shader_parameter("color_accent", accent)
 	_arcade_void_mat.set_shader_parameter("tile_world_size", 2.6)
-	_arcade_void_mat.set_shader_parameter("scroll_speed", float(pal.get("scroll_speed", 0.11)) * 0.75)
+	_arcade_void_mat.set_shader_parameter("scroll_speed", float(pal.get("scroll_speed", 0.11)) * 1.35)
 	_arcade_void_mat.set_shader_parameter("diagonal_angle", 0.785398)
-	_arcade_void_mat.set_shader_parameter("pulse_amount", 0.03)
-	_arcade_void_mat.set_shader_parameter("accent_chance", float(pal.get("accent_chance", 0.08)) * 1.35)
-	_arcade_void_mat.set_shader_parameter("vignette", 0.28)
+	_arcade_void_mat.set_shader_parameter("pulse_amount", 0.018)
+	_arcade_void_mat.set_shader_parameter("accent_chance", float(pal.get("accent_chance", 0.08)) * 1.1)
 
 
 func _on_objective_changed(remaining: int, total: int) -> void:
@@ -522,37 +701,65 @@ func _on_level_cleared() -> void:
 		_tempo.stop_room()
 	if _micro != null:
 		_micro.stop_session()
+	if _hazards != null:
+		_hazards.stop_session()
+	if _curses != null:
+		_curses.revert_defaults(_stress, _player, _micro, _hazards)
 	if _spawner != null:
 		_spawner.stop_pressure()
 	if _music != null:
 		_music.stop(true)
 	if _commission != null:
 		_commission.clear()
-	if _stress != null:
-		_stress.reset_stress()
-	if _combo != null:
-		_combo.reset()
 	if _banner != null:
 		_banner.hide_task(true)
 		_banner.set_vignette_heat(0.0)
 	if _camera_rig != null:
 		_camera_rig.set_finale_zoom(false)
+
+	# Skor sonucu — kendini geçtin mi?
+	var stress_r := _stress.get_stress_ratio() if _stress else 0.0
+	var result: Dictionary = {}
+	if _score != null:
+		result = _score.finalize(stress_r, _daily_mode, _level_index)
+	var compare := DailyChallenge3D.save_result(_level_index, int(result.get("score", 0)), _daily_mode)
+
 	var next := _level_index + 1
-	if next + 1 > _highest_unlocked and next < LevelData3D.level_count():
+	if next + 1 > _highest_unlocked and next < LevelData3D.level_count() and not _daily_mode:
 		_highest_unlocked = next + 1
 		_save_progress()
-	if _hint != null:
-		_hint.text = "🎉 Seviye bitti! Space veya Esc → menü"
-	if _objective_label != null:
-		_objective_label.text = "✓ SEVİYE TEMİZ — Esc menü"
-	await get_tree().create_timer(1.4).timeout
-	if next < LevelData3D.level_count():
-		start_level(next)
+	if _daily_mode:
+		_pending_next_level = -1 # menüye
+	elif next < LevelData3D.level_count():
+		_pending_next_level = next
 	else:
-		if _hint != null:
-			_hint.text = "🏆 10/10 tamam! Dans et (G) · Esc menü"
+		_pending_next_level = -1
 		_highest_unlocked = LevelData3D.level_count()
 		_save_progress()
+
+	if _stress != null:
+		_stress.reset_stress()
+	if _combo != null:
+		_combo.reset()
+
+	if _result_ui != null:
+		_result_ui.present(result, compare, _daily_mode)
+		if _particles != null and _player != null:
+			_particles.burst(&"clean", _player.global_position + Vector3(0, 1.2, 0), 1.4)
+			_particles.burst(&"dispose", _player.global_position + Vector3(0.3, 1.0, 0), 1.0)
+		if _camera_rig != null:
+			_camera_rig.shake(0.6)
+	else:
+		_on_result_closed()
+
+
+func _on_result_closed() -> void:
+	var was_daily := _daily_mode
+	_daily_mode = false
+	if was_daily or _pending_next_level < 0:
+		_show_menu(true)
+		return
+	start_level(_pending_next_level, false)
 
 
 func _ensure_wall_colliders() -> void:
@@ -641,20 +848,49 @@ func _setup_hud() -> void:
 	_stress_label.offset_left = 24.0
 	_stress_label.offset_top = 116.0
 	_stress_label.offset_right = 320.0
-	_stress_label.offset_bottom = 144.0
+	_stress_label.offset_bottom = 140.0
 	_stress_label.add_theme_font_size_override("font_size", 18)
-	_stress_label.text = "STRES: 0%"
+	_stress_label.text = "HEAT: 0%"
 	ui.add_child(_stress_label)
+
+	_heat_bar = ProgressBar.new()
+	_heat_bar.offset_left = 24.0
+	_heat_bar.offset_top = 142.0
+	_heat_bar.offset_right = 280.0
+	_heat_bar.offset_bottom = 162.0
+	_heat_bar.min_value = 0.0
+	_heat_bar.max_value = 100.0
+	_heat_bar.value = 0.0
+	_heat_bar.show_percentage = false
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0.12, 0.1, 0.12, 0.85)
+	bg.set_corner_radius_all(4)
+	_heat_bar.add_theme_stylebox_override("background", bg)
+	_heat_fill_style = StyleBoxFlat.new()
+	_heat_fill_style.bg_color = Color(1.0, 0.55, 0.2)
+	_heat_fill_style.set_corner_radius_all(4)
+	_heat_bar.add_theme_stylebox_override("fill", _heat_fill_style)
+	ui.add_child(_heat_bar)
 
 	_combo_label = Label.new()
 	_combo_label.offset_left = 24.0
-	_combo_label.offset_top = 144.0
+	_combo_label.offset_top = 168.0
 	_combo_label.offset_right = 320.0
-	_combo_label.offset_bottom = 172.0
+	_combo_label.offset_bottom = 196.0
 	_combo_label.add_theme_font_size_override("font_size", 18)
 	_combo_label.text = "COMBO x0"
 	_combo_label.modulate = Color(0.6, 0.65, 0.7)
 	ui.add_child(_combo_label)
+
+	_score_label = Label.new()
+	_score_label.offset_left = 24.0
+	_score_label.offset_top = 200.0
+	_score_label.offset_right = 320.0
+	_score_label.offset_bottom = 228.0
+	_score_label.add_theme_font_size_override("font_size", 18)
+	_score_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	_score_label.text = "SKOR: 0"
+	ui.add_child(_score_label)
 
 
 func _setup_menu() -> void:
@@ -689,6 +925,56 @@ func _setup_menu() -> void:
 	sub.add_theme_color_override("font_color", Color(0.7, 0.85, 0.95))
 	_menu.add_child(sub)
 
+	_hard_mode_btn = Button.new()
+	_hard_mode_btn.focus_mode = Control.FOCUS_NONE
+	_hard_mode_btn.anchor_left = 0.5
+	_hard_mode_btn.anchor_right = 0.5
+	_hard_mode_btn.offset_left = -200.0
+	_hard_mode_btn.offset_right = 200.0
+	_hard_mode_btn.offset_top = 152.0
+	_hard_mode_btn.offset_bottom = 196.0
+	_hard_mode_btn.pressed.connect(_toggle_hard_mode)
+	_menu.add_child(_hard_mode_btn)
+	_update_hard_mode_btn()
+
+	_diff_btn = Button.new()
+	_diff_btn.focus_mode = Control.FOCUS_NONE
+	_diff_btn.anchor_left = 0.5
+	_diff_btn.anchor_right = 0.5
+	_diff_btn.offset_left = -200.0
+	_diff_btn.offset_right = 200.0
+	_diff_btn.offset_top = 202.0
+	_diff_btn.offset_bottom = 242.0
+	_diff_btn.pressed.connect(_cycle_difficulty)
+	_menu.add_child(_diff_btn)
+	_update_diff_btn()
+
+	var daily_btn := Button.new()
+	daily_btn.focus_mode = Control.FOCUS_NONE
+	daily_btn.anchor_left = 0.5
+	daily_btn.anchor_right = 0.5
+	daily_btn.offset_left = -200.0
+	daily_btn.offset_right = 200.0
+	daily_btn.offset_top = 248.0
+	daily_btn.offset_bottom = 292.0
+	var d_lv := DailyChallenge3D.todays_level_index(LevelData3D.level_count())
+	daily_btn.text = "📅 %s" % DailyChallenge3D.challenge_title(d_lv)
+	daily_btn.modulate = Color(1.0, 0.8, 0.45)
+	daily_btn.pressed.connect(_start_daily_challenge)
+	_menu.add_child(daily_btn)
+
+	var curse_info := Label.new()
+	curse_info.name = "MenuCurseInfo"
+	curse_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	curse_info.anchor_right = 1.0
+	curse_info.offset_top = 298.0
+	curse_info.offset_bottom = 340.0
+	curse_info.add_theme_font_size_override("font_size", 15)
+	curse_info.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5))
+	curse_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_menu.add_child(curse_info)
+	_refresh_menu_curse_info(curse_info)
+
 	var scroll := ScrollContainer.new()
 	scroll.anchor_left = 0.5
 	scroll.anchor_right = 0.5
@@ -696,8 +982,8 @@ func _setup_menu() -> void:
 	scroll.anchor_bottom = 0.5
 	scroll.offset_left = -420.0
 	scroll.offset_right = 420.0
-	scroll.offset_top = -220.0
-	scroll.offset_bottom = 260.0
+	scroll.offset_top = -40.0
+	scroll.offset_bottom = 290.0
 	_menu.add_child(scroll)
 
 	_level_grid = GridContainer.new()
@@ -734,6 +1020,10 @@ func _show_menu(open: bool) -> void:
 			_tempo.stop_room()
 		if _micro != null:
 			_micro.stop_session()
+		if _hazards != null:
+			_hazards.stop_session()
+		if _curses != null:
+			_curses.revert_defaults(_stress, _player, _micro, _hazards)
 		if _spawner != null:
 			_spawner.stop_pressure()
 		if _music != null:
@@ -781,12 +1071,86 @@ func _on_rinsed() -> void:
 		_hint.text = "Paspas temiz!"
 
 
-func _on_forbidden_touched() -> void:
-	if _commission != null:
-		_commission.notify_forbidden_touched()
-	if _hint != null:
-		_hint.text = "⛔ Yasak! Ona dokunma!"
-	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.STOP, 0.9)
+func _refresh_curse_hud() -> void:
+	if _curse_label == null:
+		return
+	if _curses == null or not _curses.has_curses():
+		_curse_label.text = ""
+		return
+	var lines: PackedStringArray = ["LANET"]
+	for c in _curses.get_active():
+		lines.append("%s %s" % [String(c.get("icon", "☠")), String(c.get("title", "?"))])
+	_curse_label.text = "\n".join(lines)
+
+
+func _update_hard_mode_btn() -> void:
+	if _hard_mode_btn == null or _curses == null:
+		return
+	if _curses.is_hard_mode():
+		_hard_mode_btn.text = "ZORLU MOD: AÇIK (2 lanet) · tıkla kapat"
+		_hard_mode_btn.modulate = Color(1.0, 0.55, 0.45)
+	else:
+		_hard_mode_btn.text = "ZORLU MOD: KAPALI · 1 günlük lanet"
+		_hard_mode_btn.modulate = Color(0.85, 0.9, 0.95)
+
+
+func _update_diff_btn() -> void:
+	if _diff_btn == null:
+		return
+	_diff_btn.text = "Zorluk: %s · tıkla değiştir" % DifficultyProfile3D.tier_name(_difficulty)
+	match _difficulty:
+		DifficultyProfile3D.Tier.EASY:
+			_diff_btn.modulate = Color(0.55, 0.95, 0.7)
+		DifficultyProfile3D.Tier.HARD:
+			_diff_btn.modulate = Color(1.0, 0.5, 0.45)
+		_:
+			_diff_btn.modulate = Color(0.9, 0.92, 1.0)
+
+
+func _cycle_difficulty() -> void:
+	_difficulty = (_difficulty + 1) % 3
+	_update_diff_btn()
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.SWITCH, 1.05)
+
+
+func _apply_difficulty_profile() -> void:
+	if _micro != null:
+		_micro.apply_difficulty_mult(
+			DifficultyProfile3D.task_interval_mult(_difficulty),
+			DifficultyProfile3D.task_duration_mult(_difficulty)
+		)
+	if _stress != null:
+		var curse_stress := 1.0
+		if _curses != null:
+			curse_stress = float(_curses.combined_mods().get("stress_gain", 1.0))
+		_stress.gain_scale = 0.85 * curse_stress * DifficultyProfile3D.stress_gain_mult(_difficulty)
+
+
+func _toggle_hard_mode() -> void:
+	if _curses == null:
+		return
+	_curses.set_hard_mode(not _curses.is_hard_mode())
+	_curses.roll_daily(true)
+	_update_hard_mode_btn()
+	_refresh_curse_hud()
+	var info := _menu.get_node_or_null("MenuCurseInfo") as Label if _menu != null else null
+	_refresh_menu_curse_info(info)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.SWITCH, 1.0)
+
+
+func _refresh_menu_curse_info(label: Label) -> void:
+	if label == null or _curses == null:
+		return
+	if not _curses.has_curses():
+		_curses.roll_daily()
+	var parts: PackedStringArray = []
+	for c in _curses.get_active():
+		parts.append("%s %s — %s" % [
+			String(c.get("icon", "")),
+			String(c.get("title", "")),
+			String(c.get("desc", "")),
+		])
+	label.text = "Bugünün laneti:\n" + "\n".join(parts)
 
 
 func _on_item_disposed(_prop_id: String) -> void:
@@ -794,7 +1158,51 @@ func _on_item_disposed(_prop_id: String) -> void:
 		_hint.text = "Atıldı!  ·  devam"
 	if _spawner != null:
 		_spawner.call_deferred("_emit_objective_state")
+	if _score != null:
+		_score.on_dispose()
+	_spawn_pop("+40", Color(0.55, 1.0, 0.65), 68)
 	_refresh_hint()
+
+
+func _on_floor_scrubbed(world_pos: Vector3) -> void:
+	if _hazards != null:
+		_hazards.notify_scrub_cleaned(world_pos)
+	if _hint != null:
+		_hint.text = "Zemin kaygan — dikkat!"
+	# Micro-shake clean fx_burst'ten gelir; ekstra confetti yok
+
+
+func _on_hazard_slippery(_world_pos: Vector3) -> void:
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.RINSE, 1.15)
+
+
+func _on_hazard_furniture() -> void:
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.BUMP, 0.9)
+	if _camera_rig != null:
+		_camera_rig.shake(0.7)
+	if _hint != null:
+		_hint.text = "Kırmızı çizgiye basma — raf geliyor!"
+
+
+func _on_hazard_fall_impact(hit_player: bool, world_pos: Vector3) -> void:
+	if _particles != null:
+		_particles.burst(&"bump", world_pos + Vector3(0, 0.4, 0), 1.6 if hit_player else 0.9)
+	if _camera_rig != null:
+		_camera_rig.shake(1.4 if hit_player else 0.55)
+	if hit_player:
+		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.85)
+		if _music != null and _stress != null:
+			_music.on_mistake(_stress.get_stress_ratio())
+		if _banner != null:
+			_banner.set_vignette_heat(_stress.get_stress_ratio() if _stress else 0.4)
+		if _hint != null:
+			_hint.text = "Raf düştü — üzerine geldi!"
+		if _player != null:
+			_player.play_task_fail_recoil()
+	else:
+		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.HIT, 0.7)
+		if _hint != null:
+			_hint.text = "Kurtuldun — raf yere çarptı"
 
 
 func _unhandled_input(event: InputEvent) -> void:

@@ -20,6 +20,7 @@ var _placed: Array[Vector3] = []
 var _reinforce_cd: float = 0.0
 var _tempo: TempoPhaseDirector
 var _pressure_active: bool = false
+var _boss_mode: String = ""
 
 
 func _ready() -> void:
@@ -34,31 +35,44 @@ func bind_tempo(tempo: TempoPhaseDirector) -> void:
 		_tempo.tempo_phase_changed.connect(_on_tempo_phase)
 
 
-func start_pressure() -> void:
+func start_pressure(boss_mode: String = "") -> void:
+	_boss_mode = boss_mode
 	_pressure_active = true
-	_reinforce_cd = 8.0
+	if _boss_mode.is_empty():
+		_reinforce_cd = 8.0
+	else:
+		# Boss: hemen basınç
+		_reinforce_cd = 2.2
+		spawn_reinforcement(2 if _boss_mode == "box_rain" else 1)
 
 
 func stop_pressure() -> void:
 	_pressure_active = false
 	_reinforce_cd = 0.0
+	_boss_mode = ""
 
 
 func _process(delta: float) -> void:
 	if not _pressure_active or _cleared or _tempo == null:
 		return
 	var phase := _tempo.get_phase()
-	if phase < TempoPhaseDirector.PHASE_RAMP:
+	# Boss: faz beklemeden takviye
+	if _boss_mode.is_empty() and phase < TempoPhaseDirector.PHASE_RAMP:
 		return
 	_reinforce_cd -= delta
 	if _reinforce_cd > 0.0:
 		return
 	var mult := _tempo.get_spawn_rate_mult()
-	# Faz 2: ~7sn, Faz 3: ~4sn aralık
-	_reinforce_cd = (10.0 / mult) * randf_range(0.85, 1.1)
+	if not _boss_mode.is_empty():
+		mult *= 1.35
+	_reinforce_cd = (10.0 / mult) * randf_range(0.75, 1.05)
+	if _boss_mode == "box_rain":
+		_reinforce_cd = maxf(2.4, _reinforce_cd * 0.55)
 	var n := 1
-	if phase >= TempoPhaseDirector.PHASE_FINALE:
+	if phase >= TempoPhaseDirector.PHASE_FINALE or not _boss_mode.is_empty():
 		n = 2
+	if _boss_mode == "box_rain":
+		n = 3
 	spawn_reinforcement(n)
 
 
@@ -142,6 +156,10 @@ func spawn_reinforcement(count: int = 1) -> int:
 
 
 func _reinforcement_types() -> Array[String]:
+	if _boss_mode == "box_rain":
+		return ["box", "box", "box", "crumb", "box"]
+	if _boss_mode == "mega_scrub":
+		return ["slime", "potion", "slime", "crumb"]
 	var out: Array[String] = []
 	var props: Array = _level_spec.get("props", []) as Array
 	for entry_variant in props:
@@ -282,8 +300,9 @@ func _add_scrub_puddle(
 	pivot.name = "Pivot"
 	root.add_child(pivot)
 
+	# Sıvı lekeler fiziksel engel değil — oyuncu içinden geçer; kayganlık HazardDirector'da.
 	var body := StaticBody3D.new()
-	body.collision_layer = PROP_MASK
+	body.collision_layer = 0
 	body.collision_mask = 0
 	pivot.add_child(body)
 
@@ -294,7 +313,9 @@ func _add_scrub_puddle(
 	disc.bottom_radius = radius
 	disc.height = 0.06
 	puddle.mesh = disc
-	puddle.material_override = HitWobbleMaterial.create(color, 0.55, color.lightened(0.25), 0.35, 0.14)
+	puddle.material_override = HitWobbleMaterial.create(
+		color, 0.55, color.lightened(0.25), 0.35, 0.14, true, 0.018
+	)
 	puddle.position = Vector3(0.0, 0.04, 0.0)
 	pivot.add_child(puddle)
 	root.register_wobble_mesh(puddle)
@@ -304,17 +325,21 @@ func _add_scrub_puddle(
 	sphere.radius = radius * 0.38
 	sphere.height = radius * 0.55
 	blob.mesh = sphere
-	blob.material_override = HitWobbleMaterial.create(color.lightened(0.1), 0.4, color, 0.45, 0.18)
+	blob.material_override = HitWobbleMaterial.create(
+		color.lightened(0.1), 0.4, color, 0.45, 0.18, true, 0.022
+	)
 	blob.position = Vector3(0.0, 0.12, 0.0)
 	pivot.add_child(blob)
 	root.register_wobble_mesh(blob)
 
+	# Şekil sadece referans / gelecek raycast için; layer=0 → player'a çarpmaz
 	var shape := CollisionShape3D.new()
 	var cyl := CylinderShape3D.new()
 	cyl.radius = radius * 0.62
 	cyl.height = 0.28
 	shape.shape = cyl
 	shape.position = Vector3(0.0, 0.12, 0.0)
+	shape.disabled = true
 	body.add_child(shape)
 
 	var label := Label3D.new()
@@ -587,8 +612,9 @@ func _add_bucket_station(pos: Vector3) -> void:
 	body_mesh.bottom_radius = 0.42
 	body_mesh.height = 0.72
 	body.mesh = body_mesh
-	var body_mat := StandardMaterial3D.new()
-	body_mat.albedo_color = Color(0.35, 0.38, 0.42)
+	var body_mat := HitWobbleMaterial.create(
+		Color(0.35, 0.38, 0.42), 0.88, Color.BLACK, 0.0, 0.05, true, 0.028
+	)
 	body.material_override = body_mat
 	body.position = Vector3(0.0, 0.36, 0.0)
 	zone.add_child(body)
@@ -599,6 +625,7 @@ func _add_bucket_station(pos: Vector3) -> void:
 	water_mesh.bottom_radius = 0.32
 	water_mesh.height = 0.12
 	water.mesh = water_mesh
+	# Şeffaf su — toon outline'sız
 	var water_mat := StandardMaterial3D.new()
 	water_mat.albedo_color = Color(0.35, 0.65, 0.85, 0.85)
 	water_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -639,9 +666,7 @@ func _station_mesh(
 	var box := BoxMesh.new()
 	box.size = body_size
 	mesh.mesh = box
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = body_col
-	mesh.material_override = mat
+	mesh.material_override = HitWobbleMaterial.create(body_col, 0.88, Color.BLACK, 0.0, 0.04, true, 0.026)
 	mesh.position = Vector3(0.0, body_size.y * 0.5 if not flat else 0.12, 0.0)
 	zone.add_child(mesh)
 
@@ -649,9 +674,9 @@ func _station_mesh(
 	var rim_mesh := BoxMesh.new()
 	rim_mesh.size = Vector3(body_size.x + 0.08, 0.08, body_size.z + 0.08)
 	rim.mesh = rim_mesh
-	var rim_mat := StandardMaterial3D.new()
-	rim_mat.albedo_color = rim_col
-	rim.material_override = rim_mat
+	rim.material_override = HitWobbleMaterial.create(
+		rim_col, 0.7, rim_col.lightened(0.2), 0.25, 0.02, true, 0.02
+	)
 	rim.position = Vector3(0.0, (0.28 if flat else body_size.y + 0.04), 0.0)
 	zone.add_child(rim)
 

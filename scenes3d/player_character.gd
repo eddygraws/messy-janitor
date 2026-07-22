@@ -9,6 +9,7 @@ signal interact_attempted
 signal tool_switched(tool_name: String)
 signal carried_changed(holding: bool)
 signal item_disposed(prop_id: String)
+signal floor_scrubbed(world_pos: Vector3)
 signal mop_dirt_changed(ratio: float)
 signal rinsed
 signal dance_changed(dancing: bool)
@@ -16,7 +17,9 @@ signal fx_burst(kind: StringName, world_pos: Vector3, strength: float)
 signal forbidden_touched
 
 @export var move_speed: float = 6.4
-@export var carry_speed_mult: float = 0.72
+@export var carry_speed_mult: float = 0.68 ## Tek kutu — bilinçli yavaşlatma
+@export var stack_speed_falloff: float = 0.70 ## Her ekstra kutu çarpanı (2→×0.70, 3→×0.49…)
+@export var stack_speed_floor: float = 0.22 ## Stack ile minimum hız çarpanı (move_speed’e göre)
 @export var camera_rig_path: NodePath = ^"../../IsometricCameraRig"
 
 @export_group("Etkileşim")
@@ -44,6 +47,9 @@ signal forbidden_touched
 @export var bump_min_speed: float = 2.2
 @export var dance_hop: float = 0.28
 @export var dance_spin_speed: float = 9.5
+@export var slip_accel: float = 0.045 ## Kaygan zeminde yön kontrolü (düşük = daha kaygan)
+@export var slip_friction: float = 0.008 ## Kayganken fren
+@export var slip_speed_boost: float = 1.18 ## Buzda kayma hızı (kontrol zor)
 
 const PROP_GROUP := &"ClutterProp"
 const TRASH_GROUP := &"TrashDrop"
@@ -76,6 +82,51 @@ var _squash: Vector3 = Vector3.ONE
 var _visual_spin: float = 0.0
 var _hop_y: float = 0.0
 var _fail_stun: float = 0.0
+var _floor_slip: float = 0.0
+# Lanet / baseline
+var _base_carry_speed_mult: float = -1.0
+var _base_stack_falloff: float = -1.0
+var _base_scrub_mash_cooldown: float = -1.0
+
+
+func set_floor_slip(amount: float) -> void:
+	_floor_slip = clampf(amount, 0.0, 1.0)
+
+
+func apply_curse_mods(carry_mult: float, stack_falloff_mult: float, scrub_cd_mult: float) -> void:
+	if _base_carry_speed_mult < 0.0:
+		_base_carry_speed_mult = carry_speed_mult
+		_base_stack_falloff = stack_speed_falloff
+		_base_scrub_mash_cooldown = scrub_mash_cooldown
+	carry_speed_mult = _base_carry_speed_mult * carry_mult
+	stack_speed_falloff = clampf(_base_stack_falloff * stack_falloff_mult, 0.45, 0.95)
+	scrub_mash_cooldown = _base_scrub_mash_cooldown * scrub_cd_mult
+
+
+func clear_curse_mods() -> void:
+	if _base_carry_speed_mult >= 0.0:
+		carry_speed_mult = _base_carry_speed_mult
+		stack_speed_falloff = _base_stack_falloff
+		scrub_mash_cooldown = _base_scrub_mash_cooldown
+	_base_carry_speed_mult = -1.0
+	_base_stack_falloff = -1.0
+	_base_scrub_mash_cooldown = -1.0
+
+
+## Raf/dolap çarpması — HazardDirector çağırır
+func apply_hazard_shove(dir: Vector3, power: float = 13.5) -> void:
+	dir.y = 0.0
+	if dir.length_squared() < 0.0001:
+		return
+	dir = dir.normalized()
+	_bump_vel = dir * power
+	_bump_cd = 0.16
+	_facing = dir
+	_squash = Vector3(1.0 + absf(dir.x) * 1.2, 0.4, 1.0 + absf(dir.z) * 1.2)
+	_visual_spin += randf_range(2.5, 5.0) * (1.0 if randf() > 0.5 else -1.0)
+	_hop_y = 0.22
+	_play_sfx(PrototypeSfx.Kind.BUMP, 1.05)
+	fx_burst.emit(&"bump", global_position, power * 0.1)
 
 
 func _ready() -> void:
@@ -83,6 +134,10 @@ func _ready() -> void:
 	_visual = get_node_or_null("Mesh") as Node3D
 	if _visual == null:
 		_visual = self
+	if _visual is MeshInstance3D:
+		(_visual as MeshInstance3D).material_override = HitWobbleMaterial.create(
+			Color(0.92, 0.72, 0.45), 0.75, Color(1.0, 0.85, 0.55), 0.08, 0.06, true, 0.035
+		)
 	_hold_point = Node3D.new()
 	_hold_point.name = "HoldPoint"
 	_hold_point.position = Vector3(0.0, 0.95, -0.55)
@@ -136,7 +191,8 @@ func _physics_process(delta: float) -> void:
 
 	if _dash_time > 0.0:
 		_dash_time = maxf(0.0, _dash_time - delta)
-		var dash_spd := dash_speed * (0.82 if _held != null else 1.0)
+		# Dash da stack ağırlığı hisseder (tam yürüme kadar değil)
+		var dash_spd := dash_speed * sqrt(_carry_move_mult())
 		velocity.x = _dash_dir.x * dash_spd
 		velocity.z = _dash_dir.z * dash_spd
 		velocity.y = 0.0
@@ -209,6 +265,15 @@ func _try_dash() -> void:
 	fx_burst.emit(&"dash", global_position, 1.0)
 
 
+func _carry_move_mult() -> float:
+	if _held == null:
+		return 1.0
+	var units := maxi(1, _held.get_stack_units())
+	# 1 kutu: carry_speed_mult; her ekstra kutu stack_speed_falloff ile çarpılır
+	var stack_mult := pow(stack_speed_falloff, float(units - 1))
+	return maxf(stack_speed_floor, carry_speed_mult * stack_mult)
+
+
 func _apply_overcooked_movement() -> void:
 	var input := Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back")
 	var axes: Dictionary = _get_movement_axes()
@@ -216,24 +281,39 @@ func _apply_overcooked_movement() -> void:
 	var forward: Vector3 = axes["forward"] as Vector3
 	var wish: Vector3 = right * input.x + forward * (-input.y)
 	wish.y = 0.0
-	var speed := move_speed * (carry_speed_mult if _held != null else 1.0)
-	if _held != null:
-		var units := _held.get_stack_units()
-		if units > 1:
-			speed *= clampf(1.0 / (1.0 + 0.14 * float(units - 1)), 0.55, 1.0)
+	var speed := move_speed * _carry_move_mult()
 	if _dancing:
 		speed *= 0.55
+	if _floor_slip > 0.05:
+		speed *= lerpf(1.0, slip_speed_boost, _floor_slip)
 
 	if wish.length_squared() > 0.001:
 		wish = wish.normalized()
 		_facing = wish
-		velocity.x = wish.x * speed
-		velocity.z = wish.z * speed
+		var wish_vel := wish * speed
+		if _floor_slip > 0.05:
+			# Çok kaygan: eski momentum ağır basar, yön zor değişir
+			var blend := lerpf(1.0, slip_accel, _floor_slip)
+			velocity.x = lerpf(velocity.x, wish_vel.x, blend)
+			velocity.z = lerpf(velocity.z, wish_vel.z, blend)
+			# Hafif “buz drift” — yan bileşen yavaş erir
+			var side := Vector3(-wish.z, 0.0, wish.x)
+			var lateral := velocity.dot(side)
+			velocity.x -= side.x * lateral * (0.04 * _floor_slip)
+			velocity.z -= side.z * lateral * (0.04 * _floor_slip)
+		else:
+			velocity.x = wish_vel.x
+			velocity.z = wish_vel.z
 		if not _dancing:
 			_snap_face(wish)
 	else:
-		velocity.x = 0.0
-		velocity.z = 0.0
+		if _floor_slip > 0.05:
+			var brake := lerpf(1.0, slip_friction, _floor_slip)
+			velocity.x = lerpf(velocity.x, 0.0, brake)
+			velocity.z = lerpf(velocity.z, 0.0, brake)
+		else:
+			velocity.x = 0.0
+			velocity.z = 0.0
 
 	velocity.y = 0.0
 	move_and_slide()
@@ -421,7 +501,12 @@ func _try_interact() -> void:
 		return
 
 	# Önce leke: sol tık / Space mash ovalama
+	# Ama ★ işaretli taşınabilir emir hedefi varsa onu öncelikle al
 	if _held == null and allow_mop:
+		var marked_box := _find_marked_carry_target()
+		if marked_box != null:
+			_pick_up(marked_box)
+			return
 		var scrub := _find_scrub_target()
 		if scrub != null:
 			_mash_scrub(scrub)
@@ -466,12 +551,13 @@ func _mash_scrub(prop: ClutterProp) -> void:
 	_snap_face(prop.global_position - global_position)
 	_add_mop_dirt(mop_dirt_per_hit * 0.12)
 	_play_sfx(PrototypeSfx.Kind.HIT, 0.85 + prop.get_scrub_progress() * 0.4)
-	fx_burst.emit(&"hit", prop.global_position + Vector3(0, 0.25, 0), 0.65 + prop.get_scrub_progress() * 0.55)
+	fx_burst.emit(&"scrub", prop.global_position + Vector3(0, 0.25, 0), 0.65 + prop.get_scrub_progress() * 0.55)
 	# Kısa squash — mash hissi
 	_squash = Vector3(1.18, 0.82, 1.18)
 	if cleaned:
 		_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.1)
-		fx_burst.emit(&"dispose", prop.global_position + Vector3(0, 0.4, 0), 1.15)
+		fx_burst.emit(&"clean", prop.global_position + Vector3(0, 0.4, 0), 1.15)
+		floor_scrubbed.emit(prop.global_position)
 		item_disposed.emit(prop.prop_id)
 
 
@@ -623,10 +709,11 @@ func _update_mop_scrub(delta: float) -> void:
 	_add_mop_dirt(mop_dirt_per_hit * 0.18 * clampf(motion * 4.0, 0.35, 1.2))
 	if Engine.get_physics_frames() % 8 == 0:
 		_play_sfx(PrototypeSfx.Kind.HIT, 0.75 + prop.get_scrub_progress() * 0.35)
-		fx_burst.emit(&"hit", prop.global_position + Vector3(0, 0.25, 0), 0.55 + prop.get_scrub_progress() * 0.5)
+		fx_burst.emit(&"scrub", prop.global_position + Vector3(0, 0.25, 0), 0.55 + prop.get_scrub_progress() * 0.5)
 	if cleaned:
 		_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.1)
-		fx_burst.emit(&"dispose", prop.global_position + Vector3(0, 0.4, 0), 1.15)
+		fx_burst.emit(&"clean", prop.global_position + Vector3(0, 0.4, 0), 1.15)
+		floor_scrubbed.emit(prop.global_position)
 		item_disposed.emit(prop.prop_id)
 
 
@@ -684,6 +771,42 @@ func _find_station(group_name: StringName) -> Node3D:
 	return best
 
 
+func _find_marked_carry_target() -> ClutterProp:
+	var facing := _facing
+	facing.y = 0.0
+	if facing.length_squared() < 0.0001:
+		facing = -global_transform.basis.z
+		facing.y = 0.0
+	facing = facing.normalized()
+	var best: ClutterProp = null
+	var best_score := -999.0
+	for node in get_tree().get_nodes_in_group(PROP_GROUP):
+		var prop := node as ClutterProp
+		if prop == null or prop.is_destroying() or prop.is_being_carried():
+			continue
+		if not bool(prop.get_meta("micro_task_marked", false)):
+			continue
+		if bool(prop.get_meta("forbidden", false)):
+			continue
+		if not (prop.can_carry and prop.is_carryable()):
+			continue
+		var to_prop := prop.global_position - global_position
+		to_prop.y = 0.0
+		var dist := to_prop.length()
+		if dist > swing_range + 0.95 or dist < 0.05:
+			continue
+		var dir := to_prop / dist
+		var dot := facing.dot(dir)
+		# İşaretli hedef: neredeyse 180° kabul (arka hariç)
+		if dot < -0.15:
+			continue
+		var score := (1.0 - dist / (swing_range + 0.95)) * 2.0 + maxf(dot, 0.0)
+		if score > best_score:
+			best_score = score
+			best = prop
+	return best
+
+
 func _find_interact_target() -> ClutterProp:
 	var facing := _facing
 	facing.y = 0.0
@@ -696,18 +819,29 @@ func _find_interact_target() -> ClutterProp:
 	var best_score := -999.0
 	for node in get_tree().get_nodes_in_group(PROP_GROUP):
 		var prop := node as ClutterProp
-		if prop == null or prop.is_being_carried():
+		if prop == null or prop.is_being_carried() or prop.is_destroying():
 			continue
+		if bool(prop.get_meta("forbidden", false)):
+			# Yasak: sadece çok yakından ve bakınca (ceza için), öncelik değil
+			pass
 		var to_prop := prop.global_position - global_position
 		to_prop.y = 0.0
 		var dist := to_prop.length()
-		if dist > swing_range or dist < 0.05:
+		var marked := bool(prop.get_meta("micro_task_marked", false))
+		var range_limit := swing_range + (0.85 if marked else 0.0)
+		if dist > range_limit or dist < 0.05:
 			continue
 		var dir := to_prop / dist
 		var dot := facing.dot(dir)
-		if dot < interact_cone_dot:
+		# İşaretli emir kutusu: koni daha toleranslı
+		var cone := interact_cone_dot * (0.55 if marked else 1.0)
+		if dot < cone:
 			continue
-		var score := (1.0 - dist / swing_range) * 2.0 + dot
+		var score := (1.0 - dist / range_limit) * 2.0 + dot
+		if marked:
+			score += 3.5 # Emir hedefi her zaman öncelikli
+		if bool(prop.get_meta("forbidden", false)):
+			score -= 2.0
 		if score > best_score:
 			best_score = score
 			best = prop

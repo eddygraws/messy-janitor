@@ -40,11 +40,11 @@ surface_material_override/0 = SubResource("Mat_floor")
 shape = SubResource("BoxShape3D_floor")
 
 [node name="WallBack" type="MeshInstance3D" parent="World" unique_id=1179200287]
-transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 1.5, -5.2)
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, -0.10308361, 1.5, -5.2)
 mesh = SubResource("BoxMesh_floor")
 
 [node name="WallLeft" type="MeshInstance3D" parent="World" unique_id=1782350126]
-transform = Transform3D(-4.371139e-08, -1, -4.371139e-08, 0, -4.371139e-08, 1, -1, 4.371139e-08, 1.9106855e-15, -7.2, 1.5, 0)
+transform = Transform3D(-3.273837e-08, -1, -4.371139e-08, 0, -4.371139e-08, 1, -0.7489666, 4.371139e-08, 1.9106855e-15, -7.0468297, 1.5, -0.12520885)
 mesh = SubResource("BoxMesh_floor")
 
 [node name="GarageClutter" type="Node3D" parent="World" unique_id=900648764]

@@ -61,6 +61,8 @@ var _throw_vel: Vector3 = Vector3.ZERO
 var _throw_life: float = 0.0
 var _scrub_progress: float = 0.0
 var _scrub_base_scale: Vector3 = Vector3.ONE
+var _scrub_ring: MeshInstance3D
+var _scrub_ring_mat: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -72,6 +74,8 @@ func _ready() -> void:
 	_scrub_base_scale = scale
 	_cache_flicker_targets()
 	_start_idle()
+	if requires_scrub:
+		call_deferred("_update_scrub_ring")
 	call_deferred("_bind_player")
 
 
@@ -112,36 +116,67 @@ func is_destroying() -> bool:
 
 func set_micro_task_highlight(on: bool, style: String = "correct") -> void:
 	var mark := get_node_or_null("Pivot/TaskMark") as Label3D
+	if mark == null:
+		mark = get_node_or_null("TaskMark") as Label3D
+	var ring := get_node_or_null("TaskRing") as MeshInstance3D
 	if not on:
 		if mark != null:
 			var tw: Variant = mark.get_meta("pulse_tween", null)
 			if tw is Tween and (tw as Tween).is_valid():
 				(tw as Tween).kill()
 			mark.queue_free()
+		if ring != null:
+			ring.queue_free()
 		return
 	if mark != null:
 		mark.queue_free()
+	if ring != null:
+		ring.queue_free()
 	mark = Label3D.new()
 	mark.name = "TaskMark"
+	var col := Color(1.0, 0.85, 0.15)
 	if style == "wrong":
 		mark.text = "✕"
-		mark.modulate = Color(1.0, 0.35, 0.35)
+		col = Color(1.0, 0.35, 0.35)
+		mark.modulate = col
 	else:
 		mark.text = "★"
-		mark.modulate = Color(1.0, 0.85, 0.15)
-	mark.font_size = 110
-	mark.outline_modulate = Color(0, 0, 0, 0.9)
-	mark.outline_size = 12
-	mark.position = Vector3(0.0, 1.45, 0.0)
+		mark.modulate = col
+	mark.font_size = 96
+	mark.outline_modulate = Color(0, 0, 0, 0.95)
+	mark.outline_size = 14
+	# Kutunun hemen üstü — kamerada net, erişim hissi doğru
+	var top_y := get_stack_top_y() if has_method("get_stack_top_y") else 0.7
+	mark.position = Vector3(0.0, maxf(top_y + 0.35, 0.95), 0.0)
 	mark.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	mark.no_depth_test = true
 	var pivot := get_node_or_null("Pivot")
 	if pivot != null:
 		pivot.add_child(mark)
 	else:
 		add_child(mark)
+	# Yer halkası — hangi kutunun hedef olduğu net
+	ring = MeshInstance3D.new()
+	ring.name = "TaskRing"
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.42
+	torus.outer_radius = 0.55
+	torus.rings = 16
+	torus.ring_segments = 24
+	ring.mesh = torus
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(col.r, col.g, col.b, 0.85)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.no_depth_test = true
+	ring.material_override = mat
+	ring.position = Vector3(0.0, 0.04, 0.0)
+	add_child(ring)
 	var pulse := create_tween().set_loops()
-	pulse.tween_property(mark, "scale", Vector3(1.25, 1.25, 1.25), 0.35)
+	pulse.tween_property(mark, "scale", Vector3(1.2, 1.2, 1.2), 0.35)
+	pulse.parallel().tween_property(ring, "scale", Vector3(1.12, 1.0, 1.12), 0.35)
 	pulse.tween_property(mark, "scale", Vector3.ONE, 0.35)
+	pulse.parallel().tween_property(ring, "scale", Vector3.ONE, 0.35)
 	mark.set_meta("pulse_tween", pulse)
 
 
@@ -194,6 +229,46 @@ func _update_scrub_visual() -> void:
 		if mesh == null:
 			continue
 		mesh.transparency = lerpf(0.0, 0.72, _scrub_progress)
+	_update_scrub_ring()
+
+
+func _ensure_scrub_ring() -> void:
+	if _scrub_ring != null and is_instance_valid(_scrub_ring):
+		return
+	_scrub_ring = MeshInstance3D.new()
+	_scrub_ring.name = "ScrubProgressRing"
+	var torus := TorusMesh.new()
+	var r := maxf(scrub_radius * 0.55, 0.55)
+	torus.inner_radius = r * 0.78
+	torus.outer_radius = r
+	torus.rings = 14
+	torus.ring_segments = 28
+	_scrub_ring.mesh = torus
+	_scrub_ring_mat = StandardMaterial3D.new()
+	_scrub_ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_scrub_ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_scrub_ring_mat.no_depth_test = true
+	_scrub_ring_mat.albedo_color = Color(1.0, 0.55, 0.25, 0.75)
+	_scrub_ring.material_override = _scrub_ring_mat
+	_scrub_ring.position = Vector3(0.0, 0.05, 0.0)
+	add_child(_scrub_ring)
+
+
+func _update_scrub_ring() -> void:
+	if not requires_scrub:
+		return
+	_ensure_scrub_ring()
+	if _scrub_ring == null or _scrub_ring_mat == null:
+		return
+	var t := clampf(_scrub_progress, 0.0, 1.0)
+	var col := Color(1.0, 0.5, 0.2, 0.7).lerp(Color(0.4, 1.0, 0.55, 0.9), t)
+	_scrub_ring_mat.albedo_color = col
+	# Parent scale küçülürken halka dünya boyutunda kalsın
+	var inv_x := _scrub_base_scale.x / maxf(scale.x, 0.05)
+	var inv_y := _scrub_base_scale.y / maxf(scale.y, 0.05)
+	var s := lerpf(0.88, 1.18, t)
+	_scrub_ring.scale = Vector3(s * inv_x, inv_y, s * inv_x)
+	_scrub_ring.visible = t < 0.98
 
 
 func get_home_parent() -> Node:
@@ -491,7 +566,8 @@ func dispose_at_trash() -> void:
 
 func _enable_collisions() -> void:
 	for body in _find_static_bodies(self):
-		body.collision_layer = 4
+		# Paspas sıvıları katı engel değil
+		body.collision_layer = 0 if requires_scrub else 4
 		body.collision_mask = 0
 
 

@@ -46,6 +46,16 @@ var _dodge_center: Vector3 = Vector3.ZERO
 var _dodge_escaped: bool = false
 var _level_index: int = 0
 var _chaos: float = 0.0
+var _boss_mode: String = ""
+var _curse_interval_mult: float = 1.0
+var _curse_duration_mult: float = 1.0
+var _curse_stop_freq: float = 1.0
+var _diff_interval_mult: float = 1.0
+var _diff_duration_mult: float = 1.0
+var _timing_base_interval: float = 9.0
+var _timing_base_duration: float = 3.6
+var _timing_base_min: float = 2.6
+var _timing_base_max: float = 3.8
 
 
 func setup(tempo: TempoPhaseDirector, spawner: Node, player: Node = null) -> void:
@@ -61,10 +71,61 @@ func setup(tempo: TempoPhaseDirector, spawner: Node, player: Node = null) -> voi
 func configure_for_level(level_index: int) -> void:
 	_level_index = maxi(0, level_index)
 	_chaos = clampf(float(_level_index) / 9.0, 0.0, 1.0)
-	first_task_delay = lerpf(4.8, 2.8, _chaos)
-	base_interval = lerpf(12.0, 7.5, _chaos)
-	task_duration = lerpf(4.0, 3.4, _chaos)
+	_boss_mode = ""
+	first_task_delay = lerpf(3.6, 2.0, _chaos)
+	_timing_base_interval = lerpf(9.0, 5.5, _chaos)
+	_timing_base_duration = lerpf(3.6, 3.0, _chaos)
+	_timing_base_min = 2.6
+	_timing_base_max = 3.8
 	gather_count = 2 if _level_index < 5 else 3
+	_reapply_curse_to_timing()
+
+
+func configure_boss_mode(mode: String) -> void:
+	_boss_mode = mode
+	first_task_delay = 1.4
+	_timing_base_interval = 4.2
+	_timing_base_duration = 2.8
+	_timing_base_min = 2.2
+	_timing_base_max = 3.2
+	gather_count = 3
+	match mode:
+		"box_rain":
+			_timing_base_interval = 3.6
+		"mega_scrub":
+			_timing_base_interval = 4.0
+		"ritual_rush":
+			_timing_base_interval = 3.8
+		_:
+			pass
+	_reapply_curse_to_timing()
+
+
+func apply_curse_mods(interval_mult: float, duration_mult: float, stop_freq: float) -> void:
+	_curse_interval_mult = interval_mult
+	_curse_duration_mult = duration_mult
+	_curse_stop_freq = stop_freq
+	_reapply_curse_to_timing()
+
+
+func clear_curse_mods() -> void:
+	_curse_interval_mult = 1.0
+	_curse_duration_mult = 1.0
+	_curse_stop_freq = 1.0
+	_reapply_curse_to_timing()
+
+
+func apply_difficulty_mult(interval_mult: float, duration_mult: float) -> void:
+	_diff_interval_mult = interval_mult
+	_diff_duration_mult = duration_mult
+	_reapply_curse_to_timing()
+
+
+func _reapply_curse_to_timing() -> void:
+	base_interval = maxf(2.8, _timing_base_interval * _curse_interval_mult * _diff_interval_mult)
+	task_duration = clampf(_timing_base_duration * _curse_duration_mult * _diff_duration_mult, 2.0, 5.5)
+	min_task_duration = clampf(_timing_base_min * _curse_duration_mult * _diff_duration_mult, 1.8, 4.0)
+	max_task_duration = clampf(_timing_base_max * _curse_duration_mult * _diff_duration_mult, 2.4, 5.5)
 
 
 func _cap_dur(seconds: float) -> float:
@@ -159,6 +220,9 @@ func _try_issue_task() -> void:
 	var phase := TempoPhaseDirector.PHASE_WARMUP
 	if _tempo != null:
 		phase = _tempo.get_phase()
+	# Boss odası: her zaman finale emir havuzu
+	if not _boss_mode.is_empty():
+		phase = TempoPhaseDirector.PHASE_FINALE
 	var pool := _pool_for_phase(phase)
 	var choice := _pick_weighted(pool)
 	if choice.is_empty():
@@ -189,7 +253,7 @@ func _pool_for_phase(phase: int) -> Array[Dictionary]:
 		TempoPhaseDirector.PHASE_FINALE:
 			# Faz 3: DUR! / HEPSİNİ AT! / SON KUTU! her seviyede
 			var all_w := 14.0 if early else 24.0
-			var stop_w := 26.0 if early else 18.0
+			var stop_w := (26.0 if early else 18.0) * _curse_stop_freq
 			var last_w := 22.0 if early else 20.0
 			var finale: Array[Dictionary] = [
 				{"type": TASK_ALL, "weight": all_w, "duration": _cap_dur(dur + 0.4)},
@@ -550,6 +614,8 @@ func _on_marked_merged(from: ClutterProp, style: String, host: ClutterProp) -> v
 
 
 func _matches(kind: String, p: ClutterProp) -> bool:
+	if bool(p.get_meta("forbidden", false)):
+		return false
 	match kind:
 		"throw":
 			return p.can_carry and String(p.get_meta("deliver_to", "")) == "trash" and not p.requires_scrub
@@ -569,15 +635,31 @@ func _pick_many(kind: String, max_count: int) -> Array[ClutterProp]:
 	if _spawner == null:
 		return out
 	var all: Array = []
-	for c in _spawner.get_children():
+	# Spawner çocukları + taşınmayan dünya props
+	var nodes: Array = _spawner.get_children()
+	for c in nodes:
 		var p := c as ClutterProp
 		if p == null or p.is_destroying() or p.is_being_carried():
 			continue
 		if bool(p.get_meta("micro_task_marked", false)):
 			continue
+		if bool(p.get_meta("forbidden", false)):
+			continue
 		if _matches(kind, p):
 			all.append(p)
-	all.shuffle()
+	# Oyuncuya yakın olanları hafifçe tercih et (götürülebilir olsun)
+	if _player != null and _player is Node3D and all.size() > 1:
+		var origin: Vector3 = (_player as Node3D).global_position
+		all.sort_custom(func(a: ClutterProp, b: ClutterProp) -> bool:
+			return a.global_position.distance_squared_to(origin) < b.global_position.distance_squared_to(origin)
+		)
+		# En yakın %60'ı karıştır — tamamen rastgele uzak kutu seçilmesin
+		var near_n := maxi(1, int(ceil(float(all.size()) * 0.65)))
+		var near: Array = all.slice(0, near_n)
+		near.shuffle()
+		all = near
+	else:
+		all.shuffle()
 	for i in mini(max_count, all.size()):
 		out.append(all[i] as ClutterProp)
 	return out
@@ -593,10 +675,15 @@ func _pick_farthest(kind: String) -> ClutterProp:
 		var p := c as ClutterProp
 		if p == null or p.is_destroying() or p.is_being_carried():
 			continue
+		if bool(p.get_meta("forbidden", false)):
+			continue
 		if not _matches(kind, p):
 			continue
 		var d := origin.distance_to(p.global_position)
+		# Çok uzak (duvar arkası / erişilemez) seçme — oda içinde makul
+		if d > 9.5:
+			continue
 		if d > best_d:
 			best_d = d
 			best = p
-	return best
+	return best if best != null else _pick_one(kind)

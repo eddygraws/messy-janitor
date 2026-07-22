@@ -12,6 +12,17 @@ func burst(kind: StringName, world_pos: Vector3, strength: float = 1.0) -> void:
 	match kind:
 		&"hit":
 			_configure(p, Color(1.0, 0.85, 0.4), 18, 4.5 * strength, 0.35)
+		&"scrub":
+			_configure(p, Color(0.55, 0.38, 0.22), 14, 2.8 * strength, 0.42)
+			p.gravity = Vector3(0, -6.0, 0)
+			p.spread = 70.0
+			p.scale_amount_min = 0.05
+			p.scale_amount_max = 0.14
+		&"clean":
+			_configure(p, Color(0.55, 1.0, 0.65), 28, 6.5 * strength, 0.48)
+			p.gravity = Vector3(0, -4.0, 0)
+			# İkinci kısa altın kıvılcım
+			_burst_extra(world_pos, Color(1.0, 0.88, 0.35), 12, 5.0 * strength, 0.35)
 		&"dash":
 			_configure(p, Color(0.45, 0.95, 1.0), 36, 9.0, 0.38)
 		&"bump":
@@ -26,6 +37,15 @@ func burst(kind: StringName, world_pos: Vector3, strength: float = 1.0) -> void:
 			_configure(p, Color(1.0, 0.7, 0.35), 16, 5.5, 0.35)
 		_:
 			_configure(p, Color(1, 1, 1), 12, 3.0, 0.3)
+	p.restart()
+	p.emitting = true
+
+
+func _burst_extra(world_pos: Vector3, color: Color, amount: int, speed: float, lifetime: float) -> void:
+	var p := _acquire()
+	p.global_position = world_pos + Vector3(0.0, 0.75, 0.0)
+	_configure(p, color, amount, speed, lifetime)
+	p.gravity = Vector3(0, -3.5, 0)
 	p.restart()
 	p.emitting = true
 
