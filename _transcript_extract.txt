@@ -1,0 +1,86 @@
+<timestamp>Wednesday, Jul 22, 2026, 11:38 AM (UTC+3)</timestamp>
+<user_query>
+ayrıca yöneldiğim yönü anlatan bi yazı paylaşıcam başlamak istediğin yerden başla bunu geliştiriyoruz oyuna : 0. Neden Bu Değişiklik? (Bağlam — Agent'ın Anlaması İçin)
+
+Mevcut sistemde (StaminaComponent, StressComponent, ComboComponent, CursorClickRouter, RoomManager) oynanış "sürekli ve düz tempolu" bir temizlik döngüsü şeklinde işliyor. Hedef: bu döngüyü fazlara bölerek ve üzerine anlık, açık emirler (mikro-görevler) bindirerek, oyuncunun her an "ne yapacağım" konusunda net ama zaman baskılı kararlar almasını sağlamak. Bu iki sistem birbirini tamamlıyor:
+
+Tempo Fazları = "ne zaman" zorlaşacağını yönetir (oda içi ritim).
+Mikro-Görev Sistemi = "ne" yapılacağını anlık ve net şekilde dikte eder (WarioWare'in imza formülü).
+A) ODA İÇİ TEMPO FAZLARI
+A.1 Yapı
+
+Her oda/seans 3 faza bölünür. Bu, mevcut RoomManager'ın oda süresi/objective takibine (objective_changed, room_cleared sinyalleri) bir iç zaman çizelgesi katmanı olarak eklenir — yeni bir node ağacı gerekmez, mevcut oda süresi üzerinden yüzdesel hesaplanabilir.
+
+Faz	Süre Aralığı	Spawn Davranışı	Görsel/İşitsel Sinyal
+Faz 1 — Isınma	Oda süresinin ilk %40'ı	Normal spawn hızı (mevcut MoldSpawner/JunkFoodSpawner değerleri)	Normal müzik, sakin UI
+Faz 2 — Hızlan	Orta %40	Spawn hızı x1.4-1.5	Ekranda 0.3-0.5 sn'lik "HIZLAN!" flaşı + ekran sarsıntısı (JuiceDirector) + müzik BPM/katman artışı
+Faz 3 — Son Patlama	Son %20	Spawn hızı maksimum, çoklu emir aynı anda tetiklenebilir	Ekran kenarı titreme/kızarma vinyeti + kamera hafif zoom-in + FOV genişlemesi + müzik en yoğun katmanı
+A.2 Teknik Entegrasyon Önerisi
+RoomManager'a room_elapsed_ratio: float (0.0-1.0) hesaplayan basit bir timer eklenir.
+Bu oran eşikleri geçtiğinde (0.4, 0.8) signal tempo_phase_changed(phase: int) yayınlanır.
+Bu sinyali dinleyenler:
+MoldSpawner / JunkFoodSpawner → spawn interval'lerini çarpan uygulayarak günceller.
+JuiceDirector → faz geçiş anında flaş/shake/kamera efektini tetikler.
+Müzik sistemi (varsa AudioStreamPlayer katmanları) → BPM/katman geçişini yapar.
+Kritik: Faz geçişleri ani ve fark edilir olmalı, kademeli/sinsi değil — oyuncu "bir şey değişti"yi anında hissetmeli. Bu, cozy hissinden uzaklaşmanın en büyük görsel/işitsel aracı.
+B) MİKRO-GÖREV (EMİR) SİSTEMİ
+B.1 Yeni Component: MicroTaskDirector
+
+Mevcut mimariye uygun, hafif ve bağımsız bir component olarak eklenir. Görevi: belirli aralıklarla ekranda büyük, net bir "emir" göstermek ve oyuncunun süresi içinde doğru aksiyonu yapıp yapmadığını takip etmek.
+
+Önerilen alanlar:
+
+class_name MicroTaskDirector
+- task_pool: Array (faza göre ağırlıklı emir listesi)
+- current_task: Dictionary/Resource (aktif emir + hedef obje referansı + süre)
+- signal task_issued(task_type: String, target: Node, duration: float)
+- signal task_succeeded(task_type: String)
+- signal task_failed(task_type: String)
+B.2 Emir Havuzu (Faza Göre Ağırlıklandırılmış)
+
+Faz 1 — Temel Emirler (öğretici, tek aksiyon)
+
+"AT!" — Ekranda işaretlenen tek bir kutuyu çöpe götür.
+"SİL!" — Belirtilen tek lekeyi paspala.
+"TOPLA!" — 2-3 küçük objeyi hızlıca topla.
+
+Faz 2 — Karar Gerektiren Emirler
+
+"SEÇ!" — İki kutu belirir (biri normal, biri "değerli" — farklı renk/parlaklık materyaliyle işaretli), yanlışını atarsan ceza (StressComponent.add_stress).
+"KAÇ!" — Karakterin üstüne düşen bir eşyadan kaçma — refleks bazlı, temizlik dışı bir aksiyon türü. Basit bir "tehlike bölgesi" Rect2 + input (yön tuşu/dokunma) ile karakterin o bölgeden çıkması yeterli.
+"ÇİFTE İŞ!" — Aynı anda iki görev ekrana gelir (örn. "AT!" + "SİL!"), süre bitmeden ikisi de tamamlanmalı.
+
+Faz 3 — Kaotik Emirler
+
+"HEPSİNİ AT!" — Odadaki tüm kutuları art arda hızlıca çöpe götürme sprint'i.
+"DUR!" — Ters emir: belirtilen süre boyunca HİÇBİR ŞEYE dokunulmamalı, dokunursan ceza. (WarioWare'in klasik "ters mantık" espirisi — refleks alışkanlığını test eder.)
+"SON KUTU!" — Zor ulaşılan tek bir obje (yüksek raf, köşe) — dramatik kapanış vuruşu.
+B.3 Emir Seçim Mantığı
+Her faz için ayrı bir ağırlıklı havuz (Faz1_pool, Faz2_pool, Faz3_pool) tanımlanır; MicroTaskDirector, aktif tempo_phase_changed değerine göre hangi havuzdan çektiğini günceller.
+Tekrar önleme kuralı: Son 2 emirle aynı türde emir çekilmesin (basit bir last_tasks: Array kontrolü).
+"DUR!" gibi ters emirler seyrek kalmalı — havuzda düşük ağırlık (örn. %10) verilmeli, sık tekrar ederse sürpriz etkisini kaybeder.
+B.4 Sunum Katmanı (UI/Juice — Bu Sistemin Asıl Hissi Burada)
+Emir metni ekranın ortasında/üstünde büyük, kalın tipografi ile belirir — küçük bir HUD köşesi değil, WarioWare'in imza sunumu.
+Her emir türü kendi rengiyle gelir (örn. AT!=turuncu, SİL!=mavi, DUR!=kırmızı) — oyuncu kelimeyi tam okumadan renk üzerinden anlık tepki verebilsin.
+Ses efekti emir belirdiği anda çalar (kısa, patlayıcı bir "dın!") — görsel+işitsel çift uyarı.
+Süre göstergesi merkezi bir sayaç değil, çevresel bir eleman olmalı (karakter etrafında daralan bir halka veya ekran kenarında incelen bir çizgi) — WarioWare'in periferik zaman baskısı hissi.
+Bu sunum, mevcut JuiceDirector ve RoomFeedbackUI sistemlerine yeni bir "TaskBanner" alt bileşeni olarak eklenebilir; ayrı bir UI mimarisi gerekmiyor.
+B.5 Sinyal Entegrasyonu (Mevcut Sistemlerle Bağlantı)
+task_succeeded → ComboComponent'e bonus + JuiceDirector'a kısa "başarı" efekti (zıplayan puan, parıltı).
+task_failed → StressComponent.add_stress() + karakterin abartılı "başarısız" mikro-animasyonu (sendeleme/şaşkınlık).
+task_issued → TiredCursor'a görsel bir "dikkat" ipucu (örn. imlecin hedef objeye doğru hafif bir parıltı/ok göstermesi) eklenmesi düşünülebilir — opsiyonel, okunabilirliği artırır.
+C) UYGULAMA SIRASI (Agent İçin Öncelik)
+Tempo Faz sinyali (tempo_phase_changed) — RoomManager'a eklenecek en temel katman, diğer her şey buna bağlı. Düşük efor.
+Spawner'ların faz-duyarlı hale getirilmesi (spawn interval çarpanı) — mevcut MoldSpawner/JunkFoodSpawner'a küçük bir düzenleme.
+Faz geçiş juice'i (flaş + shake + kamera + müzik geçişi) — JuiceDirector üzerinden, orta efor.
+MicroTaskDirector component'i + Faz 1 temel emirler (AT!/SİL!/TOPLA!) — ilk implementasyon, mevcut aksiyonları (kutu atma, paspalama) referans aldığı için düşük-orta efor.
+TaskBanner UI + ses efektleri — sunum katmanı, görsel/işitsel dilin asıl gücü burada, orta efor.
+Faz 2 karar-gerektiren emirler (SEÇ!/KAÇ!/ÇİFTE İŞ!) — SEÇ! ve ÇİFTE İŞ! düşük efor; KAÇ! yeni bir "tehlike bölgesi" mekaniği gerektirdiği için orta-yüksek efor.
+Faz 3 kaotik emirler (HEPSİNİ AT!/DUR!/SON KUTU!) — DUR! özellikle dikkatli test edilmeli (ters mantık, oyuncu kafası karışmamalı).
+D) Dikkat Edilmesi Gerekenler (Agent İçin Uyarılar)
+Faz geçişleri asla sinsi/kademeli olmasın — ani ve açıkça duyurulmalı, aksi halde oyuncu neden zorlaştığını anlamaz ve haksız hissedebilir.
+Emir süresi çok kısa olursa (2 sn altı) okunabilirlik sorunu çıkar — ilk implementasyonda 3-4 saniye ile başlanıp playtest ile ayarlanmalı.
+"DUR!" emri özellikle riskli — oyuncunun refleks alışkanlığına ters düştüğü için ilk birkaç kullanımda çok net görsel/işitsel ayrım (farklı renk, farklı ses) şart, yoksa "haksız ceza" gibi hissettirebilir.
+Mevcut Stress/Stamina sistemleriyle çakışma riski: Mikro-görev başarısızlığının stres cezası, mevcut hata cezalarıyla (yanlış tıklama, kırılan obje) toplamda çok sert olmamalı — ayrı bir "task_fail_stress" değeri ile ayarlanabilir, mevcut mistake_registered ile karıştırılmamalı.
+Bu sistem hem Adventure Mode hem Endless Mode'da çalışmalı — ancak emir havuzu ve faz yoğunluğu Endless'ta zamanla artan bir zorluk eğrisine, Adventure'da ise komisyon/level bazlı sabit bir zorluğa bağlanmalı (iki mod farklı task_pool konfigürasyonu kullanabilir).
+</user_query>

@@ -632,7 +632,7 @@ offset_right = 837.0
 offset_bottom = 420.0
 theme_override_constants/h_separation = 16
 theme_override_constants/v_separation = 16
-columns = 5
+columns = 2
 
 [node name="BackButton" type="Button" parent="GameScreens/LevelSelectScreen/Center" unique_id=715423095]
 layout_mode = 0

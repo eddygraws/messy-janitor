@@ -1,0 +1,602 @@
+class_name MicroTaskDirector
+extends Node
+
+## WarioWare tarzı anlık emirler.
+## Faz1: AT!/SİL!/TOPLA!  ·  Faz2: SEÇ!/ÇİFTE!/KAÇ!  ·  Faz3: DUR!/HEPSİNİ AT!/SON KUTU!
+
+signal task_issued(task_type: String, duration: float, color: Color)
+signal task_succeeded(task_type: String)
+signal task_failed(task_type: String)
+signal task_cleared
+
+const TASK_THROW := "throw"
+const TASK_SCRUB := "scrub"
+const TASK_GATHER := "gather"
+const TASK_CHOOSE := "choose"
+const TASK_DOUBLE := "double"
+const TASK_DODGE := "dodge"
+const TASK_STOP := "stop"
+const TASK_ALL := "all"
+const TASK_LAST := "last"
+
+@export var enabled: bool = true
+@export var first_task_delay: float = 4.0
+@export var base_interval: float = 11.0
+@export var task_duration: float = 3.8
+@export var gather_count: int = 2
+@export var dodge_radius: float = 1.85
+@export var unlock_dodge_level: int = 0
+@export var min_task_duration: float = 3.0
+@export var max_task_duration: float = 4.2
+
+var _tempo: TempoPhaseDirector
+var _spawner: Node
+var _player: Node
+var _cooldown: float = 0.0
+var _task_time_left: float = 0.0
+var _active: Dictionary = {}
+var _targets: Array[ClutterProp] = []
+var _decoys: Array[ClutterProp] = []
+var _choose_correct: ClutterProp
+var _last_types: Array[String] = []
+var _running: bool = false
+var _stop_grace: float = 0.0
+var _dodge_zone: Node3D
+var _dodge_center: Vector3 = Vector3.ZERO
+var _dodge_escaped: bool = false
+var _level_index: int = 0
+var _chaos: float = 0.0
+
+
+func setup(tempo: TempoPhaseDirector, spawner: Node, player: Node = null) -> void:
+	_tempo = tempo
+	_spawner = spawner
+	_player = player
+	if _tempo != null and not _tempo.tempo_phase_changed.is_connected(_on_phase_changed):
+		_tempo.tempo_phase_changed.connect(_on_phase_changed)
+	_bind_player()
+
+
+## Adventure seviye eğrisi: tempo aynı; emirler her seviyede faz havuzuna uyar.
+func configure_for_level(level_index: int) -> void:
+	_level_index = maxi(0, level_index)
+	_chaos = clampf(float(_level_index) / 9.0, 0.0, 1.0)
+	first_task_delay = lerpf(4.8, 2.8, _chaos)
+	base_interval = lerpf(12.0, 7.5, _chaos)
+	task_duration = lerpf(4.0, 3.4, _chaos)
+	gather_count = 2 if _level_index < 5 else 3
+
+
+func _cap_dur(seconds: float) -> float:
+	return clampf(seconds, min_task_duration, max_task_duration)
+
+
+func _bind_player() -> void:
+	if _player == null:
+		return
+	if _player.has_signal("item_disposed") and not _player.item_disposed.is_connected(_on_player_disposed):
+		_player.item_disposed.connect(_on_player_disposed)
+	if _player.has_signal("interact_attempted") and not _player.interact_attempted.is_connected(_on_player_interact):
+		_player.interact_attempted.connect(_on_player_interact)
+
+
+func start_session() -> void:
+	_clear_task(false)
+	_running = true
+	_cooldown = first_task_delay
+	_last_types.clear()
+	_bind_player()
+
+
+func stop_session() -> void:
+	_running = false
+	_clear_task(false)
+
+
+func _on_phase_changed(phase: int) -> void:
+	if not _running:
+		return
+	# Faz değişince emri çabuk getir — özellikle finale hissedilsin
+	if _active.is_empty():
+		_cooldown = minf(_cooldown, 0.55 if phase >= TempoPhaseDirector.PHASE_FINALE else 1.0)
+
+
+func _process(delta: float) -> void:
+	if not enabled or not _running:
+		return
+	if not _active.is_empty():
+		_task_time_left -= delta
+		if _stop_grace > 0.0:
+			_stop_grace = maxf(0.0, _stop_grace - delta)
+		_prune_dead_targets()
+		_check_choose_fail()
+		_update_dodge_state()
+		if _active.is_empty():
+			return
+		if _is_task_complete():
+			_succeed()
+			return
+		if _task_time_left <= 0.0:
+			# DUR!: süre dolunca başarı (hiç dokunmadıysa)
+			if String(_active.get("type", "")) == TASK_STOP:
+				_succeed()
+			else:
+				_fail()
+			return
+		return
+
+	_cooldown -= delta
+	if _cooldown <= 0.0:
+		_try_issue_task()
+
+
+func _on_player_disposed(_prop_id: String) -> void:
+	if _active.is_empty():
+		return
+	if String(_active.get("type", "")) == TASK_STOP and _stop_grace <= 0.0:
+		_fail()
+
+
+func _on_player_interact() -> void:
+	if _active.is_empty():
+		return
+	if String(_active.get("type", "")) == TASK_STOP and _stop_grace <= 0.0:
+		_fail()
+
+
+func get_time_ratio() -> float:
+	if _active.is_empty():
+		return 0.0
+	var dur := float(_active.get("duration", task_duration))
+	return clampf(_task_time_left / maxf(dur, 0.01), 0.0, 1.0)
+
+
+func has_active_task() -> bool:
+	return not _active.is_empty()
+
+
+func _try_issue_task() -> void:
+	var phase := TempoPhaseDirector.PHASE_WARMUP
+	if _tempo != null:
+		phase = _tempo.get_phase()
+	var pool := _pool_for_phase(phase)
+	var choice := _pick_weighted(pool)
+	if choice.is_empty():
+		_cooldown = 2.5
+		return
+	if not _issue(String(choice.get("type", "")), float(choice.get("duration", task_duration))):
+		_cooldown = 1.5
+
+
+func _pool_for_phase(phase: int) -> Array[Dictionary]:
+	var dur := _cap_dur(task_duration)
+	var dodge_ok := _level_index >= unlock_dodge_level
+	# Erken seviyede kaos emirleri daha hafif ağırlık; kilit yok
+	var early := _chaos < 0.35
+	match phase:
+		TempoPhaseDirector.PHASE_RAMP:
+			# Faz 2: SEÇ! / KAÇ! / ÇİFTE! baskın — P1 seyrek baharat
+			var ramp: Array[Dictionary] = [
+				{"type": TASK_CHOOSE, "weight": 30.0, "duration": _cap_dur(dur + 0.2)},
+				{"type": TASK_DOUBLE, "weight": 26.0, "duration": _cap_dur(dur + 0.35)},
+				{"type": TASK_THROW, "weight": 6.0, "duration": dur},
+				{"type": TASK_SCRUB, "weight": 6.0, "duration": _cap_dur(dur + 0.15)},
+				{"type": TASK_GATHER, "weight": 6.0, "duration": _cap_dur(dur + 0.25)},
+			]
+			if dodge_ok:
+				ramp.append({"type": TASK_DODGE, "weight": 28.0, "duration": _cap_dur(3.2)})
+			return ramp
+		TempoPhaseDirector.PHASE_FINALE:
+			# Faz 3: DUR! / HEPSİNİ AT! / SON KUTU! her seviyede
+			var all_w := 14.0 if early else 24.0
+			var stop_w := 26.0 if early else 18.0
+			var last_w := 22.0 if early else 20.0
+			var finale: Array[Dictionary] = [
+				{"type": TASK_ALL, "weight": all_w, "duration": _cap_dur(dur + 0.4)},
+				{"type": TASK_STOP, "weight": stop_w, "duration": _cap_dur(3.2)},
+				{"type": TASK_LAST, "weight": last_w, "duration": _cap_dur(dur + 0.2)},
+				{"type": TASK_CHOOSE, "weight": 8.0, "duration": dur},
+				{"type": TASK_DOUBLE, "weight": 8.0, "duration": _cap_dur(dur + 0.2)},
+			]
+			if dodge_ok:
+				finale.append({"type": TASK_DODGE, "weight": 16.0, "duration": _cap_dur(3.0)})
+			return finale
+		_:
+			# Faz 1: AT! / SİL! / TOPLA!
+			return [
+				{"type": TASK_THROW, "weight": 40.0, "duration": dur},
+				{"type": TASK_SCRUB, "weight": 35.0, "duration": _cap_dur(dur + 0.2)},
+				{"type": TASK_GATHER, "weight": 25.0, "duration": _cap_dur(dur + 0.3)},
+			]
+
+
+func _pick_weighted(pool: Array[Dictionary]) -> Dictionary:
+	var filtered: Array[Dictionary] = []
+	for entry in pool:
+		var t := String(entry.get("type", ""))
+		if t in _last_types:
+			continue
+		filtered.append(entry)
+	if filtered.is_empty():
+		filtered = pool
+	var total := 0.0
+	for e in filtered:
+		total += float(e.get("weight", 1.0))
+	var roll := randf() * total
+	var acc := 0.0
+	for e in filtered:
+		acc += float(e.get("weight", 1.0))
+		if roll <= acc:
+			return e
+	return filtered.back() if not filtered.is_empty() else {}
+
+
+func _issue(task_type: String, duration: float) -> bool:
+	_targets.clear()
+	_decoys.clear()
+	_choose_correct = null
+	_stop_grace = 0.0
+
+	match task_type:
+		TASK_THROW:
+			var box := _pick_one("throw")
+			if box == null:
+				return false
+			_targets.append(box)
+		TASK_SCRUB:
+			var stain := _pick_one("scrub")
+			if stain == null:
+				return _issue(TASK_THROW, duration)
+			_targets.append(stain)
+		TASK_GATHER:
+			var boxes := _pick_many("throw", gather_count)
+			if boxes.size() < 2:
+				return _issue(TASK_THROW, duration)
+			_targets = boxes
+		TASK_CHOOSE:
+			var pair := _pick_many("throw", 2)
+			if pair.size() < 2:
+				return _issue(TASK_THROW, duration)
+			_choose_correct = pair[0]
+			_targets.append(pair[0])
+			_decoys.append(pair[1])
+			_mark_target(pair[0], true, "correct")
+			_mark_target(pair[1], true, "wrong")
+			_commit_active(task_type, duration)
+			return true
+		TASK_DOUBLE:
+			var b := _pick_one("throw")
+			var s := _pick_one("scrub")
+			if b == null:
+				return _issue(TASK_THROW, duration)
+			if s == null:
+				return _issue(TASK_GATHER, duration)
+			_targets.append(b)
+			_targets.append(s)
+		TASK_DODGE:
+			if _player == null or not (_player is Node3D):
+				return _issue(TASK_THROW, duration)
+			_spawn_dodge_zone((_player as Node3D).global_position)
+			_dodge_escaped = false
+			_commit_active(task_type, duration)
+			return true
+		TASK_STOP:
+			# Hedef yok — dokunmama
+			_stop_grace = 0.45
+			_commit_active(task_type, duration)
+			return true
+		TASK_ALL:
+			# Kısa sürede bitirilebilir hedef sayısı
+			var want := 3 if _chaos < 0.35 else (4 if _chaos < 0.7 else 5)
+			var all_boxes := _pick_many("throw", want)
+			if all_boxes.is_empty():
+				return _issue(TASK_THROW, duration)
+			_targets = all_boxes
+		TASK_LAST:
+			var far := _pick_farthest("throw")
+			if far == null:
+				return _issue(TASK_THROW, duration)
+			_targets.append(far)
+		_:
+			return false
+
+	for t in _targets:
+		_mark_target(t, true, "correct")
+	_commit_active(task_type, duration)
+	return true
+
+
+func _commit_active(task_type: String, duration: float) -> void:
+	duration = _cap_dur(duration)
+	_active = {
+		"type": task_type,
+		"duration": duration,
+		"label": _label_for(task_type),
+		"color": _color_for(task_type),
+	}
+	_task_time_left = duration
+	_last_types.push_front(task_type)
+	while _last_types.size() > 2:
+		_last_types.pop_back()
+	task_issued.emit(task_type, duration, _color_for(task_type))
+
+
+func _label_for(task_type: String) -> String:
+	match task_type:
+		TASK_THROW:
+			return "AT!"
+		TASK_SCRUB:
+			return "SİL!"
+		TASK_GATHER:
+			return "TOPLA!"
+		TASK_CHOOSE:
+			return "SEÇ!"
+		TASK_DOUBLE:
+			return "ÇİFTE!"
+		TASK_DODGE:
+			return "KAÇ!"
+		TASK_STOP:
+			return "DUR!"
+		TASK_ALL:
+			return "HEPSİNİ AT!"
+		TASK_LAST:
+			return "SON KUTU!"
+		_:
+			return "HIZLI!"
+
+
+func _color_for(task_type: String) -> Color:
+	match task_type:
+		TASK_THROW:
+			return Color(1.0, 0.55, 0.18)
+		TASK_SCRUB:
+			return Color(0.35, 0.75, 1.0)
+		TASK_GATHER:
+			return Color(0.55, 1.0, 0.4)
+		TASK_CHOOSE:
+			return Color(1.0, 0.85, 0.2)
+		TASK_DOUBLE:
+			return Color(0.85, 0.45, 1.0)
+		TASK_DODGE:
+			return Color(1.0, 0.35, 0.55)
+		TASK_STOP:
+			return Color(1.0, 0.2, 0.25)
+		TASK_ALL:
+			return Color(1.0, 0.4, 0.15)
+		TASK_LAST:
+			return Color(0.95, 0.95, 1.0)
+		_:
+			return Color.WHITE
+
+
+func _check_choose_fail() -> void:
+	if String(_active.get("type", "")) != TASK_CHOOSE:
+		return
+	for d in _decoys:
+		if d == null or not is_instance_valid(d) or d.is_destroying():
+			_fail()
+			return
+
+
+func _is_task_complete() -> bool:
+	if _active.is_empty():
+		return false
+	var t := String(_active.get("type", ""))
+	if t == TASK_STOP:
+		return false
+	if t == TASK_DODGE:
+		return _dodge_escaped
+	if t == TASK_CHOOSE:
+		return _choose_correct == null or not is_instance_valid(_choose_correct) or _choose_correct.is_destroying()
+	if _targets.is_empty():
+		return true
+	for prop in _targets:
+		if is_instance_valid(prop) and not prop.is_destroying():
+			return false
+	return true
+
+
+func _update_dodge_state() -> void:
+	if String(_active.get("type", "")) != TASK_DODGE:
+		return
+	if _player == null or not (_player is Node3D):
+		return
+	var flat: Vector3 = (_player as Node3D).global_position - _dodge_center
+	flat.y = 0.0
+	if flat.length() > dodge_radius + 0.15:
+		_dodge_escaped = true
+
+
+func _spawn_dodge_zone(at: Vector3) -> void:
+	_clear_dodge_zone()
+	_dodge_center = at
+	_dodge_center.y = 0.0
+	var zone := Node3D.new()
+	zone.name = "DodgeDangerZone"
+	zone.position = _dodge_center
+	var mesh := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = dodge_radius
+	cyl.bottom_radius = dodge_radius
+	cyl.height = 0.08
+	mesh.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.15, 0.2, 0.45)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.2, 0.25)
+	mat.emission_energy_multiplier = 2.2
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material_override = mat
+	mesh.position = Vector3(0.0, 0.05, 0.0)
+	zone.add_child(mesh)
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = dodge_radius - 0.08
+	torus.outer_radius = dodge_radius + 0.06
+	ring.mesh = torus
+	var rmat := StandardMaterial3D.new()
+	rmat.albedo_color = Color(1.0, 0.4, 0.2, 0.85)
+	rmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rmat.emission_enabled = true
+	rmat.emission = Color(1.0, 0.5, 0.1)
+	rmat.emission_energy_multiplier = 3.0
+	rmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring.material_override = rmat
+	ring.position = Vector3(0.0, 0.12, 0.0)
+	zone.add_child(ring)
+	var label := Label3D.new()
+	label.text = "TEHLİKE"
+	label.font_size = 64
+	label.modulate = Color(1.0, 0.5, 0.4)
+	label.position = Vector3(0.0, 1.2, 0.0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	zone.add_child(label)
+	var parent: Node = _spawner if _spawner != null else get_tree().current_scene
+	parent.add_child(zone)
+	_dodge_zone = zone
+	var pulse := zone.create_tween().set_loops()
+	pulse.tween_property(mat, "albedo_color:a", 0.2, 0.25)
+	pulse.tween_property(mat, "albedo_color:a", 0.55, 0.25)
+
+
+func _clear_dodge_zone() -> void:
+	if _dodge_zone != null and is_instance_valid(_dodge_zone):
+		_dodge_zone.queue_free()
+	_dodge_zone = null
+	_dodge_escaped = false
+
+
+func _prune_dead_targets() -> void:
+	var alive: Array[ClutterProp] = []
+	for t in _targets:
+		if is_instance_valid(t) and not t.is_destroying():
+			alive.append(t)
+	_targets = alive
+	var alive_d: Array[ClutterProp] = []
+	for d in _decoys:
+		if is_instance_valid(d) and not d.is_destroying():
+			alive_d.append(d)
+	_decoys = alive_d
+
+
+func _succeed() -> void:
+	var t := String(_active.get("type", ""))
+	_clear_task(false)
+	task_succeeded.emit(t)
+	_schedule_next()
+
+
+func _fail() -> void:
+	if _active.is_empty():
+		return
+	var t := String(_active.get("type", ""))
+	_clear_task(true)
+	task_failed.emit(t)
+	_schedule_next()
+
+
+func _schedule_next() -> void:
+	var mult := 1.0
+	if _tempo != null:
+		mult = _tempo.get_task_interval_mult()
+	_cooldown = base_interval * mult * randf_range(0.85, 1.15)
+
+
+func _clear_task(_unmark_fail: bool) -> void:
+	for t in _targets:
+		if is_instance_valid(t):
+			_mark_target(t, false)
+	for d in _decoys:
+		if is_instance_valid(d):
+			_mark_target(d, false)
+	_targets.clear()
+	_decoys.clear()
+	_choose_correct = null
+	_clear_dodge_zone()
+	_active.clear()
+	_task_time_left = 0.0
+	_stop_grace = 0.0
+	task_cleared.emit()
+
+
+func _mark_target(prop: ClutterProp, on: bool, style: String = "correct") -> void:
+	if prop == null or not is_instance_valid(prop):
+		return
+	prop.set_meta("micro_task_marked", on)
+	prop.set_micro_task_highlight(on, style)
+	# Eski merge bağlantılarını temizle
+	for c in prop.merged_into.get_connections():
+		var cb: Callable = c["callable"]
+		if cb.get_object() == self:
+			prop.merged_into.disconnect(cb)
+	if on:
+		prop.merged_into.connect(_on_marked_merged.bind(prop, style))
+
+
+func _on_marked_merged(from: ClutterProp, style: String, host: ClutterProp) -> void:
+	if host == null or not is_instance_valid(host) or from == null or _active.is_empty():
+		return
+	for i in _targets.size():
+		if _targets[i] == from:
+			_targets[i] = host
+	if _choose_correct == from:
+		_choose_correct = host
+	for i in _decoys.size():
+		if _decoys[i] == from:
+			_decoys[i] = host
+	from.set_meta("micro_task_marked", false)
+	_mark_target(host, true, style)
+
+
+func _matches(kind: String, p: ClutterProp) -> bool:
+	match kind:
+		"throw":
+			return p.can_carry and String(p.get_meta("deliver_to", "")) == "trash" and not p.requires_scrub
+		"scrub":
+			return p.requires_scrub
+		_:
+			return false
+
+
+func _pick_one(kind: String) -> ClutterProp:
+	var many := _pick_many(kind, 1)
+	return many[0] if not many.is_empty() else null
+
+
+func _pick_many(kind: String, max_count: int) -> Array[ClutterProp]:
+	var out: Array[ClutterProp] = []
+	if _spawner == null:
+		return out
+	var all: Array = []
+	for c in _spawner.get_children():
+		var p := c as ClutterProp
+		if p == null or p.is_destroying() or p.is_being_carried():
+			continue
+		if bool(p.get_meta("micro_task_marked", false)):
+			continue
+		if _matches(kind, p):
+			all.append(p)
+	all.shuffle()
+	for i in mini(max_count, all.size()):
+		out.append(all[i] as ClutterProp)
+	return out
+
+
+func _pick_farthest(kind: String) -> ClutterProp:
+	if _spawner == null or _player == null:
+		return _pick_one(kind)
+	var best: ClutterProp = null
+	var best_d := -1.0
+	var origin: Vector3 = (_player as Node3D).global_position
+	for c in _spawner.get_children():
+		var p := c as ClutterProp
+		if p == null or p.is_destroying() or p.is_being_carried():
+			continue
+		if not _matches(kind, p):
+			continue
+		var d := origin.distance_to(p.global_position)
+		if d > best_d:
+			best_d = d
+			best = p
+	return best

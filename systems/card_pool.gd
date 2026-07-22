@@ -41,10 +41,10 @@ static func starter_cards() -> Array[CardData]:
 		{
 			"id": "lazy_rinse",
 			"title": "Tembel Durulama",
-			"desc": "Good skill check +%15 ekstra temizlik (toplam ~%85).",
+			"desc": "Kovada durulama hızı x1.28.",
 			"icon": "🪣",
 			"rarity": CardData.Rarity.COMMON,
-			"add": {"mop_good_clean_add": 0.15},
+			"mult": {"mop_rinse_mult": 1.28},
 		},
 		{
 			"id": "drip_time",

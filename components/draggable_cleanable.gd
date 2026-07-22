@@ -13,7 +13,7 @@ func _ready() -> void:
 	add_to_group("Draggable")
 
 
-func scrub_rub(_pos: Vector2, _motion: Vector2, _effectiveness: float = 1.0) -> bool:
+func scrub_rub(_pos: Vector2, _motion: Vector2, _effectiveness: float = 1.0, _mop_dirt: float = 0.0) -> bool:
 	return false
 
 

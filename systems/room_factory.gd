@@ -94,6 +94,9 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			var cl := CleanableObject.new()
 			cl.hitbox_size = _hb(Vector2(84, 84))
 			cl.required_equipment = 0
+			cl.requires_scrub = true
+			cl.liquid_scrub = true
+			cl.scrub_move_factor = 0.0014
 			cl.modulate = Color(0.5, 0.4, 0.32)
 			cl.position = pos
 			_add_dirt_visual(cl, "stain")
@@ -140,6 +143,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			var trail := CleanableObject.new()
 			trail.hitbox_size = _hb(Vector2(72, 56))
 			trail.requires_scrub = true
+			trail.liquid_scrub = true
 			trail.scrub_move_factor = 0.0011
 			trail.modulate = Color(0.4, 0.8, 0.5, 0.9)
 			trail.position = pos
@@ -150,6 +154,7 @@ static func make_dirt(type: String, pos: Vector2) -> Node2D:
 			var pot := CleanableObject.new()
 			pot.hitbox_size = _hb(Vector2(118, 100))
 			pot.requires_scrub = true
+			pot.liquid_scrub = true
 			pot.scrub_move_factor = 0.00042
 			pot.reversal_bonus = 0.035
 			pot.applies_drunk = true

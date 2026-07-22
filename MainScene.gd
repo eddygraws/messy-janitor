@@ -23,7 +23,6 @@ extends Node2D
 @onready var _tutorial_label: Label = $UI/TutorialLabel
 @onready var _run_timer: RunTimerComponent = $RunTimer
 @onready var _time_label: Label = $UI/TimeLabel
-@onready var _skill_check: MopSkillCheckDirector = $MopSkillCheckDirector
 @onready var _run_modifiers: RunModifierDirector = $RunModifierDirector
 @onready var _post_process: PostProcessDirector = $PostProcessDirector
 @onready var _powerups: ComboPowerupDirector = $ComboPowerupDirector
@@ -73,8 +72,6 @@ func _ready() -> void:
 	if _run_timer != null:
 		_run_timer.time_changed.connect(_on_time_changed)
 		_run_timer.time_expired.connect(_on_time_expired)
-	if _skill_check != null:
-		_skill_check.check_resolved.connect(_on_skill_check_resolved)
 	if _run_modifiers != null:
 		_run_modifiers.card_acquired.connect(_on_card_acquired)
 
@@ -91,6 +88,13 @@ func _ready() -> void:
 	_update_room_counter()
 	_room_manager.emit_current_objective()
 	_screens.set_records_text(_build_menu_records())
+
+	# 3D prototip (geçici): F8 ile izometrik test sahnesi
+	if not InputMap.has_action("debug_3d_prototype"):
+		InputMap.add_action("debug_3d_prototype")
+		var f8 := InputEventKey.new()
+		f8.keycode = KEY_F8
+		InputMap.action_add_event("debug_3d_prototype", f8)
 
 	# Başlangıç ekranı açıkken oyunu duraklat ve donanım imlecini göster.
 	_enter_menu_state()
@@ -147,11 +151,13 @@ func _on_mode_selected(mode: int) -> void:
 			_update_room_counter()
 			return
 		_screens.show_level_select(_save.get_highest_unlocked(), _level_best_array())
+	elif mode == 2:
+		# 3D garaj prototipi (Overcooked kontrol)
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes3d/main_3d.tscn")
 	else:
-		_screens.hide_start()
-		_room_manager.start_run(1)
-		_update_room_counter()
-		_enter_playing_state()
+		# Sonsuz mod menüden kaldırıldı — maceraya yönlendir
+		_screens.show_level_select(_save.get_highest_unlocked(), _level_best_array())
 
 
 func _should_play_intro() -> bool:
@@ -188,8 +194,6 @@ func _on_pause_shown() -> void:
 		_cursor.visible = false
 	if _run_timer != null and _timer_started:
 		_run_timer.pause_for_menu()
-	if _skill_check != null:
-		_skill_check.set_rinsing(false)
 
 
 func _on_pause_resume() -> void:
@@ -497,29 +501,6 @@ func _build_time_up_info(records: Array[String]) -> String:
 	return line + _records_or_best(records)
 
 
-func _on_skill_check_resolved(tier: int) -> void:
-	if _combo_label == null:
-		return
-	match tier:
-		2:
-			_combo_label.text = "MÜKEMMEL DURULAMA! +SÜRE"
-			_combo_label.modulate = Color(0.45, 1.0, 0.55)
-		1:
-			_combo_label.text = "İYİ DURULAMA"
-			_combo_label.modulate = Color(0.65, 0.95, 0.7)
-		0:
-			_combo_label.text = "ISLAK PASPAS KAÇTI! -SÜRE"
-			_combo_label.modulate = Color(1.0, 0.35, 0.3)
-	var tween := create_tween()
-	tween.tween_interval(1.1)
-	tween.tween_callback(func() -> void:
-		if _combo != null:
-			_on_combo_changed(_combo.get_combo())
-		elif _combo_label != null:
-			_combo_label.text = ""
-	)
-
-
 func _reset_run_timer_state() -> void:
 	_timer_started = false
 	_game_over_pending = false
@@ -542,6 +523,11 @@ func _on_objective_changed(remaining: int, total: int) -> void:
 	else:
 		_objective_label.text = "HEDEF: %d / %d kir temizlendi" % [total - remaining, total]
 		_objective_label.modulate = Color(1, 1, 1)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("debug_3d_prototype"):
+		get_tree().change_scene_to_file("res://scenes3d/main_3d.tscn")
 
 
 func _update_room_counter() -> void:

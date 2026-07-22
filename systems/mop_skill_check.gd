@@ -8,6 +8,7 @@ signal check_resolved(tier: int)  # 0=miss 1=good 2=great
 @export var stress_path: NodePath = ^"../StressComponent"
 @export var run_timer_path: NodePath = ^"../RunTimer"
 @export var ui_path: NodePath = ^"../UI/MopSkillCheckUI"
+@export var enabled: bool = false
 
 ## İki skill check arası minimum bekleme (saniye).
 @export_group("Skill Check Sıklığı")
@@ -42,6 +43,7 @@ func _ready() -> void:
 	_ui = get_node_or_null(ui_path) as MopSkillCheckUI
 	if _ui != null:
 		_ui.attempt_pressed.connect(_on_attempt)
+		_ui.visible = false
 
 
 func is_active() -> bool:
@@ -55,6 +57,8 @@ func set_rinsing(value: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	if not enabled:
+		return
 	if not _rinsing or _mop == null or _mop.get_charge() <= 0.0:
 		if _active:
 			_cancel()
@@ -86,7 +90,7 @@ func _resolve(tier: int) -> void:
 	if _ui != null:
 		_ui.hide_check()
 	check_resolved.emit(tier)
-	if _mop != null:
+	if _mop != null and _mop.has_method("apply_skill_result"):
 		_mop.apply_skill_result(tier)
 	match tier:
 		2:

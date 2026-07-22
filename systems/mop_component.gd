@@ -22,11 +22,6 @@ signal rinsed
 @export_group("Durulama")
 @export_range(0.1, 2.0, 0.05, "suffix:/s") var reload_per_second: float = 0.85
 @export_range(0.0, 0.5, 0.01) var passive_reload_scale: float = 0.1
-## Great skill check: mevcut kirin ne kadarı silinsin (1.0 = tamamen temiz).
-@export_range(0.5, 1.0, 0.05) var skill_great_clean_ratio: float = 1.0
-## Good skill check: mevcut kirin ne kadarı silinsin (0.7 = %70 temizlenir).
-@export_range(0.1, 1.0, 0.05) var skill_good_clean_ratio: float = 0.7
-@export_range(0.0, 0.2, 0.005) var skill_miss_penalty: float = 0.07
 @export_range(0.0, 50.0, 1.0) var reload_stamina_bonus: float = 22.0
 
 @export_group("Kirli Paspas Cezası")
@@ -87,7 +82,10 @@ func add_heat(pixels: float) -> void:
 func reload(delta: float) -> void:
 	if charge <= 0.0:
 		return
-	charge = maxf(0.0, charge - reload_per_second * delta)
+	var rate := reload_per_second
+	if _modifiers != null:
+		rate *= _modifiers.get_mult(&"mop_rinse_mult", 1.0)
+	charge = maxf(0.0, charge - rate * delta)
 	charge_changed.emit(charge)
 	_refresh_bucket()
 
@@ -109,29 +107,6 @@ func get_effectiveness() -> float:
 
 func get_stamina_drain_multiplier() -> float:
 	return lerpf(1.0, dirty_stamina_mult, pow(charge, 1.35))
-
-
-func apply_skill_result(tier: int) -> void:
-	var before := charge
-	match tier:
-		2:
-			charge *= 1.0 - clampf(skill_great_clean_ratio, 0.0, 1.0)
-		1:
-			charge *= 1.0 - _resolved_good_clean_ratio()
-		_:
-			charge = minf(overheat_threshold, charge + skill_miss_penalty)
-	charge = maxf(0.0, charge)
-	if charge != before:
-		charge_changed.emit(charge)
-		_refresh_bucket()
-	if charge < overheat_threshold and _overheated:
-		_overheated = false
-		if _bucket != null and _bucket.has_method("set_ready_glow"):
-			_bucket.set_ready_glow(false)
-	if charge <= 0.0 and before > 0.0:
-		if _stamina != null:
-			_stamina.restore(reload_stamina_bonus)
-		rinsed.emit()
 
 
 func is_overheated() -> bool:
@@ -156,13 +131,6 @@ func force_rinse() -> void:
 		if _stamina != null:
 			_stamina.restore(reload_stamina_bonus * 0.5)
 		rinsed.emit()
-
-
-func _resolved_good_clean_ratio() -> float:
-	var ratio := skill_good_clean_ratio
-	if _modifiers != null:
-		ratio = _modifiers.get_mop_good_clean_ratio(ratio)
-	return clampf(ratio, 0.0, 1.0)
 
 
 func _refresh_bucket() -> void:

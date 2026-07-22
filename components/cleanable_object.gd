@@ -16,6 +16,7 @@ const EQ_TWEEZERS := 4
 
 @export var hitbox_size: Vector2 = Vector2(80, 80)
 @export var requires_scrub: bool = false
+@export var liquid_scrub: bool = false
 @export_enum("Mop", "Broom", "Brush", "Spray", "Tweezers") var required_equipment: int = 0
 @export var mash_per_hit: float = 0.22   # Fırça: her tıklamada eklenen ilerleme
 
@@ -61,6 +62,7 @@ var _in_range: bool = false       # imleç şu an aydınlatma yarıçapında mı
 var _base_alpha: float = 1.0
 var _sprayed: bool = false
 var _grime_materials: Array[ShaderMaterial] = []
+var _liquid_mask: LiquidScrubMask
 var _highlight_time: float = 0.0
 
 
@@ -124,6 +126,17 @@ func apply_clean_progress(amount: float, allow_finish: bool = true, cap: float =
 			return true
 		return false
 	var limit := 1.0 if allow_finish else clampf(cap, 0.0, 0.99)
+	if liquid_scrub:
+		if _liquid_mask == null:
+			_ensure_liquid_mask()
+		if _liquid_mask != null:
+			var finish_at := 0.9 if allow_finish else limit
+			_scrub_progress = minf(limit, _liquid_mask.add_wipe_progress(amount))
+			scrub_progress_changed.emit(_scrub_progress)
+			if allow_finish and _scrub_progress >= finish_at:
+				_finish_clean()
+				return true
+			return false
 	_scrub_progress = minf(limit, _scrub_progress + amount)
 	scrub_progress_changed.emit(_scrub_progress)
 	_update_scrub_visual()
@@ -150,7 +163,8 @@ func try_clean(click_pos: Vector2) -> bool:
 
 
 # Ovalama hareketiyle temizlik. motion = farenin bu karedeki gerçek hareketi.
-func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0) -> bool:
+# mop_dirt: 0=temiz paspas, 1=tam kirli (sıvıda bulaştırma).
+func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0, mop_dirt: float = 0.0) -> bool:
 	if is_forbidden or is_cleaned() or not is_revealed() or not get_hitbox().has_point(pos):
 		_last_dir_x = 0
 		return false
@@ -163,6 +177,13 @@ func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0) -> boo
 	if is_fragile and motion.length() > fragile_threshold:
 		_break()
 		return true
+
+	if liquid_scrub:
+		if _liquid_mask == null:
+			_ensure_liquid_mask()
+		if _liquid_mask != null:
+			return _scrub_liquid(pos, motion, effectiveness, mop_dirt)
+		# Mask bağlanamadıysa görünür alpha-fade yoluna düş.
 
 	var effort := absf(motion.x) + absf(motion.y) * 0.4
 	if effort <= 0.5:
@@ -190,6 +211,67 @@ func scrub_rub(pos: Vector2, motion: Vector2, effectiveness: float = 1.0) -> boo
 		_finish_clean()
 		return true
 	return false
+
+
+func _scrub_liquid(pos: Vector2, motion: Vector2, effectiveness: float, mop_dirt: float = 0.0) -> bool:
+	var effort := motion.length()
+	if effort <= 0.5:
+		return false
+
+	# Kirli paspas: önce bulaştır (silinen alanı geri kirlet), sonra zayıf temizle.
+	var dirt := clampf(mop_dirt, 0.0, 1.0)
+	if dirt >= 0.45:
+		var smear_amt := (dirt - 0.35) / 0.65
+		_liquid_mask.smear_world(pos, effort, smear_amt)
+		# Çok kirliyken temizlik neredeyse yok; orta kirde yarı hız.
+		effectiveness *= lerpf(1.0, 0.15, smear_amt)
+
+	if not _liquid_mask.stamp_world(pos, effort, effectiveness):
+		# Sadece smear olduysa progress yine güncellensin.
+		_scrub_progress = _liquid_mask.get_wipe_ratio()
+		scrub_progress_changed.emit(_scrub_progress)
+		return false
+
+	var dir := 0
+	if motion.x > 1.5:
+		dir = 1
+	elif motion.x < -1.5:
+		dir = -1
+	if dir != 0 and _last_dir_x != 0 and dir != _last_dir_x:
+		_liquid_mask.stamp_world(pos, effort * 0.35, effectiveness * 0.6)
+	if dir != 0:
+		_last_dir_x = dir
+
+	_scrub_progress = _liquid_mask.get_wipe_ratio()
+	scrub_progress_changed.emit(_scrub_progress)
+	if applies_drunk:
+		_apply_drunk(drunk_on_scrub * clampf(effort / 40.0, 0.35, 1.0))
+
+	# Kirli paspasla ovmak yeni leke izi bırakabilir.
+	if dirt >= 0.7 and effort > 18.0 and randf() < 0.045:
+		_try_spawn_smear_trail(pos, motion)
+
+	if _scrub_progress >= 0.9:
+		_finish_clean()
+		return true
+	return false
+
+
+func _try_spawn_smear_trail(pos: Vector2, motion: Vector2) -> void:
+	var room := get_parent()
+	if room == null:
+		return
+	var offset := motion.normalized() * randf_range(28.0, 54.0)
+	if offset.length_squared() < 0.01:
+		offset = Vector2(randf_range(-40.0, 40.0), randf_range(-40.0, 40.0))
+	var smear_pos := RoomSpawnBounds.snap_to_surface(pos + offset)
+	var trail := RoomFactory.make_dirt("stain", smear_pos)
+	trail.scale = Vector2(0.55, 0.55)
+	trail.modulate.a = 0.85
+	trail.z_index = z_index
+	if "dirt_kind" in trail:
+		trail.set("dirt_kind", "stain")
+	room.add_child(trail)
 
 
 func _apply_drunk(amount: float) -> void:
@@ -322,12 +404,25 @@ func _notify_room() -> void:
 
 
 func _setup_grime_shaders() -> void:
-	# Shader kapalı — orijinal sprite + alpha fade
 	_grime_materials.clear()
+	if liquid_scrub:
+		_ensure_liquid_mask()
+		_apply_highlight()
+		return
 	for child in get_children():
 		if child is CanvasItem and child.z_index >= 0 and _is_grime_target(child):
 			(child as CanvasItem).material = null
 	_apply_highlight()
+
+
+func _ensure_liquid_mask() -> void:
+	if _liquid_mask != null:
+		return
+	for child in get_children():
+		if child is Sprite2D and _is_grime_target(child):
+			_liquid_mask = LiquidScrubMask.new()
+			_liquid_mask.bind_sprite(child as Sprite2D)
+			return
 
 
 func _is_grime_target(node: Node) -> bool:
@@ -344,6 +439,9 @@ func _update_grime_dissolve(pulse: float = 0.0) -> void:
 
 
 func _update_scrub_visual() -> void:
+	if liquid_scrub:
+		_refresh_alpha()
+		return
 	_update_grime_dissolve(0.15 if _scrub_progress > 0.05 else 0.0)
 	_refresh_alpha()
 	_apply_highlight()
@@ -362,6 +460,12 @@ func _apply_highlight() -> void:
 # Alfayı hem temizlik ilerlemesine hem de (gizliyse) imleç aydınlatmasına göre ayarlar.
 func _refresh_alpha() -> void:
 	if _is_clean or _is_broken:
+		return
+	if liquid_scrub and _liquid_mask != null:
+		if is_hidden:
+			modulate.a = _base_alpha * _reveal_amount
+		else:
+			modulate.a = _base_alpha
 		return
 	if not _grime_materials.is_empty():
 		if is_hidden:

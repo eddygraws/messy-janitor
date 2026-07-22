@@ -1,12 +1,12 @@
 class_name LevelData
 extends RefCounted
 
-# Adventure: 11 seviye — Remzi'nin müşteri zinciri.
+# Adventure: şu an oynanabilir 4 seviye (L5+ kodda duruyor, menüde kapalı).
 # L1 Marv (tutorial) → L2 Grimble küf → L3 Hayalet süpürge → L4 slime
-# → L5-6 Morgana → L7 sprey → L8 cımbız → L9 Vampir → L10 ritüel → L11 final.
 #
-# Ekipman: L1-2 paspas, L3-4 +süpürge, L5-6 +fırça,
-# L7 +sprey, L8-11 +cımbız.
+# Ekipman: L1-2 paspas, L3-4 +süpürge.
+
+const PLAYABLE_LEVEL_COUNT := 4
 
 const BG_WITCH := Color(0.42, 0.28, 0.52)
 const BG_APPRENTICE := Color(0.18, 0.2, 0.26)
@@ -88,7 +88,7 @@ static func _nearest_theme_key(theme: Color) -> String:
 
 
 static func level_count() -> int:
-	return 11
+	return PLAYABLE_LEVEL_COUNT
 
 
 static func is_tutorial_level(level_index: int) -> bool:
@@ -111,7 +111,8 @@ static func unlocked_equipment(level_index: int) -> int:
 
 static func get_level(level_index: int) -> Dictionary:
 	var levels := _all_levels()
-	if level_index >= 0 and level_index < levels.size():
+	var capped := mini(PLAYABLE_LEVEL_COUNT, levels.size())
+	if level_index >= 0 and level_index < capped:
 		return levels[level_index]
 	return levels[0]
 
@@ -153,17 +154,17 @@ static func _all_levels() -> Array[Dictionary]:
 				},
 				{
 					"label": "1-2", "bg": BG_GARAGE_FLOOR,
-					"tutorial": "Basit lekelere TIKLA — tek tık yeter.",
+					"tutorial": "Yere dökülen sıvı/leke: paspasla ovala — silindiği yer kaybolur (VCD tarzı).",
 					"dirt": [{"type": "stain", "count": 3}],
 				},
 				{
 					"label": "1-3", "bg": BG_GARAGE_WALL,
-					"tutorial": "Leke + ovalama karışımı. Tempo hâlâ yavaş — acele yok.",
+					"tutorial": "Sıvı leke + kuru kir karışımı. Lekeyi sür, kuru kiri ovala.",
 					"dirt": [{"type": "stain", "count": 2}, {"type": "scrub", "count": 1}],
 				},
 				{
 					"label": "1-4", "bg": BG_GARAGE_FLOOR,
-					"tutorial": "PASPAS KİRLİ! Sağ alttaki KOVAYA tıkla ve BASILI TUT — skill check ile durula.",
+					"tutorial": "PASPAS KİRLİ! Kirli paspas lekeyi bulaştırır. Kovaya BASILI TUT — durula.",
 					"force_mop_dirty": true,
 					"commission": _commission(
 						"Kuzen Marv", "🪣", "Kova Hatırlatması",

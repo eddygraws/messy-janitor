@@ -17,7 +17,7 @@ signal intro_finished
 @onready var _level_grid: GridContainer = $LevelSelectScreen/Center/Grid
 @onready var _level_back: Button = $LevelSelectScreen/Center/BackButton
 @onready var _adventure_button: Button = $StartScreen/Center/AdventureButton
-@onready var _endless_button: Button = $StartScreen/Center/EndlessButton
+@onready var _proto3d_button: Button = $StartScreen/Center/EndlessButton
 @onready var _restart_button: Button = $GameOverScreen/Center/RestartButton
 @onready var _over_info: Label = $GameOverScreen/Center/InfoLabel
 var _over_title: WavyLabel
@@ -31,7 +31,10 @@ var _intro: IntroSequence
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_adventure_button.pressed.connect(func() -> void: mode_selected.emit(0))
-	_endless_button.pressed.connect(func() -> void: mode_selected.emit(1))
+	# Endless yerine 3D Overcooked prototip
+	if _proto3d_button != null:
+		_proto3d_button.text = "🧹  3D GARAJ (Overcooked)"
+		_proto3d_button.pressed.connect(func() -> void: mode_selected.emit(2))
 	_restart_button.pressed.connect(func() -> void: restart_pressed.emit())
 	_level_back.pressed.connect(func() -> void: back_pressed.emit())
 	_pause_resume.pressed.connect(func() -> void: pause_resume_pressed.emit())
@@ -45,8 +48,46 @@ func _ready() -> void:
 	_intro.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_intro.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_intro.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_style_comedy_menu()
 	show_start()
 	call_deferred("_setup_wavy_menu_titles")
+
+
+func _style_comedy_menu() -> void:
+	var bg := _start_screen.get_node_or_null("BG") as ColorRect
+	if bg != null:
+		bg.color = Color(0.12, 0.14, 0.16, 0.94)
+	_style_menu_button(_adventure_button, Color(0.28, 0.55, 0.38))
+	_style_menu_button(_proto3d_button, Color(0.55, 0.38, 0.22))
+	_adventure_button.text = "🗺  MACERA — 4 seviye"
+	if _proto3d_button != null:
+		_proto3d_button.text = "🧹  3D GARAJ — dans & bump"
+
+
+func _style_menu_button(button: Button, accent: Color) -> void:
+	if button == null:
+		return
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = accent.darkened(0.25)
+	sb.set_corner_radius_all(14)
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 10
+	sb.border_width_left = 3
+	sb.border_width_top = 3
+	sb.border_width_right = 3
+	sb.border_width_bottom = 3
+	sb.border_color = accent.lightened(0.25)
+	button.add_theme_stylebox_override("normal", sb)
+	var hover := sb.duplicate() as StyleBoxFlat
+	hover.bg_color = accent.darkened(0.05)
+	button.add_theme_stylebox_override("hover", hover)
+	var pressed := sb.duplicate() as StyleBoxFlat
+	pressed.bg_color = accent.darkened(0.4)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_color_override("font_color", Color(0.95, 0.96, 0.9))
+	button.add_theme_font_size_override("font_size", 24)
 
 
 func set_records_text(text: String) -> void:
@@ -66,6 +107,7 @@ func show_start() -> void:
 	tween.tween_property(_start_screen, "modulate:a", 1.0, 0.35)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_pop_button(_adventure_button)
+	_pop_button(_proto3d_button)
 
 
 func play_intro() -> void:
@@ -159,7 +201,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func show_level_select(unlocked: int, best_scores: Array) -> void:
 	_start_screen.visible = false
 	_over_screen.visible = false
-	_build_level_buttons(unlocked, best_scores)
+	var capped := mini(unlocked, LevelData.level_count())
+	_build_level_buttons(maxi(1, capped), best_scores)
 	_level_screen.visible = true
 	_level_screen.modulate.a = 0.0
 	var tween := create_tween()
@@ -176,11 +219,12 @@ func _build_level_buttons(unlocked: int, best_scores: Array) -> void:
 		child.queue_free()
 
 	for i in LevelData.level_count():
+		var info := LevelData.get_level(i)
 		var level_num := i + 1
 		var is_unlocked := level_num <= unlocked
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(150, 96)
-		btn.add_theme_font_size_override("font_size", 22)
+		btn.custom_minimum_size = Vector2(220, 110)
+		btn.add_theme_font_size_override("font_size", 18)
 		btn.disabled = not is_unlocked
 		btn.focus_mode = Control.FOCUS_NONE
 
@@ -190,11 +234,13 @@ func _build_level_buttons(unlocked: int, best_scores: Array) -> void:
 
 		if is_unlocked:
 			var best_line := ("En iyi: %d" % best) if best > 0 else "Yeni!"
-			btn.text = "Seviye %d\n%s" % [level_num, best_line]
+			var subtitle := String(info.get("subtitle", ""))
+			btn.text = "%s\n%s\n%s" % [String(info.get("name", "Seviye %d" % level_num)), subtitle, best_line]
 			var idx := i
 			btn.pressed.connect(func() -> void: level_selected.emit(idx))
+			_style_menu_button(btn, Color(0.32, 0.48, 0.58) if i > 0 else Color(0.45, 0.42, 0.28))
 		else:
-			btn.text = "🔒\nSeviye %d" % level_num
+			btn.text = "🔒\n%s" % String(info.get("name", "Seviye %d" % level_num))
 
 		_level_grid.add_child(btn)
 
@@ -228,18 +274,27 @@ func show_game_over(title: String, info: String) -> void:
 
 
 func _pop_button(button: Button) -> void:
+	if button == null:
+		return
 	button.pivot_offset = button.size * 0.5
+	# Komik squash: hafif şiş-sön
 	var tween := create_tween().set_loops()
-	tween.tween_property(button, "scale", Vector2(1.06, 1.06), 0.7)\
+	tween.tween_property(button, "scale", Vector2(1.07, 0.94), 0.55)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(button, "scale", Vector2.ONE, 0.7)\
+	tween.tween_property(button, "scale", Vector2(0.97, 1.06), 0.55)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
 func _setup_wavy_menu_titles() -> void:
-	_swap_wavy(_start_screen.get_node_or_null("Center/TitleLabel"), 58, 3.2, true, false)
-	_swap_wavy(_start_screen.get_node_or_null("Center/SubtitleLabel"), 22, 1.2, true, false)
-	_swap_wavy(_level_screen.get_node_or_null("Center/TitleLabel"), 44, 2.0, true, false)
+	var title := _swap_wavy(_start_screen.get_node_or_null("Center/TitleLabel"), 58, 4.2, true, false)
+	if title != null:
+		title.text = "MESSY JANITOR"
+		title.font_color = Color(0.95, 0.88, 0.55)
+	var sub := _swap_wavy(_start_screen.get_node_or_null("Center/SubtitleLabel"), 22, 1.6, true, false)
+	if sub != null:
+		sub.text = "Remzi temizliyor · sen kaos çıkarıyorsun"
+		sub.font_color = Color(0.75, 0.85, 0.95)
+	_swap_wavy(_level_screen.get_node_or_null("Center/TitleLabel"), 44, 2.4, true, false)
 	_over_title = _swap_wavy(_over_screen.get_node_or_null("Center/TitleLabel"), 72, 3.5, true, true)
 	_swap_wavy(_pause_screen.get_node_or_null("Center/TitleLabel"), 48, 2.2, true, false)
 
