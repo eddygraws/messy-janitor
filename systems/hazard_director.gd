@@ -16,14 +16,17 @@ signal furniture_shifted
 @export var fall_warn_time: float = 1.35
 @export var fall_radius: float = 1.55
 @export var fall_stress: float = 16.0
-@export var furniture_interval: float = 5.5
-@export var furniture_count: int = 3
-@export var furniture_warn_timeout: float = 2.4
-@export var furniture_shove_power: float = 16.0
-@export var furniture_line_width: float = 0.38 ## Görsel çizgi kalınlığı
-@export var furniture_touch_pad: float = 0.9 ## Çizgiye yaklaşınca tetik payı (oyuncu yarıçapı+)
-@export var furniture_slide_time: float = 0.16 ## Kayma süresi (çok hızlı)
-@export var furniture_min_sep: float = 2.9 ## Spawn / hedef min mesafe
+## Mobilya — yumuşak tempo, her uyarı görünür
+@export var furniture_count: int = 2
+@export var furniture_interval: float = 10.0 ## Uyarılar arası bekleme
+@export var furniture_warn_time: float = 2.0 ## Kırmızı çizgi süresi
+@export var furniture_warn_min: float = 0.85 ## En az bu kadar uyarı göster (erken tetik yok)
+@export var furniture_slide_time: float = 0.48 ## Kayma süresi
+@export var furniture_shove_power: float = 7.5
+@export var furniture_touch_pad: float = 0.55 ## Çizgiye basma yarıçapı
+@export var furniture_line_width: float = 0.32
+@export var furniture_travel: float = 3.2 ## Max kayma mesafesi
+@export var furniture_min_sep: float = 3.2
 
 var _player: PlayerCharacter3D
 var _stress: StressComponent
@@ -43,10 +46,24 @@ var _fall_cd: float = 0.0
 var _fall_warn: Node3D
 var _fall_center: Vector3 = Vector3.ZERO
 var _fall_timer: float = -1.0
+
+## Mobilya state machine: IDLE → WARN → SLIDE → IDLE
+enum FurnPhase { IDLE, WARN, SLIDE }
+var _furn_phase: FurnPhase = FurnPhase.IDLE
 var _furniture: Array[Node3D] = []
-var _furniture_cd: float = 0.0
-## {piece, target, warn, time_left, moving, last_pos}
-var _furniture_job: Dictionary = {}
+var _furn_cd: float = 0.0
+var _furn_piece: Node3D
+var _furn_warn: Node3D
+var _furn_from: Vector3 = Vector3.ZERO
+var _furn_to: Vector3 = Vector3.ZERO
+var _furn_target: Vector3 = Vector3.ZERO
+var _furn_timer: float = 0.0 ## WARN: kalan süre | SLIDE: geçen süre
+var _furn_start: Vector3 = Vector3.ZERO
+var _furn_start_rot: float = 0.0
+var _furn_end_rot: float = 0.0
+var _furn_last: Vector3 = Vector3.ZERO
+var _furn_shove_cd: float = 0.0
+var _furn_pulse: float = 0.0
 var _rng := RandomNumberGenerator.new()
 
 
@@ -70,9 +87,10 @@ func start_session(level_index: int, allow_mop: bool = true) -> void:
 	_level_index = level_index
 	_allow_mop = allow_mop
 	_active = true
-	# İlk düşme biraz geciksin
+	# İlk düşme / mobilya biraz geciksin
 	_fall_cd = fall_base_interval * randf_range(0.55, 0.9)
-	_furniture_cd = furniture_interval * randf_range(0.4, 0.7)
+	_furn_cd = furniture_interval * randf_range(0.55, 0.85)
+	_furn_phase = FurnPhase.IDLE
 	_spawn_furniture()
 
 
@@ -82,11 +100,12 @@ func stop_session() -> void:
 		_player.set_floor_slip(0.0)
 	_clear_slip_zones()
 	_clear_fall_warn()
-	_clear_furniture_job()
+	_furn_reset(true)
 	_clear_furniture()
 	_fall_timer = -1.0
 	_fall_cd = 0.0
-	_furniture_cd = 0.0
+	_furn_cd = 0.0
+	_furn_phase = FurnPhase.IDLE
 
 
 func notify_scrub_cleaned(world_pos: Vector3) -> void:
@@ -120,16 +139,12 @@ func _process(delta: float) -> void:
 		return
 	_tick_slippery(delta)
 	_tick_falling(delta)
-	_tick_furniture_schedule(delta)
+	_tick_furniture(delta)
 	_apply_slip_to_player()
 
 
 func _physics_process(_delta: float) -> void:
-	if not _active:
-		return
-	# Fizik karesinde tetik — daha responsive
-	_tick_furniture_reactive()
-
+	pass
 
 func _apply_slip_to_player() -> void:
 	if _player == null:
@@ -361,40 +376,302 @@ func _clear_fall_warn() -> void:
 	_fall_warn = null
 
 
-func _tick_furniture_schedule(delta: float) -> void:
+func _tick_furniture(delta: float) -> void:
 	if _furniture.is_empty():
 		return
-	if not _furniture_job.is_empty():
-		if bool(_furniture_job.get("moving", false)):
+	match _furn_phase:
+		FurnPhase.IDLE:
+			_furn_cd -= delta
+			if _furn_cd <= 0.0:
+				_furn_begin_warn()
+		FurnPhase.WARN:
+			_furn_tick_warn(delta)
+		FurnPhase.SLIDE:
+			_furn_tick_slide(delta)
+
+
+func _furn_begin_warn() -> void:
+	_furn_reset(false)
+	if _player == null or _furniture.is_empty():
+		_furn_cd = furniture_interval
+		return
+	# Geçerli parça seç
+	var candidates: Array[Node3D] = []
+	for f in _furniture:
+		if f != null and is_instance_valid(f):
+			candidates.append(f)
+	if candidates.is_empty():
+		_furn_cd = furniture_interval
+		return
+	_furn_piece = candidates[_rng.randi_range(0, candidates.size() - 1)]
+	var origin := _furn_piece.global_position
+	var path := _furn_compute_path(origin)
+	_furn_from = path["from"]
+	_furn_to = path["to"]
+	_furn_target = path["target"]
+	# Yol çok kısaysa atla — sonraki turda tekrar dene
+	if _furn_from.distance_to(_furn_to) < 1.0:
+		_furn_cd = 1.2
+		_furn_piece = null
+		return
+	_furn_warn = _furn_spawn_line(_furn_from, _furn_to)
+	if _furn_warn == null:
+		_furn_cd = 1.5
+		_furn_piece = null
+		return
+	_furn_timer = furniture_warn_time
+	_furn_pulse = 0.0
+	_furn_phase = FurnPhase.WARN
+	# Hafif uyarı sarsıntısı
+	_furn_piece.rotation.y += _rng.randf_range(-0.04, 0.04)
+
+
+func _furn_compute_path(origin: Vector3) -> Dictionary:
+	var y := origin.y
+	var from := Vector3(origin.x, 0.0, origin.z)
+	var toward := Vector3.ZERO
+	if _player != null:
+		toward = _player.global_position - origin
+		toward.y = 0.0
+	if toward.length_squared() < 0.2:
+		toward = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
+	toward = toward.normalized()
+	# Oyuncunun biraz ötesine — agresif chase yok
+	var travel := furniture_travel * _rng.randf_range(0.75, 1.0)
+	var target := origin + toward * travel
+	if _player != null:
+		var past := _player.global_position + toward * _rng.randf_range(0.8, 1.4)
+		past.y = y
+		# origin → past yönünde ama travel ile sınırlı
+		var to_past := past - origin
+		to_past.y = 0.0
+		if to_past.length() > 0.1:
+			target = origin + to_past.normalized() * minf(to_past.length(), travel)
+	target = _furn_clamp_target(target, _furn_piece, y)
+	var to := Vector3(target.x, 0.0, target.z)
+	return {"from": from, "to": to, "target": target}
+
+
+func _furn_clamp_target(desired: Vector3, self_piece: Node3D, y: float) -> Vector3:
+	var target := desired
+	target.x = clampf(target.x, -room_half_extents.x * 0.86, room_half_extents.x * 0.86)
+	target.z = clampf(target.z, -room_half_extents.y * 0.86, room_half_extents.y * 0.86)
+	target.y = y
+	for _i in 6:
+		var ok := true
+		for f in _furniture:
+			if f == null or not is_instance_valid(f) or f == self_piece:
+				continue
+			var d := Vector3(target.x - f.global_position.x, 0.0, target.z - f.global_position.z)
+			if d.length() < furniture_min_sep:
+				ok = false
+				if d.length_squared() < 0.001:
+					d = Vector3(1.0, 0.0, 0.0)
+				target += d.normalized() * furniture_min_sep * 0.85
+				target.x = clampf(target.x, -room_half_extents.x * 0.86, room_half_extents.x * 0.86)
+				target.z = clampf(target.z, -room_half_extents.y * 0.86, room_half_extents.y * 0.86)
+				break
+		if ok:
+			break
+	target.y = y
+	return target
+
+
+func _furn_tick_warn(delta: float) -> void:
+	if _furn_piece == null or not is_instance_valid(_furn_piece):
+		_furn_reset(true)
+		_furn_cd = furniture_interval * 0.5
+		_furn_phase = FurnPhase.IDLE
+		return
+	if _furn_warn == null or not is_instance_valid(_furn_warn):
+		# Belirteç kaybolduysa yeniden oluştur — asla sessiz kayma
+		_furn_warn = _furn_spawn_line(_furn_from, _furn_to)
+		if _furn_warn == null:
+			_furn_reset(true)
+			_furn_cd = 2.0
+			_furn_phase = FurnPhase.IDLE
 			return
-		_furniture_job["time_left"] = float(_furniture_job.get("time_left", 0.0)) - delta
-		_pulse_furniture_line(delta)
-		if float(_furniture_job.get("time_left", 0.0)) <= 0.0:
-			_execute_furniture_slide()
-		return
-	_furniture_cd -= delta
-	if _furniture_cd > 0.0:
-		return
-	_furniture_cd = furniture_interval * randf_range(0.65, 0.95)
-	_arm_furniture_slide()
+	_furn_timer -= delta
+	_furn_pulse += delta
+	_furn_pulse_line()
+	var elapsed := furniture_warn_time - _furn_timer
+	var can_early := elapsed >= furniture_warn_min
+	var crossed := can_early and _furn_player_on_line()
+	if _furn_timer <= 0.0 or crossed:
+		_furn_start_slide()
 
 
-func _tick_furniture_reactive() -> void:
-	if _furniture.is_empty() or _furniture_job.is_empty():
+func _furn_pulse_line() -> void:
+	if _furn_warn == null or not is_instance_valid(_furn_warn):
 		return
-	var delta := get_physics_process_delta_time()
-	if bool(_furniture_job.get("moving", false)):
-		_update_furniture_slide_motion(delta)
-		_update_furniture_shove()
+	var line := _furn_warn.get_node_or_null("Line") as MeshInstance3D
+	if line == null:
 		return
-	if _player_touches_furniture_line():
-		_execute_furniture_slide()
+	var urgency := 1.0 - clampf(_furn_timer / maxf(furniture_warn_time, 0.1), 0.0, 1.0)
+	var s := 1.0 + 0.1 * sin(_furn_pulse * (6.0 + urgency * 8.0))
+	line.scale = Vector3(s, 1.0, 1.0)
+
+
+func _furn_player_on_line() -> bool:
+	if _player == null:
+		return false
+	var p := _player.global_position
+	p.y = 0.0
+	var closest := _closest_point_on_segment(p, _furn_from, _furn_to)
+	return p.distance_to(closest) <= furniture_touch_pad
+
+
+func _furn_start_slide() -> void:
+	if _furn_piece == null or not is_instance_valid(_furn_piece):
+		_furn_reset(true)
+		_furn_phase = FurnPhase.IDLE
+		_furn_cd = furniture_interval
+		return
+	# Belirteçi kaldır, kaymaya başla
+	if _furn_warn != null and is_instance_valid(_furn_warn):
+		_furn_warn.queue_free()
+	_furn_warn = null
+	_furn_target = _furn_clamp_target(_furn_target, _furn_piece, _furn_piece.global_position.y)
+	var flat := Vector3(_furn_target.x - _furn_piece.global_position.x, 0.0, _furn_target.z - _furn_piece.global_position.z)
+	if flat.length() < 0.5:
+		if flat.length_squared() > 0.01:
+			_furn_target = _furn_piece.global_position + flat.normalized() * 2.0
+		else:
+			_furn_target = _furn_piece.global_position + Vector3(2.0, 0.0, 0.0)
+		_furn_target = _furn_clamp_target(_furn_target, _furn_piece, _furn_piece.global_position.y)
+	_furn_start = _furn_piece.global_position
+	_furn_start_rot = _furn_piece.rotation.y
+	_furn_end_rot = _furn_start_rot + _rng.randf_range(-0.35, 0.35)
+	_furn_last = _furn_start
+	_furn_timer = 0.0
+	_furn_shove_cd = 0.0
+	_furn_phase = FurnPhase.SLIDE
+
+
+func _furn_tick_slide(delta: float) -> void:
+	if _furn_piece == null or not is_instance_valid(_furn_piece):
+		_furn_reset(true)
+		_furn_phase = FurnPhase.IDLE
+		_furn_cd = furniture_interval
+		return
+	_furn_timer += delta
+	var t := clampf(_furn_timer / maxf(furniture_slide_time, 0.05), 0.0, 1.0)
+	# Smoothstep — ani teleport hissi yok
+	var s := t * t * (3.0 - 2.0 * t)
+	_furn_piece.global_position = _furn_start.lerp(_furn_target, s)
+	_furn_piece.rotation.y = lerpf(_furn_start_rot, _furn_end_rot, s)
+	_furn_try_shove(delta)
+	if t >= 1.0:
+		_furn_piece.global_position = _furn_target
+		_furn_reset(false)
+		_furn_cd = furniture_interval * _rng.randf_range(0.85, 1.15)
+		_furn_phase = FurnPhase.IDLE
+		furniture_shifted.emit()
+
+
+func _furn_try_shove(delta: float) -> void:
+	if _player == null or _furn_piece == null:
+		return
+	_furn_shove_cd = maxf(0.0, _furn_shove_cd - delta)
+	var cur := _furn_piece.global_position
+	var move_dir := cur - _furn_last
+	move_dir.y = 0.0
+	_furn_last = cur
+	var half: Vector3 = _furn_piece.get_meta("half_size", Vector3(0.55, 0.55, 0.35))
+	var reach := maxf(half.x, half.z) + 0.65
+	var to_player := _player.global_position - cur
+	to_player.y = 0.0
+	if to_player.length() > reach or _furn_shove_cd > 0.0:
+		return
+	var shove: Vector3
+	if move_dir.length_squared() > 0.00008:
+		shove = move_dir.normalized()
+		if to_player.length_squared() > 0.01:
+			shove = (shove * 0.75 + to_player.normalized() * 0.35).normalized()
+	elif to_player.length_squared() > 0.01:
+		shove = to_player.normalized()
+	else:
+		return
+	_player.apply_hazard_shove(shove, furniture_shove_power)
+	_furn_shove_cd = 0.12
+
+
+func _furn_spawn_line(from_pos: Vector3, to_pos: Vector3) -> Node3D:
+	var from := Vector3(from_pos.x, 0.0, from_pos.z)
+	var to := Vector3(to_pos.x, 0.0, to_pos.z)
+	var dist := from.distance_to(to)
+	if dist < 0.4:
+		return null
+	var mid := from.lerp(to, 0.5)
+	var dir := (to - from) / dist
+	var parent: Node = _world if _world != null else get_tree().current_scene
+	if parent == null:
+		return null
+
+	var zone := Node3D.new()
+	zone.name = "FurnitureWarnLine"
+	parent.add_child(zone)
+	zone.global_position = Vector3(mid.x, 0.0, mid.z)
+	# Yaw — look_at yerine güvenilir atan2
+	zone.rotation = Vector3(0.0, atan2(dir.x, dir.z), 0.0)
+
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.15, 0.12, 0.92)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.2, 0.12)
+	mat.emission_energy_multiplier = 4.5
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.no_depth_test = true
+
+	var line := MeshInstance3D.new()
+	line.name = "Line"
+	var lm := BoxMesh.new()
+	lm.size = Vector3(furniture_line_width * 0.5, 0.05, dist)
+	line.mesh = lm
+	line.material_override = mat
+	line.position = Vector3(0.0, 0.08, 0.0)
+	zone.add_child(line)
+
+	var glow := MeshInstance3D.new()
+	glow.name = "Glow"
+	var gm := BoxMesh.new()
+	gm.size = Vector3(furniture_line_width, 0.025, dist)
+	glow.mesh = gm
+	var gmat := mat.duplicate() as StandardMaterial3D
+	gmat.albedo_color = Color(1.0, 0.25, 0.15, 0.28)
+	gmat.emission_energy_multiplier = 2.0
+	glow.material_override = gmat
+	glow.position = Vector3(0.0, 0.05, 0.0)
+	zone.add_child(glow)
+
+	# Uç kapakları
+	for end_z in [-dist * 0.5, dist * 0.5]:
+		var cap := MeshInstance3D.new()
+		var cm := BoxMesh.new()
+		cm.size = Vector3(furniture_line_width * 1.15, 0.06, 0.08)
+		cap.mesh = cm
+		cap.material_override = mat
+		cap.position = Vector3(0.0, 0.09, end_z)
+		zone.add_child(cap)
+
+	return zone
+
+
+func _furn_reset(free_warn: bool) -> void:
+	if free_warn and _furn_warn != null and is_instance_valid(_furn_warn):
+		_furn_warn.queue_free()
+	_furn_warn = null
+	_furn_piece = null
+	_furn_timer = 0.0
+	_furn_pulse = 0.0
+	_furn_shove_cd = 0.0
 
 
 func _spawn_furniture() -> void:
 	_clear_furniture()
-	var n := clampi(furniture_count, 1, 4)
-	if _level_index <= 0:
+	var n := clampi(furniture_count, 1, 3)
+	if _level_index <= 1:
 		n = mini(n, 2)
 	var slots := _furniture_spawn_slots()
 	slots.shuffle()
@@ -414,7 +691,7 @@ func _spawn_furniture() -> void:
 		_furniture.append(piece)
 		spawned += 1
 	var guard := 0
-	while spawned < n and guard < 24:
+	while spawned < n and guard < 20:
 		guard += 1
 		var pos2 := _random_edge_point()
 		if not _is_far_from_all(pos2, used, furniture_min_sep):
@@ -440,8 +717,6 @@ func _furniture_spawn_slots() -> Array[Vector3]:
 		Vector3(0.0, y, hz * 0.88),
 		Vector3(-hx * 0.92, y, 0.0),
 		Vector3(hx * 0.92, y, 0.0),
-		Vector3(-hx * 0.55, y, -hz * 0.88),
-		Vector3(hx * 0.55, y, hz * 0.88),
 	]
 
 
@@ -470,7 +745,6 @@ func _is_far_from_all(pos: Vector3, others: Array[Vector3], min_sep: float) -> b
 
 
 func _make_furniture_piece(index: int) -> Node3D:
-	# Node3D kök — AnimatableBody tween ile kaymıyordu; kökü lerp'liyoruz.
 	var root := Node3D.new()
 	root.name = "HazardFurniture_%d" % index
 	root.add_to_group(&"HazardFurniture")
@@ -481,7 +755,7 @@ func _make_furniture_piece(index: int) -> Node3D:
 	root.add_child(body)
 	var mesh := MeshInstance3D.new()
 	var box := BoxMesh.new()
-	box.size = Vector3(1.1, 1.1, 0.55) if index % 2 == 0 else Vector3(0.7, 1.4, 0.7)
+	box.size = Vector3(1.05, 1.05, 0.5) if index % 2 == 0 else Vector3(0.65, 1.3, 0.65)
 	mesh.mesh = box
 	var col_a := Color(0.42, 0.28, 0.18) if index % 2 == 0 else Color(0.32, 0.34, 0.38)
 	mesh.material_override = HitWobbleMaterial.create(col_a, 0.85, Color.BLACK, 0.0, 0.05, true, 0.028)
@@ -502,156 +776,6 @@ func _make_furniture_piece(index: int) -> Node3D:
 	return root
 
 
-func _arm_furniture_slide() -> void:
-	if _furniture.is_empty() or _player == null:
-		return
-	var piece: Node3D = _furniture[_rng.randi_range(0, _furniture.size() - 1)]
-	if piece == null or not is_instance_valid(piece):
-		return
-	var origin := piece.global_position
-	var player_pos := _player.global_position
-	var toward := player_pos - origin
-	toward.y = 0.0
-	if toward.length_squared() < 0.25:
-		toward = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
-	toward = toward.normalized()
-	var past := player_pos + toward * _rng.randf_range(1.8, 3.2)
-	past = _resolve_furniture_target(past, piece, origin.y)
-	var from_flat := Vector3(origin.x, 0.0, origin.z)
-	var to_flat := Vector3(past.x, 0.0, past.z)
-	var warn := _spawn_furniture_line(from_flat, to_flat)
-	_furniture_job = {
-		"piece": piece,
-		"target": past,
-		"from": from_flat,
-		"to": to_flat,
-		"warn": warn,
-		"time_left": furniture_warn_timeout,
-		"moving": false,
-		"last_pos": origin,
-		"shove_cd": 0.0,
-		"pulse_t": 0.0,
-	}
-	# Oyuncu çizgideyse anında kay
-	if _player_touches_furniture_line():
-		_execute_furniture_slide()
-		return
-	var shake := piece.create_tween()
-	piece.set_meta("warn_tween", shake)
-	var base_y := piece.rotation.y
-	shake.tween_property(piece, "rotation:y", base_y + 0.12, 0.03)
-	shake.tween_property(piece, "rotation:y", base_y - 0.12, 0.03)
-	shake.tween_property(piece, "rotation:y", base_y, 0.03)
-
-
-func _resolve_furniture_target(desired: Vector3, self_piece: Node3D, y: float) -> Vector3:
-	var target := desired
-	target.x = clampf(target.x, -room_half_extents.x * 0.88, room_half_extents.x * 0.88)
-	target.z = clampf(target.z, -room_half_extents.y * 0.88, room_half_extents.y * 0.88)
-	target.y = y
-	for _attempt in 8:
-		var ok := true
-		for f in _furniture:
-			if f == null or not is_instance_valid(f) or f == self_piece:
-				continue
-			var d := Vector3(target.x - f.global_position.x, 0.0, target.z - f.global_position.z)
-			if d.length() < furniture_min_sep:
-				ok = false
-				if d.length_squared() < 0.001:
-					d = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
-				target += d.normalized() * furniture_min_sep
-				target.x = clampf(target.x, -room_half_extents.x * 0.88, room_half_extents.x * 0.88)
-				target.z = clampf(target.z, -room_half_extents.y * 0.88, room_half_extents.y * 0.88)
-				break
-		if ok:
-			break
-	target.y = y
-	return target
-
-
-## İnce kırmızı çizgi — mesafe tetik (physics)
-func _spawn_furniture_line(from_pos: Vector3, to_pos: Vector3) -> Node3D:
-	var from := Vector3(from_pos.x, 0.0, from_pos.z)
-	var to := Vector3(to_pos.x, 0.0, to_pos.z)
-	var mid := from.lerp(to, 0.5)
-	var dist := maxf(0.8, from.distance_to(to))
-	var zone := Node3D.new()
-	zone.name = "FurnitureLineTrigger"
-	zone.position = mid
-	var line := MeshInstance3D.new()
-	line.name = "Line"
-	var line_mesh := BoxMesh.new()
-	line_mesh.size = Vector3(furniture_line_width * 0.45, 0.04, dist)
-	line.mesh = line_mesh
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.12, 0.1, 0.95)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.18, 0.1)
-	mat.emission_energy_multiplier = 5.5
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.no_depth_test = true
-	line.material_override = mat
-	line.position = Vector3(0.0, 0.07, 0.0)
-	zone.add_child(line)
-	var glow := MeshInstance3D.new()
-	glow.name = "Glow"
-	var glow_mesh := BoxMesh.new()
-	glow_mesh.size = Vector3(furniture_line_width, 0.02, dist)
-	glow.mesh = glow_mesh
-	var gmat := StandardMaterial3D.new()
-	gmat.albedo_color = Color(1.0, 0.2, 0.12, 0.32)
-	gmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	gmat.emission_enabled = true
-	gmat.emission = Color(1.0, 0.25, 0.1)
-	gmat.emission_energy_multiplier = 2.4
-	gmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	gmat.no_depth_test = true
-	glow.material_override = gmat
-	glow.position = Vector3(0.0, 0.045, 0.0)
-	zone.add_child(glow)
-	for end_z in [-dist * 0.5, dist * 0.5]:
-		var tick := MeshInstance3D.new()
-		var tm := BoxMesh.new()
-		tm.size = Vector3(furniture_line_width * 1.2, 0.055, 0.07)
-		tick.mesh = tm
-		tick.material_override = mat
-		tick.position = Vector3(0.0, 0.08, end_z)
-		zone.add_child(tick)
-	var parent: Node = _world if _world != null else get_tree().current_scene
-	parent.add_child(zone)
-	if from.distance_squared_to(to) > 0.01:
-		zone.look_at(Vector3(to.x, zone.global_position.y, to.z), Vector3.UP)
-	var pulse := zone.create_tween().set_loops()
-	pulse.tween_property(mat, "emission_energy_multiplier", 8.5, 0.08)
-	pulse.tween_property(mat, "emission_energy_multiplier", 3.5, 0.08)
-	return zone
-
-
-func _pulse_furniture_line(delta: float) -> void:
-	_furniture_job["pulse_t"] = float(_furniture_job.get("pulse_t", 0.0)) + delta
-	var warn: Node3D = _furniture_job.get("warn") as Node3D
-	if warn == null or not is_instance_valid(warn):
-		return
-	# Zaman daraldıkça çizgi daha agresif yanıp söner
-	var urgency := 1.0 - clampf(float(_furniture_job.get("time_left", 1.0)) / furniture_warn_timeout, 0.0, 1.0)
-	var line := warn.get_node_or_null("Line") as MeshInstance3D
-	if line != null:
-		var s := 1.0 + 0.15 * sin(_furniture_job["pulse_t"] * (10.0 + urgency * 14.0))
-		line.scale = Vector3(s, 1.0, 1.0)
-
-
-func _player_touches_furniture_line() -> bool:
-	if _player == null or _furniture_job.is_empty():
-		return false
-	var from: Vector3 = _furniture_job.get("from", Vector3.ZERO)
-	var to: Vector3 = _furniture_job.get("to", Vector3.ZERO)
-	var p := _player.global_position
-	p.y = 0.0
-	var closest := _closest_point_on_segment(p, from, to)
-	return p.distance_to(closest) <= furniture_touch_pad
-
-
 func _closest_point_on_segment(p: Vector3, a: Vector3, b: Vector3) -> Vector3:
 	var ab := b - a
 	var len_sq := ab.length_squared()
@@ -661,113 +785,13 @@ func _closest_point_on_segment(p: Vector3, a: Vector3, b: Vector3) -> Vector3:
 	return a + ab * t
 
 
-func _execute_furniture_slide() -> void:
-	if _furniture_job.is_empty() or bool(_furniture_job.get("moving", false)):
-		return
-	var piece: Node3D = _furniture_job.get("piece") as Node3D
-	var target: Vector3 = _furniture_job.get("target", Vector3.ZERO)
-	var warn: Node3D = _furniture_job.get("warn") as Node3D
-	if warn != null and is_instance_valid(warn):
-		warn.queue_free()
-	_furniture_job["warn"] = null
-	if piece == null or not is_instance_valid(piece):
-		_furniture_job.clear()
-		return
-	var old_tw: Variant = piece.get_meta("warn_tween", null)
-	if old_tw is Tween and (old_tw as Tween).is_valid():
-		(old_tw as Tween).kill()
-	target = _resolve_furniture_target(target, piece, piece.global_position.y)
-	var flat := Vector3(target.x - piece.global_position.x, 0.0, target.z - piece.global_position.z)
-	if flat.length() < 0.35:
-		var push := flat
-		if push.length_squared() < 0.01:
-			push = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
-		target = piece.global_position + push.normalized() * _rng.randf_range(2.2, 3.4)
-		target = _resolve_furniture_target(target, piece, piece.global_position.y)
-	_furniture_job["target"] = target
-	_furniture_job["start_pos"] = piece.global_position
-	_furniture_job["start_rot"] = piece.rotation.y
-	_furniture_job["end_rot"] = piece.rotation.y + _rng.randf_range(-PI * 0.2, PI * 0.2)
-	_furniture_job["move_elapsed"] = 0.0
-	_furniture_job["move_dur"] = maxf(furniture_slide_time, 0.08)
-	_furniture_job["moving"] = true
-	_furniture_job["last_pos"] = piece.global_position
-	_furniture_job["time_left"] = 0.0
-	_furniture_job["shove_cd"] = 0.0
-
-
-func _update_furniture_slide_motion(delta: float) -> void:
-	var piece: Node3D = _furniture_job.get("piece") as Node3D
-	if piece == null or not is_instance_valid(piece):
-		_furniture_job.clear()
-		return
-	var dur: float = float(_furniture_job.get("move_dur", furniture_slide_time))
-	var elapsed: float = float(_furniture_job.get("move_elapsed", 0.0)) + delta
-	_furniture_job["move_elapsed"] = elapsed
-	var t := clampf(elapsed / maxf(dur, 0.001), 0.0, 1.0)
-	var start: Vector3 = _furniture_job.get("start_pos", piece.global_position)
-	var target: Vector3 = _furniture_job.get("target", piece.global_position)
-	piece.global_position = start.lerp(target, t)
-	piece.rotation.y = lerpf(
-		float(_furniture_job.get("start_rot", 0.0)),
-		float(_furniture_job.get("end_rot", 0.0)),
-		t
-	)
-	if t >= 1.0:
-		piece.global_position = target
-		_furniture_job.clear()
-		_furniture_cd = furniture_interval * randf_range(0.45, 0.7)
-		furniture_shifted.emit()
-
-
-func _update_furniture_shove() -> void:
-	if _furniture_job.is_empty() or _player == null:
-		return
-	var piece: Node3D = _furniture_job.get("piece") as Node3D
-	if piece == null or not is_instance_valid(piece):
-		_furniture_job.clear()
-		return
-	var last: Vector3 = _furniture_job.get("last_pos", piece.global_position)
-	var cur := piece.global_position
-	var move_dir := cur - last
-	move_dir.y = 0.0
-	_furniture_job["last_pos"] = cur
-	_furniture_job["shove_cd"] = maxf(0.0, float(_furniture_job.get("shove_cd", 0.0)) - get_physics_process_delta_time())
-	var half: Vector3 = piece.get_meta("half_size", Vector3(0.55, 0.55, 0.35))
-	var reach := maxf(half.x, half.z) + 0.85
-	var to_player := _player.global_position - cur
-	to_player.y = 0.0
-	if to_player.length() > reach:
-		return
-	if float(_furniture_job.get("shove_cd", 0.0)) > 0.0:
-		return
-	var shove: Vector3
-	if move_dir.length_squared() > 0.00005:
-		shove = move_dir.normalized()
-		if to_player.length_squared() > 0.01:
-			shove = (shove * 0.7 + to_player.normalized() * 0.5).normalized()
-	elif to_player.length_squared() > 0.01:
-		shove = to_player.normalized()
-	else:
-		return
-	_player.apply_hazard_shove(shove, furniture_shove_power)
-	_furniture_job["shove_cd"] = 0.05
-
-
-func _clear_furniture_job() -> void:
-	if not _furniture_job.is_empty():
-		var warn: Node3D = _furniture_job.get("warn") as Node3D
-		if warn != null and is_instance_valid(warn):
-			warn.queue_free()
-	_furniture_job.clear()
-
-
 func _clear_furniture() -> void:
-	_clear_furniture_job()
+	_furn_reset(true)
 	for f in _furniture:
 		if f != null and is_instance_valid(f):
 			f.queue_free()
 	_furniture.clear()
+	_furn_phase = FurnPhase.IDLE
 
 
 func _random_floor_point(prefer_near_player: bool) -> Vector3:

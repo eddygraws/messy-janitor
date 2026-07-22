@@ -1177,11 +1177,11 @@ func _on_hazard_slippery(_world_pos: Vector3) -> void:
 
 
 func _on_hazard_furniture() -> void:
-	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.BUMP, 0.9)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.BUMP, 0.75)
 	if _camera_rig != null:
-		_camera_rig.shake(0.7)
+		_camera_rig.shake(0.35)
 	if _hint != null:
-		_hint.text = "Kırmızı çizgiye basma — raf geliyor!"
+		_hint.text = "Raf kaydı — kırmızı çizgiye basma!"
 
 
 func _on_hazard_fall_impact(hit_player: bool, world_pos: Vector3) -> void:
