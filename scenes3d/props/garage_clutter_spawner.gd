@@ -10,6 +10,7 @@ signal objective_changed(remaining: int, total: int)
 signal level_cleared
 signal reinforcement_spawned(count: int)
 signal section_advanced(section_index: int, section_count: int, section: Dictionary)
+signal prop_cleared
 
 @export var spawn_on_ready: bool = false
 
@@ -248,6 +249,7 @@ func _recount_objectives() -> void:
 
 
 func _on_prop_destroyed() -> void:
+	prop_cleared.emit()
 	call_deferred("_emit_objective_state")
 
 

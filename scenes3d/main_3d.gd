@@ -23,9 +23,11 @@ var _banner: TaskBanner
 var _music: MusicDirector3D
 var _stress: StressComponent
 var _combo: RunCombo3D
+var _room_timer: RoomTimer3D
 var _ui_sfx: AudioStreamPlayer
 var _stress_label: Label
 var _combo_label: Label
+var _time_label: Label
 var _heat_bar: ProgressBar
 var _heat_fill_style: StyleBoxFlat
 var _commission: CommissionDirector3D
@@ -40,11 +42,13 @@ var _difficulty: int = DifficultyProfile3D.Tier.NORMAL
 var _score: ScoreTracker3D
 var _score_label: Label
 var _result_ui: RunResultUI
+var _fail_overlay: Control
 var _daily_mode: bool = false
 var _pending_next_level: int = -1
 var _level_index: int = 0
 var _highest_unlocked: int = 1
 var _menu_open: bool = false
+var _level_failing: bool = false
 var _save_path := "user://messy3d_progress.cfg"
 var _arcade_void_mat: ShaderMaterial
 var _arcade_void: MeshInstance3D
@@ -86,6 +90,7 @@ func _ready() -> void:
 		_spawner.level_cleared.connect(_on_level_cleared)
 		_spawner.reinforcement_spawned.connect(_on_reinforcement_spawned)
 		_spawner.section_advanced.connect(_on_section_advanced)
+		_spawner.prop_cleared.connect(_on_prop_cleared)
 
 	_show_menu(true)
 
@@ -128,6 +133,14 @@ func _setup_tempo_and_tasks() -> void:
 	add_child(_combo)
 	_combo.combo_changed.connect(_on_combo_changed)
 	_combo.combo_milestone.connect(_on_combo_milestone)
+
+	_room_timer = RoomTimer3D.new()
+	_room_timer.name = "RoomTimer3D"
+	add_child(_room_timer)
+	_room_timer.time_changed.connect(_on_room_time_changed)
+	_room_timer.time_expired.connect(_on_room_time_expired)
+	_room_timer.time_delta.connect(_on_room_time_delta)
+	_stress.mistake_registered.connect(_on_timer_mistake)
 
 	_banner = TaskBanner.new()
 	_banner.name = "TaskBanner"
@@ -196,6 +209,8 @@ func _setup_tempo_and_tasks() -> void:
 	$UI.add_child(_curse_label)
 	_refresh_curse_hud()
 
+	_ensure_fail_overlay()
+
 	_ui_sfx = AudioStreamPlayer.new()
 	_ui_sfx.name = "UiSfx"
 	_ui_sfx.bus = &"Master"
@@ -261,10 +276,15 @@ func start_level(index: int, daily: bool = false) -> void:
 	_daily_mode = daily
 	_pending_next_level = -1
 	_level_index = clampi(index, 0, LevelData3D.level_count() - 1)
+	_level_failing = false
+	_hide_fail_overlay()
 	_show_menu(false)
 	_section_hint = ""
 	_tutorial_banner_sticky = false
 	_tutorial_section_busy = false
+	if _room_timer != null:
+		_room_timer.stop()
+	_set_time_label_visible(false)
 	if _player != null:
 		_player.global_position = Vector3(0.0, 0.9, 2.0)
 		_player.velocity = Vector3.ZERO
@@ -408,6 +428,10 @@ func start_level(index: int, daily: bool = false) -> void:
 	# Tutorial bölüm 1 UI (komisyon kartından sonra, ikinci kart yok)
 	if is_tutorial and _spawner != null and _spawner.has_sections():
 		await _apply_tutorial_section(_spawner.get_current_section(), 0, _spawner.get_section_count(), false)
+	elif not is_tutorial:
+		var limit := float(spec.get("time_limit", 0.0))
+		if limit > 0.0:
+			_start_room_timer(limit)
 
 
 func _start_daily_challenge() -> void:
@@ -433,13 +457,167 @@ func _flash_boss_intro(title: String) -> void:
 
 
 func _on_commission_time_up() -> void:
-	if _hint != null:
-		_hint.text = "⏱ Komisyon süresi doldu — stres!"
-	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.8)
+	# Soft commission timer kaldırıldı — hard fail RoomTimer3D
+	pass
+
+
+func _start_room_timer(seconds: float) -> void:
+	if _room_timer == null or seconds <= 0.0:
+		return
+	_room_timer.start(seconds)
+	_set_time_label_visible(true)
+	_on_room_time_changed(seconds)
+
+
+func _set_time_label_visible(vis: bool) -> void:
+	if _time_label != null:
+		_time_label.visible = vis
+		if not vis:
+			_time_label.text = ""
+
+
+func _on_room_time_changed(seconds_left: float) -> void:
+	if _time_label == null:
+		return
+	if not _room_timer.is_active() and seconds_left <= 0.0 and not _room_timer.is_expired():
+		_time_label.visible = false
+		return
+	_time_label.visible = true
+	var total := int(ceil(seconds_left))
+	var mins := total / 60
+	var secs := total % 60
+	_time_label.text = "⏱ %d:%02d" % [mins, secs]
+	if seconds_left <= 8.0:
+		_time_label.modulate = Color(1.0, 0.35, 0.3)
+	elif seconds_left <= 15.0:
+		_time_label.modulate = Color(1.0, 0.75, 0.35)
+	else:
+		_time_label.modulate = Color(0.95, 0.92, 0.55)
+
+
+func _on_room_time_delta(amount: float) -> void:
+	if absf(amount) < 0.05:
+		return
+	var col := Color(0.55, 1.0, 0.65) if amount > 0.0 else Color(1.0, 0.45, 0.4)
+	var sign_s := "+" if amount > 0.0 else ""
+	_spawn_pop("%s%.1fs" % [sign_s, amount], col, 56)
+
+
+func _on_timer_mistake() -> void:
+	if _room_timer != null and _room_timer.is_active():
+		_room_timer.on_mistake()
+
+
+func _on_room_time_expired() -> void:
+	if _level_failing or _menu_open:
+		return
+	_level_failing = true
+	if _tempo != null:
+		_tempo.stop_room()
+	if _micro != null:
+		_micro.stop_session()
+	if _hazards != null:
+		_hazards.stop_session()
+	if _spawner != null:
+		_spawner.stop_pressure()
+	if _music != null:
+		_music.stop(true)
 	if _banner != null:
 		_banner.flash_fail()
-	if _music != null and _stress != null:
-		_music.on_mistake(_stress.get_stress_ratio())
+	if _camera_rig != null:
+		_camera_rig.shake(2.4)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.75)
+	if _hint != null:
+		_hint.text = "⏱ SÜRE DOLDU!"
+	_show_fail_overlay()
+
+
+func _show_fail_overlay() -> void:
+	if _fail_overlay == null:
+		_ensure_fail_overlay()
+	if _fail_overlay != null:
+		_fail_overlay.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _hide_fail_overlay() -> void:
+	if _fail_overlay != null:
+		_fail_overlay.visible = false
+
+
+func _ensure_fail_overlay() -> void:
+	if _fail_overlay != null:
+		return
+	var ui: CanvasLayer = $UI as CanvasLayer
+	_fail_overlay = Control.new()
+	_fail_overlay.name = "FailOverlay"
+	_fail_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_fail_overlay.visible = false
+	_fail_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	ui.add_child(_fail_overlay)
+
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.04, 0.02, 0.03, 0.78)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_fail_overlay.add_child(dim)
+	_fail_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var panel := PanelContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -200.0
+	panel.offset_right = 200.0
+	panel.offset_top = -110.0
+	panel.offset_bottom = 110.0
+	_fail_overlay.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "SÜRE DOLDU!"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_color_override("font_color", Color(1.0, 0.4, 0.35))
+	vbox.add_child(title)
+
+	var sub := Label.new()
+	sub.text = "Combo ile süre uzat, hatadan kaçın."
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_font_size_override("font_size", 16)
+	sub.modulate = Color(0.85, 0.8, 0.75)
+	vbox.add_child(sub)
+
+	var retry := Button.new()
+	retry.text = "Tekrar"
+	retry.custom_minimum_size = Vector2(0, 40)
+	retry.pressed.connect(_on_fail_retry)
+	vbox.add_child(retry)
+
+	var menu_btn := Button.new()
+	menu_btn.text = "Menü"
+	menu_btn.custom_minimum_size = Vector2(0, 36)
+	menu_btn.pressed.connect(_on_fail_menu)
+	vbox.add_child(menu_btn)
+
+
+func _on_fail_retry() -> void:
+	_hide_fail_overlay()
+	_level_failing = false
+	start_level(_level_index, _daily_mode)
+
+
+func _on_fail_menu() -> void:
+	_hide_fail_overlay()
+	_level_failing = false
+	if _room_timer != null:
+		_room_timer.stop()
+	_set_time_label_visible(false)
+	_show_menu(true)
 
 
 func _on_tempo_phase_changed(phase: int) -> void:
@@ -562,6 +740,8 @@ func _on_task_succeeded(_task_type: String) -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.1)
 	if _combo != null:
 		_combo.register_success()
+	if _room_timer != null and _room_timer.is_active():
+		_room_timer.on_clean()
 	var combo_n := _combo.get_combo() if _combo else 0
 	if _score != null:
 		_score.on_task_ok(combo_n)
@@ -688,7 +868,9 @@ func _on_score_changed(score: int) -> void:
 
 func _on_combo_milestone(combo: int) -> void:
 	if _hint != null:
-		_hint.text = "🔥 Combo x%d — tempo yüksek!" % combo
+		_hint.text = "🔥 Combo x%d — +süre!" % combo
+	if _room_timer != null and _room_timer.is_active():
+		_room_timer.on_combo_milestone()
 	if _particles != null and _player != null:
 		_particles.burst(&"dance", _player.global_position, 1.3)
 	if _camera_rig != null:
@@ -872,6 +1054,7 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 	var enable_micro := bool(section.get("enable_micro", false))
 	var enable_pressure := bool(section.get("enable_pressure", false))
 	var soft_pressure := bool(section.get("soft_pressure", false))
+	var section_limit := float(section.get("time_limit", 0.0))
 
 	if _phase_hud != null:
 		_phase_hud.text = "TUTORIAL · Bölüm %d/%d" % [section_index + 1, section_count]
@@ -883,6 +1066,8 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 		_commission_info.modulate = col
 
 	if with_card and _commission_card != null:
+		if _room_timer != null:
+			_room_timer.pause()
 		var card := {
 			"npc": "Kuzen Marv",
 			"icon": "📘",
@@ -917,6 +1102,13 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 		else:
 			_spawner.stop_pressure()
 
+	# Tempo bölümünde hard clock başlar; önceki bölümlerde kapalı
+	if section_limit > 0.0:
+		_start_room_timer(section_limit)
+	elif _room_timer != null and not _room_timer.is_active():
+		_room_timer.stop()
+		_set_time_label_visible(false)
+
 	if _hint != null and not _section_hint.is_empty():
 		_hint.text = _section_hint
 	_spawn_pop("Bölüm %d/%d" % [section_index + 1, section_count], col, 56)
@@ -924,9 +1116,14 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 
 
 func _on_level_cleared() -> void:
+	if _level_failing:
+		return
 	_section_hint = ""
 	_tutorial_banner_sticky = false
 	_tutorial_section_busy = false
+	if _room_timer != null:
+		_room_timer.stop()
+	_set_time_label_visible(false)
 	if _tempo != null:
 		_tempo.stop_room()
 	if _micro != null:
@@ -1132,6 +1329,20 @@ func _setup_hud() -> void:
 	_combo_label.modulate = Color(0.6, 0.65, 0.7)
 	ui.add_child(_combo_label)
 
+	_time_label = Label.new()
+	_time_label.name = "RoomTimeLabel"
+	_time_label.anchor_left = 0.5
+	_time_label.anchor_right = 0.5
+	_time_label.offset_left = -120.0
+	_time_label.offset_right = 120.0
+	_time_label.offset_top = 44.0
+	_time_label.offset_bottom = 88.0
+	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_time_label.add_theme_font_size_override("font_size", 32)
+	_time_label.modulate = Color(0.95, 0.92, 0.55)
+	_time_label.visible = false
+	ui.add_child(_time_label)
+
 	_score_label = Label.new()
 	_score_label.offset_left = 24.0
 	_score_label.offset_top = 200.0
@@ -1266,6 +1477,11 @@ func _rebuild_level_buttons() -> void:
 func _show_menu(open: bool) -> void:
 	_menu_open = open
 	if open:
+		_level_failing = false
+		_hide_fail_overlay()
+		if _room_timer != null:
+			_room_timer.stop()
+		_set_time_label_visible(false)
 		if _tempo != null:
 			_tempo.stop_room()
 		if _micro != null:
@@ -1417,6 +1633,11 @@ func _on_item_disposed(_prop_id: String) -> void:
 		_score.on_dispose()
 	_spawn_pop("+40", Color(0.55, 1.0, 0.65), 68)
 	_refresh_hint()
+
+
+func _on_prop_cleared() -> void:
+	if _room_timer != null and _room_timer.is_active():
+		_room_timer.on_clean()
 
 
 func _on_floor_scrubbed(world_pos: Vector3) -> void:

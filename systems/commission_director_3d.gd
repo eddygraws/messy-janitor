@@ -46,19 +46,13 @@ func clear() -> void:
 	_restore_visibility()
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if _paused_for_card:
 		return
 	# LOW_VISIBILITY her kare güncellenir (süre kuralından bağımsız — eski bug: hiç güncellenmiyordu)
 	if int(_current.get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY:
 		_update_low_visibility()
-	if not _time_active:
-		return
-	_time_left -= delta
-	if _time_left <= 0.0:
-		_time_left = 0.0
-		_time_active = false
-		_on_time_up()
+	# Hard clock RoomTimer3D'de — burada soft countdown yok
 	_update_info()
 
 
@@ -86,6 +80,10 @@ func present_for_level(spec: Dictionary) -> void:
 	commission_ready.emit()
 
 
+func is_card_paused() -> bool:
+	return _paused_for_card
+
+
 func get_current() -> Dictionary:
 	return _current
 
@@ -97,10 +95,10 @@ func is_showing_card() -> bool:
 func _apply_rule() -> void:
 	var rule := int(_current.get("rule", CommissionData.Rule.NONE))
 	var param := float(_current.get("param", 0.0))
+	# TIME_LIMIT: soft timer yok — RoomTimer3D hard clock kullanır (flavor / HUD etiketi)
+	_time_active = false
+	_time_left = 0.0
 	match rule:
-		CommissionData.Rule.TIME_LIMIT:
-			_time_left = maxf(25.0, param if param > 0.0 else 45.0)
-			_time_active = true
 		CommissionData.Rule.HIGH_RISK:
 			if _stress != null:
 				_stress.mistake_multiplier = clampf(param if param > 1.0 else 2.0, 1.4, 3.0)
@@ -206,10 +204,7 @@ func _restore_visibility() -> void:
 
 
 func _on_time_up() -> void:
-	if _stress != null:
-		_stress.add_stress(time_up_stress)
-	if _camera != null and _camera.has_method("shake"):
-		_camera.shake(2.2)
+	# Soft fail kaldırıldı — hard fail RoomTimer3D üzerinden
 	time_up.emit()
 	_update_info()
 
@@ -218,9 +213,9 @@ func _update_info() -> void:
 	if _info == null:
 		return
 	var rule := int(_current.get("rule", CommissionData.Rule.NONE))
-	if rule == CommissionData.Rule.TIME_LIMIT and (_time_active or _time_left > 0.0):
-		_info.text = "⏱ KOMİSYON SÜRESİ: %d" % int(ceil(_time_left))
-		_info.modulate = Color(1.0, 0.55, 0.4) if _time_left < 10.0 else Color(1.0, 0.85, 0.55)
+	if rule == CommissionData.Rule.TIME_LIMIT:
+		_info.text = CommissionData.rule_label(rule)
+		_info.modulate = Color(1.0, 0.7, 0.55)
 	elif rule != CommissionData.Rule.NONE:
 		_info.text = CommissionData.rule_label(rule)
 		_info.modulate = Color(1.0, 0.7, 0.55)
