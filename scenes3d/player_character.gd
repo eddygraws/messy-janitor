@@ -900,8 +900,8 @@ func _try_interact() -> void:
 	prop.apply_hit(prop.global_position, hit_dir, strength, tool_name)
 	_swing_cooldown = mop_swing_cooldown if active_tool == ToolKind.MOP else shovel_swing_cooldown
 	_snap_face(hit_dir)
-	if _janitor != null:
-		_janitor.play_hit()
+	# hit anim = hasar tepkisi; araçla vurmada oynatma
+	_squash = Vector3(1.12, 0.88, 1.12)
 	_play_sfx(PrototypeSfx.Kind.HIT, 1.0 + strength * 0.08)
 	fx_burst.emit(&"hit", prop.global_position + Vector3(0, 0.7, 0), strength)
 	if active_tool == ToolKind.MOP:
