@@ -65,6 +65,13 @@ var _furn_last: Vector3 = Vector3.ZERO
 var _furn_shove_cd: float = 0.0
 var _furn_pulse: float = 0.0
 var _rng := RandomNumberGenerator.new()
+## Seviye temposu (start_session'da doldurulur)
+var _eff_fall_warn: float = 1.35
+var _eff_fall_drop: float = 0.18
+var _eff_furn_interval: float = 10.0
+var _eff_furn_warn: float = 2.0
+var _eff_furn_warn_min: float = 0.85
+var _eff_furn_slide: float = 0.48
 
 
 func setup(
@@ -87,6 +94,7 @@ func start_session(level_index: int, allow_mop: bool = true) -> void:
 	_level_index = level_index
 	_allow_mop = allow_mop
 	_active = true
+	_apply_level_pace()
 	# Tutorial / L1: mobilya + düşen yok
 	if _level_index <= 0:
 		_fall_cd = 9999.0
@@ -95,9 +103,20 @@ func start_session(level_index: int, allow_mop: bool = true) -> void:
 		return
 	# İlk düşme / mobilya biraz geciksin
 	_fall_cd = fall_base_interval * randf_range(0.55, 0.9)
-	_furn_cd = furniture_interval * randf_range(0.55, 0.85)
+	_furn_cd = _eff_furn_interval * randf_range(0.55, 0.85)
 	_furn_phase = FurnPhase.IDLE
 	_spawn_furniture()
+
+
+## Level 0→9: raf/dolap + düşen kutu hızlanır (interval/warn/slide kısalır).
+func _apply_level_pace() -> void:
+	var t := clampf(float(_level_index) / 9.0, 0.0, 1.0)
+	_eff_fall_warn = lerpf(fall_warn_time, fall_warn_time * 0.48, t)
+	_eff_fall_drop = lerpf(0.18, 0.07, t)
+	_eff_furn_interval = lerpf(furniture_interval, furniture_interval * 0.48, t)
+	_eff_furn_warn = lerpf(furniture_warn_time, furniture_warn_time * 0.45, t)
+	_eff_furn_warn_min = lerpf(furniture_warn_min, furniture_warn_min * 0.55, t)
+	_eff_furn_slide = lerpf(furniture_slide_time, furniture_slide_time * 0.42, t)
 
 
 func stop_session() -> void:
@@ -270,8 +289,8 @@ func _tick_falling(delta: float) -> void:
 	var mult := 1.0
 	if _tempo != null and _tempo.is_running():
 		mult = _tempo.get_spawn_rate_mult()
-	# Seviye ilerledikçe biraz daha sık
-	var level_scale := lerpf(1.0, 0.72, clampf(float(_level_index) / 9.0, 0.0, 1.0))
+	# Seviye ilerledikçe daha sık düşer
+	var level_scale := lerpf(1.0, 0.52, clampf(float(_level_index) / 9.0, 0.0, 1.0))
 	_fall_cd = (fall_base_interval * level_scale / maxf(0.75, mult)) * randf_range(0.85, 1.2)
 	_begin_fall_warn()
 
@@ -279,7 +298,7 @@ func _tick_falling(delta: float) -> void:
 func _begin_fall_warn() -> void:
 	_clear_fall_warn()
 	_fall_center = _random_floor_point(true)
-	_fall_timer = fall_warn_time
+	_fall_timer = _eff_fall_warn
 	var zone := Node3D.new()
 	zone.name = "FallDangerZone"
 	zone.position = _fall_center
@@ -315,9 +334,9 @@ func _begin_fall_warn() -> void:
 	ring.position = Vector3(0.0, 0.1, 0.0)
 	zone.add_child(ring)
 	var label := Label3D.new()
-	label.text = "DÜŞÜYOR!"
+	label.text = "TEHLİKE"
 	label.font_size = 56
-	label.modulate = Color(1.0, 0.7, 0.3)
+	label.modulate = Color(1.0, 0.35, 0.28)
 	label.outline_size = 8
 	label.position = Vector3(0.0, 1.4, 0.0)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -362,7 +381,7 @@ func _resolve_fall() -> void:
 				break
 		if falling != null:
 			var land := impact.create_tween()
-			land.tween_property(falling, "position:y", 0.35, 0.18)\
+			land.tween_property(falling, "position:y", 0.35, _eff_fall_drop)\
 				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 			land.tween_callback(func() -> void:
 				if is_instance_valid(impact):
@@ -399,7 +418,7 @@ func _tick_furniture(delta: float) -> void:
 func _furn_begin_warn() -> void:
 	_furn_reset(false)
 	if _player == null or _furniture.is_empty():
-		_furn_cd = furniture_interval
+		_furn_cd = _eff_furn_interval
 		return
 	# Geçerli parça seç
 	var candidates: Array[Node3D] = []
@@ -407,7 +426,7 @@ func _furn_begin_warn() -> void:
 		if f != null and is_instance_valid(f):
 			candidates.append(f)
 	if candidates.is_empty():
-		_furn_cd = furniture_interval
+		_furn_cd = _eff_furn_interval
 		return
 	_furn_piece = candidates[_rng.randi_range(0, candidates.size() - 1)]
 	var origin := _furn_piece.global_position
@@ -425,7 +444,7 @@ func _furn_begin_warn() -> void:
 		_furn_cd = 1.5
 		_furn_piece = null
 		return
-	_furn_timer = furniture_warn_time
+	_furn_timer = _eff_furn_warn
 	_furn_pulse = 0.0
 	_furn_phase = FurnPhase.WARN
 	# Hafif uyarı sarsıntısı
@@ -486,7 +505,7 @@ func _furn_clamp_target(desired: Vector3, self_piece: Node3D, y: float) -> Vecto
 func _furn_tick_warn(delta: float) -> void:
 	if _furn_piece == null or not is_instance_valid(_furn_piece):
 		_furn_reset(true)
-		_furn_cd = furniture_interval * 0.5
+		_furn_cd = _eff_furn_interval * 0.5
 		_furn_phase = FurnPhase.IDLE
 		return
 	if _furn_warn == null or not is_instance_valid(_furn_warn):
@@ -500,8 +519,8 @@ func _furn_tick_warn(delta: float) -> void:
 	_furn_timer -= delta
 	_furn_pulse += delta
 	_furn_pulse_line()
-	var elapsed := furniture_warn_time - _furn_timer
-	var can_early := elapsed >= furniture_warn_min
+	var elapsed := _eff_furn_warn - _furn_timer
+	var can_early := elapsed >= _eff_furn_warn_min
 	var crossed := can_early and _furn_player_on_line()
 	if _furn_timer <= 0.0 or crossed:
 		_furn_start_slide()
@@ -513,7 +532,7 @@ func _furn_pulse_line() -> void:
 	var line := _furn_warn.get_node_or_null("Line") as MeshInstance3D
 	if line == null:
 		return
-	var urgency := 1.0 - clampf(_furn_timer / maxf(furniture_warn_time, 0.1), 0.0, 1.0)
+	var urgency := 1.0 - clampf(_furn_timer / maxf(_eff_furn_warn, 0.1), 0.0, 1.0)
 	var s := 1.0 + 0.1 * sin(_furn_pulse * (6.0 + urgency * 8.0))
 	line.scale = Vector3(s, 1.0, 1.0)
 
@@ -531,7 +550,7 @@ func _furn_start_slide() -> void:
 	if _furn_piece == null or not is_instance_valid(_furn_piece):
 		_furn_reset(true)
 		_furn_phase = FurnPhase.IDLE
-		_furn_cd = furniture_interval
+		_furn_cd = _eff_furn_interval
 		return
 	# Belirteçi kaldır, kaymaya başla
 	if _furn_warn != null and is_instance_valid(_furn_warn):
@@ -558,10 +577,10 @@ func _furn_tick_slide(delta: float) -> void:
 	if _furn_piece == null or not is_instance_valid(_furn_piece):
 		_furn_reset(true)
 		_furn_phase = FurnPhase.IDLE
-		_furn_cd = furniture_interval
+		_furn_cd = _eff_furn_interval
 		return
 	_furn_timer += delta
-	var t := clampf(_furn_timer / maxf(furniture_slide_time, 0.05), 0.0, 1.0)
+	var t := clampf(_furn_timer / maxf(_eff_furn_slide, 0.05), 0.0, 1.0)
 	# Smoothstep — ani teleport hissi yok
 	var s := t * t * (3.0 - 2.0 * t)
 	_furn_piece.global_position = _furn_start.lerp(_furn_target, s)
@@ -570,7 +589,7 @@ func _furn_tick_slide(delta: float) -> void:
 	if t >= 1.0:
 		_furn_piece.global_position = _furn_target
 		_furn_reset(false)
-		_furn_cd = furniture_interval * _rng.randf_range(0.85, 1.15)
+		_furn_cd = _eff_furn_interval * _rng.randf_range(0.85, 1.15)
 		_furn_phase = FurnPhase.IDLE
 		furniture_shifted.emit()
 

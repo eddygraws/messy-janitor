@@ -47,7 +47,12 @@ func clear() -> void:
 
 
 func _process(delta: float) -> void:
-	if _paused_for_card or not _time_active:
+	if _paused_for_card:
+		return
+	# LOW_VISIBILITY her kare güncellenir (süre kuralından bağımsız — eski bug: hiç güncellenmiyordu)
+	if int(_current.get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY:
+		_update_low_visibility()
+	if not _time_active:
 		return
 	_time_left -= delta
 	if _time_left <= 0.0:
@@ -55,7 +60,6 @@ func _process(delta: float) -> void:
 		_time_active = false
 		_on_time_up()
 	_update_info()
-	_update_low_visibility()
 
 
 ## Seviye başında kart göster, kural uygula (await).
@@ -75,7 +79,7 @@ func present_for_level(spec: Dictionary) -> void:
 	_current = commission
 	if _card != null:
 		_paused_for_card = true
-		await _card.show_card(_current, 8.0, false)
+		await _card.show_card(_current, 0.0, false)
 		_paused_for_card = false
 	_apply_rule()
 	_update_info()
@@ -137,7 +141,12 @@ func _apply_low_visibility(reveal_radius: float) -> void:
 			continue
 		p.set_meta("low_vis", true)
 		p.set_meta("reveal_radius", reveal_radius)
-		p.visible = false
+		if p.has_method("set_vis_mask_revealed"):
+			p.call("set_vis_mask_revealed", false)
+		else:
+			p.visible = false
+	# İlk karede maskeyi uygula
+	call_deferred("_update_low_visibility")
 
 
 func _update_low_visibility() -> void:
@@ -146,14 +155,39 @@ func _update_low_visibility() -> void:
 	if int(_current.get("rule", 0)) != CommissionData.Rule.LOW_VISIBILITY:
 		return
 	var origin: Vector3 = (_player as Node3D).global_position
+	var facing := Vector3(0.0, 0.0, -1.0)
+	if _player.has_method("get_facing_direction"):
+		facing = (_player.call("get_facing_direction") as Vector3)
+	facing.y = 0.0
+	if facing.length_squared() < 0.0001:
+		facing = Vector3(0.0, 0.0, -1.0)
+	facing = facing.normalized()
+
+	# Mask: yakın daire + bakış konisi (gerçek SpotLight yok)
+	var foot_r := 2.6
+	var beam_range := 11.0
+	var beam_cos := cos(deg_to_rad(48.0))
+	if _player.has_method("is_flashlight_on") and bool(_player.call("is_flashlight_on")):
+		if _player.has_method("get_flashlight_range"):
+			beam_range = float(_player.call("get_flashlight_range"))
+		if _player.has_method("get_flashlight_half_angle_deg"):
+			beam_cos = cos(deg_to_rad(float(_player.call("get_flashlight_half_angle_deg"))))
+
 	for c in _spawner.get_children():
 		var p := c as ClutterProp
 		if p == null or not bool(p.get_meta("low_vis", false)):
 			continue
-		var r := float(p.get_meta("reveal_radius", 3.2))
+		var near_r := maxf(float(p.get_meta("reveal_radius", 3.2)), foot_r)
 		var flat := p.global_position - origin
 		flat.y = 0.0
-		p.visible = flat.length() <= r
+		var dist := flat.length()
+		var revealed := dist <= near_r
+		if not revealed and dist > 0.05 and dist <= beam_range:
+			revealed = flat.normalized().dot(facing) >= beam_cos
+		if p.has_method("set_vis_mask_revealed"):
+			p.call("set_vis_mask_revealed", revealed)
+		else:
+			p.visible = revealed
 
 
 func _restore_visibility() -> void:
@@ -165,7 +199,10 @@ func _restore_visibility() -> void:
 			continue
 		if bool(p.get_meta("low_vis", false)):
 			p.remove_meta("low_vis")
-			p.visible = true
+			if p.has_method("clear_vis_mask"):
+				p.call("clear_vis_mask")
+			else:
+				p.visible = true
 
 
 func _on_time_up() -> void:

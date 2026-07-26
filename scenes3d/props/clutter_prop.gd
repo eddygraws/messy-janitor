@@ -30,8 +30,8 @@ signal merged_into(host: ClutterProp)
 @export var player_group: StringName = &"Player"
 
 ## Oda sınırı — duvardan biraz içeride (köşeye yığılmayı azaltır).
-const ROOM_HALF_X := 5.9
-const ROOM_HALF_Z := 4.05
+const ROOM_HALF_X := 7.7
+const ROOM_HALF_Z := 5.5
 const ROOM_CORNER_NUDGE := 0.55
 const MAX_BOX_STACK := 5
 const BOX_LAYER_H := 0.40
@@ -587,6 +587,40 @@ func register_wobble_mesh(node: MeshInstance3D) -> void:
 	var mat: ShaderMaterial = node.material_override as ShaderMaterial
 	if mat != null and mat.shader != null:
 		_wobble_materials.append(mat)
+
+
+## Karanlık seviye: maske içinde emission glow ile görünür kıl.
+func set_vis_mask_revealed(revealed: bool) -> void:
+	visible = revealed
+	for mesh in _wobble_meshes:
+		if mesh == null or not is_instance_valid(mesh):
+			continue
+		mesh.transparency = 0.0 if revealed else 1.0
+	for mat in _wobble_materials:
+		if mat == null:
+			continue
+		if revealed:
+			mat.set_shader_parameter("emission_energy", 0.85)
+			mat.set_shader_parameter("emission_color", Vector3(0.55, 0.85, 1.0))
+			mat.set_shader_parameter("ambient_boost", 0.35)
+		else:
+			mat.set_shader_parameter("emission_energy", 0.0)
+			mat.set_shader_parameter("emission_color", Vector3(0.0, 0.0, 0.0))
+			mat.set_shader_parameter("ambient_boost", 0.12)
+
+
+func clear_vis_mask() -> void:
+	visible = true
+	for mesh in _wobble_meshes:
+		if mesh == null or not is_instance_valid(mesh):
+			continue
+		mesh.transparency = 0.0
+	for mat in _wobble_materials:
+		if mat == null:
+			continue
+		mat.set_shader_parameter("emission_energy", 0.0)
+		mat.set_shader_parameter("emission_color", Vector3(0.0, 0.0, 0.0))
+		mat.set_shader_parameter("ambient_boost", 0.2)
 
 
 ## Kürek / paspas vuruşu — shader vertex wobble + kısa sarsıntı.

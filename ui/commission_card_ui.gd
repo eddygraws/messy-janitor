@@ -107,7 +107,7 @@ func _build() -> void:
 	vb.add_child(_rule)
 
 	_hint = Label.new()
-	_hint.text = "▸ Devam etmek için tıkla"
+	_hint.text = "▸ Devam için tıkla / Space"
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.add_theme_font_size_override("font_size", 18)
 	_hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
@@ -127,10 +127,10 @@ func show_card(commission: Dictionary, auto_secs: float = -1.0, story: bool = fa
 
 	if story:
 		_header.text = "📖 HİKÂYE"
-		_hint.text = "▸ Okuduktan sonra tıkla"
+		_hint.text = "▸ Devam için tıkla / Space"
 	else:
 		_header.text = "📜 KOMİSYON"
-		_hint.text = "▸ Devam etmek için tıkla"
+		_hint.text = "▸ Devam için tıkla / Space"
 
 	var wait := auto_secs
 	if wait < 0.0:

@@ -1,7 +1,8 @@
-# Active track:
+# Playlist (random on level start):
 #   Lantern Drop.wav
+#   Drift Circuit 97.wav
 #
-# Also accepted: laterndrop / LanternDrop / lantern_drop / gameplay
+# Drop more .wav / .ogg / .mp3 here — they join the pool automatically.
+# Same mechanics: phase pitch, heat slowdown, loop-end drop-rush.
+#
 # Extensions: .ogg .wav .mp3
-#
-# Phase pitch: 1.0 → 1.08 → 1.18

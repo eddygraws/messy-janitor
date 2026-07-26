@@ -15,6 +15,7 @@ signal rinsed
 signal dance_changed(dancing: bool)
 signal fx_burst(kind: StringName, world_pos: Vector3, strength: float)
 signal forbidden_touched
+signal status_message(text: String)
 
 @export var move_speed: float = 6.4
 @export var carry_speed_mult: float = 0.68 ## Tek kutu — bilinçli yavaşlatma
@@ -43,6 +44,7 @@ signal forbidden_touched
 @export var dash_speed: float = 14.0
 @export var dash_duration: float = 0.16
 @export var dash_cooldown: float = 0.55
+@export var max_dash_charges: int = 1
 
 @export_group("Komik fizik / Dans")
 @export var bump_bounce: float = 11.5
@@ -58,6 +60,9 @@ signal forbidden_touched
 @export var potion_drunk_decay: float = 0.55 ## sn'de iniş
 @export var potion_drunk_speed_mult: float = 0.72
 @export var potion_drunk_drift: float = 0.55 ## yön sapması
+@export var potion_silence_threshold: float = 0.85
+@export var potion_silence_duration: float = 1.6
+@export var potion_silence_cooldown: float = 3.0
 
 @export_group("Karakter modeli")
 @export var use_janitor_model: bool = true
@@ -92,6 +97,7 @@ var _hold_point: Node3D
 var _dash_time: float = 0.0
 var _dash_cd: float = 0.0
 var _dash_dir: Vector3 = Vector3.ZERO
+var _dash_charges: int = 1
 var _mop_dirt: float = 0.0
 var _rinsing: bool = false
 var _sfx: AudioStreamPlayer
@@ -107,8 +113,16 @@ var _fail_stun: float = 0.0
 var _floor_slip: float = 0.0
 var _potion_drunk: float = 0.0
 var _drunk_t: float = 0.0
+var _potion_silence: float = 0.0
+var _potion_silence_cd: float = 0.0
 var _face_root: Node3D
 var _janitor: Node # JanitorVisual
+## Karanlık seviye: gerçek ışık değil — bakış konisi maskesi + soft cone görsel
+var _flash_mask: Node3D
+var _flash_cone: MeshInstance3D
+var _flash_enabled: bool = false
+var _flash_range: float = 11.0
+var _flash_half_angle_deg: float = 48.0
 # Lanet / baseline
 var _base_carry_speed_mult: float = -1.0
 var _base_stack_falloff: float = -1.0
@@ -162,6 +176,8 @@ func apply_hazard_shove(dir: Vector3, power: float = 13.5) -> void:
 func _ready() -> void:
 	add_to_group("Player")
 	_setup_visuals()
+	_setup_flashlight()
+	_dash_charges = max_dash_charges
 	_hold_point = get_node_or_null("HoldPoint") as Node3D
 	if _hold_point == null:
 		_hold_point = Node3D.new()
@@ -174,6 +190,80 @@ func _ready() -> void:
 	_sfx.volume_db = -6.0
 	add_child(_sfx)
 	call_deferred("_bind_camera")
+
+
+func _setup_flashlight() -> void:
+	# Eski SpotLight varsa kapat
+	var old := get_node_or_null("Flashlight") as Light3D
+	if old != null:
+		old.visible = false
+		old.light_energy = 0.0
+	_flash_mask = get_node_or_null("FlashMask") as Node3D
+	if _flash_mask == null:
+		_flash_mask = Node3D.new()
+		_flash_mask.name = "FlashMask"
+		add_child(_flash_mask)
+	_flash_cone = _flash_mask.get_node_or_null("Cone") as MeshInstance3D
+	if _flash_cone == null:
+		_flash_cone = MeshInstance3D.new()
+		_flash_cone.name = "Cone"
+		_flash_mask.add_child(_flash_cone)
+	# Görsel koni: gameplay menzilinin 1/6'sı · yön 180° çevrili
+	var vis_range := _flash_range / 6.0
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.03
+	cyl.bottom_radius = tan(deg_to_rad(_flash_half_angle_deg)) * vis_range
+	cyl.height = vis_range
+	cyl.radial_segments = 20
+	_flash_cone.mesh = cyl
+	# Silindir Y → bakış; önceki -90'a göre 180° ( +90 ) + Z ofseti ters
+	_flash_cone.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+	_flash_cone.position = Vector3(0.0, 0.0, vis_range * 0.5)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_color = Color(0.35, 0.75, 1.0, 0.14)
+	mat.emission_enabled = true
+	mat.emission = Color(0.45, 0.85, 1.0)
+	mat.emission_energy_multiplier = 1.6
+	mat.no_depth_test = false
+	_flash_cone.material_override = mat
+	_flash_cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_flash_mask.visible = false
+	_flash_enabled = false
+
+
+func set_flashlight_enabled(on: bool) -> void:
+	if _flash_mask == null:
+		_setup_flashlight()
+	_flash_enabled = on
+	_flash_mask.visible = on
+	if on:
+		_update_flashlight_aim()
+
+
+func is_flashlight_on() -> bool:
+	return _flash_enabled
+
+
+func get_flashlight_range() -> float:
+	return _flash_range
+
+
+func get_flashlight_half_angle_deg() -> float:
+	return _flash_half_angle_deg
+
+
+func set_max_dash_charges(charges: int) -> void:
+	max_dash_charges = clampi(charges, 1, 2)
+	_dash_charges = max_dash_charges
+	_dash_cd = 0.0
+
+
+func is_potion_silenced() -> bool:
+	return _potion_silence > 0.0
 
 
 func _setup_visuals() -> void:
@@ -270,13 +360,23 @@ func _physics_process(delta: float) -> void:
 		_swing_cooldown = maxf(0.0, _swing_cooldown - delta)
 	if _dash_cd > 0.0:
 		_dash_cd = maxf(0.0, _dash_cd - delta)
+		if _dash_cd <= 0.0:
+			_dash_charges = max_dash_charges
 	if _bump_cd > 0.0:
 		_bump_cd = maxf(0.0, _bump_cd - delta)
 	if _fail_stun > 0.0:
 		_fail_stun = maxf(0.0, _fail_stun - delta)
+	if _potion_silence > 0.0:
+		_potion_silence = maxf(0.0, _potion_silence - delta)
+		if _potion_silence <= 0.0 and _dancing:
+			_dancing = false
+			dance_changed.emit(false)
+	if _potion_silence_cd > 0.0:
+		_potion_silence_cd = maxf(0.0, _potion_silence_cd - delta)
 
 	_update_bucket_rinse(delta)
 	_update_potion_drunk(delta)
+	_update_flashlight_aim()
 	_update_comedy_visuals(delta)
 	_update_janitor_anim()
 
@@ -355,9 +455,11 @@ func _toggle_dance() -> void:
 
 
 func _try_dash() -> void:
-	if _fail_stun > 0.0:
+	if _fail_stun > 0.0 or _potion_silence > 0.0:
 		return
-	if _dash_cd > 0.0 or _dash_time > 0.0:
+	if _dash_time > 0.0:
+		return
+	if _dash_charges <= 0:
 		return
 	if _dancing:
 		_dancing = false
@@ -371,9 +473,19 @@ func _try_dash() -> void:
 		return
 	_dash_dir = dir.normalized()
 	_dash_time = dash_duration * (0.88 if _held != null else 1.0)
-	_dash_cd = dash_cooldown
+	_dash_charges -= 1
+	if _dash_charges <= 0:
+		_dash_cd = dash_cooldown
 	_snap_face(_dash_dir)
 	_squash = Vector3(0.55, 1.45, 0.55)
+	# Kutu eldeyken dash animi yok — eller carry'de kalsın (eski hissiyat)
+	if _held == null and _janitor != null and _janitor.has_method("play_dash"):
+		_janitor.call("play_dash")
+	elif _held != null and _janitor != null and _janitor.is_ready_visual():
+		if _janitor.has_anim(&"carry_walk"):
+			_janitor.play_loco(&"carry_walk", 1.35)
+		else:
+			_janitor.play_loco(&"carry", 1.0)
 	_play_sfx(PrototypeSfx.Kind.DASH)
 	fx_burst.emit(&"dash", global_position, 1.0)
 
@@ -406,6 +518,8 @@ func _apply_overcooked_movement() -> void:
 		speed *= 0.55
 	if _potion_drunk > 0.1:
 		speed *= lerpf(1.0, potion_drunk_speed_mult, _potion_drunk)
+	if _potion_silence > 0.0:
+		speed *= 0.55
 	if _floor_slip > 0.05:
 		speed *= lerpf(1.0, slip_speed_boost, _floor_slip)
 
@@ -457,8 +571,45 @@ func _update_potion_drunk(delta: float) -> void:
 			break
 	if on_potion:
 		_potion_drunk = minf(1.0, _potion_drunk + potion_drunk_build * delta)
+		if (
+			_potion_drunk >= potion_silence_threshold
+			and _potion_silence <= 0.0
+			and _potion_silence_cd <= 0.0
+		):
+			_trigger_potion_silence()
 	else:
 		_potion_drunk = maxf(0.0, _potion_drunk - potion_drunk_decay * delta)
+
+
+func _trigger_potion_silence() -> void:
+	_potion_silence = potion_silence_duration
+	_potion_silence_cd = potion_silence_cooldown
+	_potion_drunk = minf(_potion_drunk, 0.55)
+	_rinsing = false
+	_swing_cooldown = maxf(_swing_cooldown, 0.35)
+	_dancing = true
+	_dance_t = 0.0
+	dance_changed.emit(true)
+	if _janitor != null and _janitor.has_method("has_anim") and bool(_janitor.call("has_anim", &"dance")):
+		_janitor.call("play_loco", &"dance", 1.15)
+	elif _janitor != null and _janitor.has_method("play_hit"):
+		_janitor.call("play_hit", 1.8)
+	_squash = Vector3(1.35, 0.65, 1.35)
+	fx_burst.emit(&"dance", global_position, 1.2)
+	_play_sfx(PrototypeSfx.Kind.DANCE, 1.2)
+	status_message.emit("İKSİR! Kısa süre etkileşim yok")
+
+
+func _update_flashlight_aim() -> void:
+	if _flash_mask == null or not _flash_enabled:
+		return
+	var fwd := _facing
+	fwd.y = 0.0
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3(0.0, 0.0, -1.0)
+	fwd = fwd.normalized()
+	var origin := global_position + Vector3(0.0, 0.85, 0.0)
+	_flash_mask.global_transform = Transform3D(Basis.looking_at(fwd, Vector3.UP), origin)
 
 
 func _process_bumps(from_dash: bool) -> void:
@@ -533,13 +684,14 @@ func _update_janitor_anim() -> void:
 	if _dancing:
 		_janitor.play_loco(&"dance", 1.0)
 		return
-	if _dash_time > 0.0:
+	# Boş elle dash: oneshot; kutu ile dash: carry devam
+	if _dash_time > 0.0 and _held == null and not _janitor.has_anim(&"dash"):
 		_janitor.play_loco(&"run", 1.85)
 		return
 	var speed := Vector2(velocity.x, velocity.z).length()
 	if _held != null:
-		if speed > move_anim_speed_threshold:
-			_janitor.play_loco(&"carry_walk", clampf(speed / move_speed, 0.8, 1.25))
+		if _dash_time > 0.0 or speed > move_anim_speed_threshold:
+			_janitor.play_loco(&"carry_walk", 1.35 if _dash_time > 0.0 else clampf(speed / move_speed, 0.8, 1.25))
 		else:
 			_janitor.play_loco(&"carry", 1.0)
 	elif speed > move_anim_speed_threshold:
@@ -646,9 +798,17 @@ func _set_tool(tool: ToolKind) -> void:
 	_play_sfx(PrototypeSfx.Kind.SWITCH)
 
 
-func configure_for_level(mop_allowed: bool) -> void:
+func configure_for_level(mop_allowed: bool, dash_charges: int = 1, flashlight: bool = false) -> void:
 	allow_mop = mop_allowed
 	_fail_stun = 0.0
+	_potion_silence = 0.0
+	_potion_silence_cd = 0.0
+	_potion_drunk = 0.0
+	if _dancing:
+		_dancing = false
+		dance_changed.emit(false)
+	set_max_dash_charges(dash_charges)
+	set_flashlight_enabled(flashlight)
 	if not allow_mop:
 		_mop_dirt = 0.0
 		mop_dirt_changed.emit(0.0)
@@ -681,7 +841,7 @@ func play_task_fail_recoil() -> void:
 
 
 func _try_interact() -> void:
-	if _fail_stun > 0.0:
+	if _fail_stun > 0.0 or _potion_silence > 0.0:
 		return
 	if _swing_cooldown > 0.0:
 		return
@@ -770,7 +930,7 @@ func _mash_scrub(prop: ClutterProp) -> void:
 
 
 func _try_throw() -> void:
-	if _fail_stun > 0.0:
+	if _fail_stun > 0.0 or _potion_silence > 0.0:
 		return
 	if _held == null or _swing_cooldown > 0.0:
 		return

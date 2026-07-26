@@ -1,13 +1,18 @@
 class_name MusicDirector3D
 extends Node
 
-## Lantern Drop (veya aday isimler) + dinamik tempo.
-## Faz eşiğinde / loop sonunda: yavaşlat → hızla yükselt (drop-rush).
-## Intensity sürekli yükselir — daha upbeat, hızlı his.
+## Oyun müzikleri (playlist) + dinamik tempo.
+## start() her seviyede rastgele parça seçer; pitch/heat/loop-hit aynı kalır.
 
 signal intensity_changed(layer: int)
 
 const MUSIC_DIR := "res://audio/music/"
+## Havuz — klasördeki gerçek dosya adları (uzantısız)
+const TRACK_POOL: Array[String] = [
+	"Lantern Drop",
+	"Drift Circuit 97",
+]
+## Eski tek-parça adayları (havuz boşsa / alias)
 const MAIN_CANDIDATES: Array[String] = [
 	"Lantern Drop",
 	"laterndrop",
@@ -35,6 +40,10 @@ var _master_db: float = -12.0
 var _using_custom: bool = false
 var _single_track: bool = false
 
+var _playlist: Array[AudioStream] = []
+var _playlist_names: Array[String] = []
+var _last_track: int = -1
+
 var _intensity: float = 0.0
 var _heat: float = 0.0
 var _heat_clock: float = 0.0
@@ -48,7 +57,15 @@ var _main_player: AudioStreamPlayer
 
 func _ready() -> void:
 	GameAudioBank.ensure_ready()
-	var custom := _try_load_custom_tracks()
+	_playlist = _load_playlist()
+	if not _playlist.is_empty():
+		_using_custom = true
+		_single_track = true
+		_add_player(0, _playlist[0])
+		_main_player = _layers[0]
+		return
+
+	var custom := _try_load_layered_tracks()
 	if custom.is_empty():
 		_using_custom = false
 		_single_track = false
@@ -79,7 +96,56 @@ func _add_player(index: int, stream: AudioStream) -> void:
 	_layers.append(p)
 
 
-func _try_load_custom_tracks() -> Array[AudioStream]:
+func _load_playlist() -> Array[AudioStream]:
+	var out: Array[AudioStream] = []
+	_playlist_names.clear()
+	var seen: Dictionary = {}
+	for base in TRACK_POOL:
+		if seen.has(base):
+			continue
+		var s := _load_named(base)
+		if s != null:
+			seen[base] = true
+			out.append(s)
+			_playlist_names.append(base)
+	# Klasörde ekstra parça varsa ekle
+	for base in _scan_music_basenames():
+		if seen.has(base):
+			continue
+		var s2 := _load_named(base)
+		if s2 != null:
+			seen[base] = true
+			out.append(s2)
+			_playlist_names.append(base)
+	if out.is_empty():
+		for base in MAIN_CANDIDATES:
+			var s3 := _load_named(base)
+			if s3 != null:
+				out.append(s3)
+				_playlist_names.append(base)
+				break
+	print("[MusicDirector3D] playlist: ", ", ".join(_playlist_names) if not _playlist_names.is_empty() else "(empty)")
+	return out
+
+
+func _scan_music_basenames() -> Array[String]:
+	var names: Array[String] = []
+	var dir := DirAccess.open(MUSIC_DIR)
+	if dir == null:
+		return names
+	dir.list_dir_begin()
+	var fname := dir.get_next()
+	while fname != "":
+		if not dir.current_is_dir() and not fname.begins_with("."):
+			var lower := fname.to_lower()
+			if lower.ends_with(".wav") or lower.ends_with(".ogg") or lower.ends_with(".mp3"):
+				names.append(fname.get_basename())
+		fname = dir.get_next()
+	dir.list_dir_end()
+	return names
+
+
+func _try_load_layered_tracks() -> Array[AudioStream]:
 	var layered: Array[AudioStream] = []
 	for base in LAYER_BASENAMES:
 		var s := _load_named(base)
@@ -87,13 +153,6 @@ func _try_load_custom_tracks() -> Array[AudioStream]:
 			layered.append(s)
 	if layered.size() >= 1:
 		return layered
-	var main: AudioStream = null
-	for base in MAIN_CANDIDATES:
-		main = _load_named(base)
-		if main != null:
-			break
-	if main != null:
-		return [main] as Array[AudioStream]
 	return []
 
 
@@ -119,6 +178,26 @@ func _enable_loop(stream: AudioStream) -> void:
 		wav.loop_begin = 0
 		if wav.data.size() > 0:
 			wav.loop_end = int(wav.data.size() / (4 if wav.stereo else 2))
+
+
+func _pick_random_track() -> void:
+	if _playlist.is_empty() or _main_player == null:
+		return
+	var idx := randi() % _playlist.size()
+	if _playlist.size() > 1 and idx == _last_track:
+		idx = (idx + 1) % _playlist.size()
+	_last_track = idx
+	var stream := _playlist[idx]
+	_enable_loop(stream)
+	var resume_pos := 0.0
+	var was := _main_player.playing
+	if was:
+		_main_player.stop()
+	_main_player.stream = stream
+	if _playing:
+		_main_player.play(resume_pos)
+	var label := _playlist_names[idx] if idx < _playlist_names.size() else "?"
+	print("[MusicDirector3D] playing: ", label)
 
 
 func _process(delta: float) -> void:
@@ -173,6 +252,7 @@ func start(phase: int = 1) -> void:
 	_heat_clock = 0.0
 	_hit_busy = false
 	_loop_end_armed = true
+	_pick_random_track()
 	for p in _layers:
 		if p.stream != null and not p.playing:
 			p.play()

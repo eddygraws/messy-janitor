@@ -17,6 +17,7 @@ var _objective_total: int = 0
 var _cleared: bool = false
 var _rng := RandomNumberGenerator.new()
 var _level_spec: Dictionary = {}
+var _level_index: int = 0
 var _placed: Array[Vector3] = []
 var _reinforce_cd: float = 0.0
 var _tempo: TempoPhaseDirector
@@ -86,9 +87,11 @@ func _process(delta: float) -> void:
 	var mult := _tempo.get_spawn_rate_mult()
 	if not _boss_mode.is_empty():
 		mult *= 1.15 if _boss_mode == "mega_scrub" else 1.35
-	_reinforce_cd = (10.0 / mult) * randf_range(0.75, 1.05)
+	# Seviye ilerledikçe takviye / kutu yağmuru hızlanır
+	var level_pace := lerpf(1.0, 0.52, clampf(float(_level_index) / 9.0, 0.0, 1.0))
+	_reinforce_cd = (10.0 / mult) * randf_range(0.75, 1.05) * level_pace
 	if _boss_mode == "box_rain":
-		_reinforce_cd = maxf(2.4, _reinforce_cd * 0.55)
+		_reinforce_cd = maxf(1.35, _reinforce_cd * 0.48)
 	elif _boss_mode == "mega_scrub":
 		_reinforce_cd = maxf(6.0, _reinforce_cd * 1.25)
 	var n := 1
@@ -97,7 +100,7 @@ func _process(delta: float) -> void:
 	if _boss_mode == "mega_scrub":
 		n = 1
 	if _boss_mode == "box_rain":
-		n = 3
+		n = 3 + (1 if _level_index >= 7 else 0)
 	spawn_reinforcement(n)
 
 
@@ -114,6 +117,7 @@ func _on_tempo_phase(phase: int) -> void:
 
 
 func load_level(index: int) -> Dictionary:
+	_level_index = index
 	var spec: Dictionary = LevelData3D.get_level(index)
 	populate_from_spec(spec)
 	return spec
@@ -130,14 +134,14 @@ func populate_from_spec(spec: Dictionary) -> void:
 
 	var stations: Array = spec.get("stations", ["trash", "bucket"]) as Array
 	if "trash" in stations:
-		_add_trash_bin(Vector3(0.0, 0.0, 4.2))
+		_add_trash_bin(Vector3(0.0, 0.0, 5.8))
 	if "bucket" in stations:
-		_add_bucket_station(Vector3(-2.8, 0.0, 4.0))
+		_add_bucket_station(Vector3(-3.6, 0.0, 5.6))
 	if "drain" in stations:
-		_add_drain(Vector3(2.8, 0.0, 4.2))
+		_add_drain(Vector3(3.6, 0.0, 5.8))
 
 	_placed = [
-		Vector3(0, 0, 4.2), Vector3(-2.8, 0, 4.0), Vector3(2.8, 0, 4.2), Vector3(0, 0, 2.0)
+		Vector3(0, 0, 5.8), Vector3(-3.6, 0, 5.6), Vector3(3.6, 0, 5.8), Vector3(0, 0, 2.0)
 	]
 	var props: Array = _props_for_current_section()
 	_spawn_prop_entries(props)
@@ -266,7 +270,7 @@ func _try_advance_section() -> bool:
 	# Eski takviye / props temiz; istasyonları koru
 	_clear_clutter_only()
 	_placed = [
-		Vector3(0, 0, 4.2), Vector3(-2.8, 0, 4.0), Vector3(2.8, 0, 4.2), Vector3(0, 0, 2.0)
+		Vector3(0, 0, 5.8), Vector3(-3.6, 0, 5.6), Vector3(3.6, 0, 5.8), Vector3(0, 0, 2.0)
 	]
 	_spawn_prop_entries(_props_for_current_section())
 	_recount_objectives()
@@ -318,7 +322,7 @@ func _clear_children() -> void:
 
 func _free_pos(placed: Array[Vector3]) -> Vector3:
 	for _try in 40:
-		var p := Vector3(_rng.randf_range(-5.5, 5.5), 0.0, _rng.randf_range(-3.6, 2.8))
+		var p := Vector3(_rng.randf_range(-7.2, 7.2), 0.0, _rng.randf_range(-4.8, 4.0))
 		var ok := true
 		for q in placed:
 			if Vector2(p.x, p.z).distance_to(Vector2(q.x, q.z)) < 1.35:
@@ -326,7 +330,7 @@ func _free_pos(placed: Array[Vector3]) -> Vector3:
 				break
 		if ok:
 			return p
-	return Vector3(_rng.randf_range(-4, 4), 0.0, _rng.randf_range(-2, 2))
+	return Vector3(_rng.randf_range(-5.0, 5.0), 0.0, _rng.randf_range(-3.0, 2.5))
 
 
 func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:

@@ -6,6 +6,7 @@ extends Node3D
 ## Opsiyonel dosyalar (ekleyince otomatik bağlanır):
 ##   anim_carry_walk.fbx  — kutu taşırken yürüme
 ##   anim_dance.fbx       — G dans
+##   dash.fbx             — Shift dash
 
 const HitWobbleMaterialScript := preload("res://scenes3d/props/hit_wobble_material.gd")
 const CHAR_SCENE := preload("res://assets/characters/janitor/janitor-tpose.fbx")
@@ -27,6 +28,11 @@ const ANIM_OPTIONAL := {
 	&"dance": [
 		"res://assets/characters/janitor/anim_dance.fbx",
 		"res://assets/characters/janitor/anim-dance.fbx",
+	],
+	&"dash": [
+		"res://assets/characters/janitor/dash.fbx",
+		"res://assets/characters/janitor/anim_dash.fbx",
+		"res://assets/characters/janitor/anim-dash.fbx",
 	],
 }
 
@@ -62,6 +68,7 @@ var _ap: AnimationPlayer
 var _skeleton: Skeleton3D
 var _current: StringName = &""
 var _oneshot: bool = false
+var _oneshot_gen: int = 0
 var _ready_ok: bool = false
 var _base_model_y: float = 0.0
 
@@ -99,6 +106,8 @@ func play_loco(anim_name: StringName, custom_speed: float = 1.0) -> void:
 	if not has_anim(pick):
 		if pick == &"carry_walk" and has_anim(&"carry"):
 			pick = &"carry"
+		elif pick == &"dash" and has_anim(&"run"):
+			pick = &"run"
 		elif pick == &"dance" and has_anim(&"idle"):
 			pick = &"idle"
 		else:
@@ -112,23 +121,49 @@ func play_loco(anim_name: StringName, custom_speed: float = 1.0) -> void:
 	_lock_model_xz()
 
 
+## Dash — oneshot: hareket bitsa bile anim bitene kadar kesilmez.
+## custom_speed < 0 → uzunluğu doğal / hafif sıkıştırılmış oynat.
+func play_dash(custom_speed: float = -1.0) -> void:
+	if not _ready_ok:
+		return
+	if not has_anim(&"dash"):
+		_oneshot = false
+		play_loco(&"run", 1.85)
+		return
+	var path := _anim_path(&"dash")
+	var anim := _ap.get_animation(path)
+	var length := anim.length if anim != null else 0.45
+	var spd := custom_speed
+	if spd < 0.0:
+		# Hareket kısa (~0.16s); anim doğal bitsin. Çok uzunsa max ~0.55s'e sığdır.
+		var target_sec := clampf(length, 0.32, 0.55)
+		spd = length / maxf(target_sec, 0.05)
+	_play_oneshot(&"dash", maxf(0.85, spd))
+
+
 ## speed: 1.0 = normal · bump için ~2.3 (yarı süre)
 func play_hit(speed: float = 1.15) -> void:
 	if not _ready_ok or not has_anim(&"hit"):
 		return
+	_play_oneshot(&"hit", maxf(0.5, speed))
+
+
+func _play_oneshot(anim_key: StringName, speed: float) -> void:
+	_oneshot_gen += 1
+	var gen := _oneshot_gen
 	_oneshot = true
-	_current = &"hit"
-	_ap.speed_scale = maxf(0.5, speed)
-	_ap.play(_anim_path(&"hit"))
+	_current = anim_key
+	_ap.speed_scale = speed
+	_ap.play(_anim_path(anim_key))
 	_lock_model_xz()
-	if not _ap.animation_finished.is_connected(_on_oneshot_finished):
-		_ap.animation_finished.connect(_on_oneshot_finished)
-
-
-func _on_oneshot_finished(_anim: StringName) -> void:
-	_oneshot = false
-	_current = &""
-	_lock_model_xz()
+	var cb := func(finished_name: StringName) -> void:
+		if gen != _oneshot_gen:
+			return
+		_oneshot = false
+		if _current == anim_key:
+			_current = &""
+		_lock_model_xz()
+	_ap.animation_finished.connect(cb, CONNECT_ONE_SHOT)
 
 
 func _anim_path(anim_name: StringName) -> StringName:
@@ -336,7 +371,7 @@ func _add_anim_from_path(lib: AnimationLibrary, key: StringName, path: String) -
 	var anim := src_anim.duplicate(true) as Animation
 	_retarget_tracks(anim)
 	_strip_hips_translation(anim)
-	if key == &"hit":
+	if key == &"hit" or key == &"dash":
 		anim.loop_mode = Animation.LOOP_NONE
 	else:
 		anim.loop_mode = Animation.LOOP_LINEAR

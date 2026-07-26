@@ -8,7 +8,7 @@ extends Node3D
 ## Gerçek izometrik ~35.26°; oyun hissi için hafif ayarlı.
 @export var pitch_degrees: float = -38.0
 @export var yaw_degrees: float = 45.0
-@export var distance: float = 22.0
+@export var distance: float = 23.5
 @export var look_height: float = 0.85
 
 @onready var _camera: Camera3D = $Camera3D
@@ -58,10 +58,10 @@ func shake(amount: float = 1.0) -> void:
 func set_finale_zoom(on: bool) -> void:
 	## Faz 3: hafif yaklaş + FOV genişlemesi
 	if on:
-		distance = 20.0
+		distance = 21.5
 		_base_fov = 46.0
 	else:
-		distance = 22.0
+		distance = 23.5
 		_base_fov = 42.0
 	_recompute_offset()
 	if _camera != null:

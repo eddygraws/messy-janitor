@@ -13,12 +13,13 @@ forward: -Z (oyun ile aynı)
 # EKLENEN (içerik dosya adlarıyla eşleşecek şekilde yer değiştirdi):
 #   anim_carry_walk.fbx        — kutu taşırken yürüme
 #   anim_dance.fbx             — G dans
+#   dash.fbx                   — Shift dash
 #
-# Import: FPS 30, In Place AÇIK (yürüme/dans için)
+# Import: FPS 30, In Place AÇIK (yürüme/dans/dash için)
 #
 # === Oyun bağları ===
-# idle / run / carry / carry_walk / dance / hit
-# dash → run (hızlı)
+# idle / run / carry / carry_walk / dance / hit / dash
+# dash → dash.fbx (yoksa run hızlı)
 # Hips position track silinir (ışınlanma fix)
 #
 # Toon: sahne prop'larıyla aynı hit_wobble.gdshader + outline

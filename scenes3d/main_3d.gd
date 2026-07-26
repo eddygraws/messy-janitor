@@ -51,6 +51,7 @@ var _arcade_void: MeshInstance3D
 var _section_hint: String = ""
 var _tutorial_banner_sticky: bool = false
 var _tutorial_section_busy: bool = false
+var _stop_vignette_active: bool = false
 @export var task_fail_stress: float = 14.0
 @export var task_success_relief: float = 6.0
 
@@ -76,6 +77,8 @@ func _ready() -> void:
 		_player.dance_changed.connect(_on_dance_changed)
 		_player.fx_burst.connect(_on_fx_burst)
 		_player.forbidden_touched.connect(_on_forbidden_touched)
+		if _player.has_signal("status_message"):
+			_player.status_message.connect(_on_player_status_message)
 
 	if _spawner != null:
 		_spawner.spawn_on_ready = false
@@ -288,8 +291,15 @@ func start_level(index: int, daily: bool = false) -> void:
 		spec = _spawner.load_level(_level_index)
 	_apply_theme(spec)
 	var mop_ok := bool(spec.get("allow_mop", true))
+	var dash_charges := 2 if _level_index >= 5 else 1
+	var want_flashlight := (
+		String(spec.get("id", "")) == "dark"
+		or int(spec.get("commission", {}).get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY
+	)
+	_stop_vignette_active = false
+	_apply_dark_room_lighting(want_flashlight)
 	if _player != null:
-		_player.configure_for_level(mop_ok)
+		_player.configure_for_level(mop_ok, dash_charges, want_flashlight)
 	if _mop_label != null:
 		_mop_label.visible = mop_ok
 	if _level_label != null:
@@ -303,6 +313,10 @@ func start_level(index: int, daily: bool = false) -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 0.95)
 	if _commission != null:
 		await _commission.present_for_level(spec)
+		# LOW_VISIBILITY / dark — fener + karanlık kesin açık
+		if _player != null and int(_commission.get_current().get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY:
+			_apply_dark_room_lighting(true)
+			_player.set_flashlight_enabled(true)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.05)
 
 	# Tempo + mikro-görev seansı
@@ -517,14 +531,32 @@ func _on_task_issued(task_type: String, duration: float, color: Color) -> void:
 	if _banner != null:
 		_banner.show_task(label, color, sub, special)
 	if task_type == MicroTaskDirector.TASK_STOP:
+		_stop_vignette_active = true
+		if _banner != null:
+			_banner.set_vignette_heat(0.95)
 		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.STOP, 0.9)
 	else:
+		_stop_vignette_active = false
 		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK)
 	if _hint != null:
 		_hint.text = "Emir: %s  (%.0fs)" % [label, duration]
 
 
+func _on_player_status_message(text: String) -> void:
+	if _hint != null and not text.is_empty():
+		_hint.text = text
+
+
+func _clear_stop_vignette() -> void:
+	_stop_vignette_active = false
+	if _stress != null:
+		_on_stress_changed(_stress.current_stress, _stress.max_stress)
+	elif _banner != null:
+		_banner.set_vignette_heat(0.0)
+
+
 func _on_task_succeeded(_task_type: String) -> void:
+	_clear_stop_vignette()
 	if _banner != null:
 		_banner.hide_task(true)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.1)
@@ -547,6 +579,7 @@ func _on_task_succeeded(_task_type: String) -> void:
 
 
 func _on_task_failed(_task_type: String) -> void:
+	_clear_stop_vignette()
 	if _banner != null:
 		_banner.flash_fail()
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.85)
@@ -589,6 +622,9 @@ func _on_stress_changed(current: float, maximum: float) -> void:
 			_heat_fill_style.bg_color = Color(1.0, lerpf(0.75, 0.15, ratio), lerpf(0.25, 0.1, ratio))
 	if _music != null:
 		_music.set_heat(ratio)
+	if _banner != null and _stop_vignette_active:
+		_banner.set_vignette_heat(0.95)
+		return
 	if _banner != null and _tempo != null and _tempo.is_running():
 		# Faz vignette + heat birleşimi
 		var phase_heat := 0.0
@@ -683,8 +719,18 @@ func _on_task_cleared() -> void:
 func _apply_theme(spec: Dictionary) -> void:
 	var floor_c: Color = spec.get("floor", Color(0.34, 0.36, 0.38)) as Color
 	var wall_c: Color = spec.get("wall", Color(0.5, 0.5, 0.5)) as Color
+	var dark_room := (
+		String(spec.get("id", "")) == "dark"
+		or int(spec.get("commission", {}).get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY
+	)
 	if _floor_mesh != null:
-		_floor_mesh.material_override = HitWobbleMaterial.create_flat(floor_c, 0.94, 0.08)
+		var floor_mat := HitWobbleMaterial.create_flat(floor_c, 0.94, 0.08)
+		if dark_room:
+			# Emission fill feneri boğmasın
+			floor_mat.set_shader_parameter("ambient_boost", 0.04)
+			floor_mat.set_shader_parameter("rim_strength", 0.04)
+			floor_mat.set_shader_parameter("shadow_strength", 0.85)
+		_floor_mesh.material_override = floor_mat
 		_floor_mesh.set_surface_override_material(0, null)
 	_apply_arcade_void(floor_c, spec.get("accent", Color(0.7, 0.5, 0.3)) as Color)
 	for wall_name in ["WallBack", "WallLeft"]:
@@ -692,9 +738,46 @@ func _apply_theme(spec: Dictionary) -> void:
 		if wall == null:
 			continue
 		# Duvar: ince outline — oda silueti
-		wall.material_override = HitWobbleMaterial.create(
+		var wall_mat := HitWobbleMaterial.create(
 			wall_c, 0.9, Color.BLACK, 0.0, 0.0, true, 0.02
 		)
+		if dark_room:
+			wall_mat.set_shader_parameter("ambient_boost", 0.05)
+			wall_mat.set_shader_parameter("rim_strength", 0.06)
+			wall_mat.set_shader_parameter("shadow_strength", 0.8)
+		wall.material_override = wall_mat
+
+
+func _apply_dark_room_lighting(on: bool) -> void:
+	var sun := get_node_or_null("Sun") as DirectionalLight3D
+	if sun != null:
+		sun.light_energy = 0.045 if on else 0.45
+		sun.light_color = Color(0.45, 0.55, 0.85) if on else Color(1, 1, 1)
+	var env_node := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if on and env_node == null:
+		env_node = WorldEnvironment.new()
+		env_node.name = "WorldEnvironment"
+		var env := Environment.new()
+		env.background_mode = Environment.BG_COLOR
+		env.background_color = Color(0.02, 0.03, 0.05)
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		env.ambient_light_color = Color(0.04, 0.05, 0.08)
+		env.ambient_light_energy = 0.12
+		env_node.environment = env
+		add_child(env_node)
+	elif env_node != null:
+		if on:
+			var env := env_node.environment
+			if env == null:
+				env = Environment.new()
+				env_node.environment = env
+			env.background_mode = Environment.BG_COLOR
+			env.background_color = Color(0.02, 0.03, 0.05)
+			env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+			env.ambient_light_color = Color(0.04, 0.05, 0.08)
+			env.ambient_light_energy = 0.12
+		else:
+			env_node.queue_free()
 
 
 func _ensure_arcade_void() -> void:
@@ -812,7 +895,7 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 		process_mode = Node.PROCESS_MODE_ALWAYS
 		get_tree().paused = true
 		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 1.0)
-		await _commission_card.show_card(card, 5.5, true)
+		await _commission_card.show_card(card, 0.0, true)
 		get_tree().paused = false
 		process_mode = prev_mode
 		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.05)
@@ -916,39 +999,57 @@ func _ensure_wall_colliders() -> void:
 	if world == null:
 		return
 	# Görünür duvarlar: Back + Left. Açık kenarlar: Front + Right → görünmez duvar.
-	_add_wall_body(world, "WallColliderBack", Vector3(0, 1.5, -5.2), Vector3(14.5, 3.2, 0.45), false)
-	_add_wall_body(world, "WallColliderLeft", Vector3(-7.2, 1.5, 0), Vector3(0.45, 3.2, 10.5), false)
-	_add_wall_body(world, "WallColliderRight", Vector3(7.2, 1.5, 0), Vector3(0.45, 3.2, 10.5), true)
-	_add_wall_body(world, "WallColliderFront", Vector3(0, 1.5, 5.2), Vector3(14.5, 3.2, 0.45), true)
+	_add_wall_body(world, "WallColliderBack", Vector3(0, 1.5, -6.7), Vector3(18.5, 3.2, 0.45), false)
+	_add_wall_body(world, "WallColliderLeft", Vector3(-9.2, 1.5, 0), Vector3(0.45, 3.2, 13.5), false)
+	_add_wall_body(world, "WallColliderRight", Vector3(9.2, 1.5, 0), Vector3(0.45, 3.2, 13.5), true)
+	_add_wall_body(world, "WallColliderFront", Vector3(0, 1.5, 6.7), Vector3(18.5, 3.2, 0.45), true)
 
 
 func _add_wall_body(parent: Node3D, wall_name: String, pos: Vector3, size: Vector3, invisible_visual: bool) -> void:
-	if parent.get_node_or_null(wall_name) != null:
-		return
-	var body := StaticBody3D.new()
-	body.name = wall_name
-	body.collision_layer = 1
-	body.collision_mask = 0
+	var body := parent.get_node_or_null(wall_name) as StaticBody3D
+	if body == null:
+		body = StaticBody3D.new()
+		body.name = wall_name
+		body.collision_layer = 1
+		body.collision_mask = 0
+		parent.add_child(body)
+		var shape_node := CollisionShape3D.new()
+		shape_node.name = "Collision"
+		var box := BoxShape3D.new()
+		shape_node.shape = box
+		body.add_child(shape_node)
+		if invisible_visual:
+			var mesh_inst := MeshInstance3D.new()
+			mesh_inst.name = "InvisibleMesh"
+			var mesh := BoxMesh.new()
+			mesh_inst.mesh = mesh
+			var mat := StandardMaterial3D.new()
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color = Color(0.7, 0.85, 1.0, 0.0)
+			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			mesh_inst.material_override = mat
+			mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			body.add_child(mesh_inst)
 	body.position = pos
-	parent.add_child(body)
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = size
-	shape.shape = box
-	body.add_child(shape)
-	if invisible_visual:
-		var mesh_inst := MeshInstance3D.new()
-		mesh_inst.name = "InvisibleMesh"
-		var mesh := BoxMesh.new()
+	var col := body.get_node_or_null("Collision") as CollisionShape3D
+	if col == null:
+		for c in body.get_children():
+			if c is CollisionShape3D:
+				col = c as CollisionShape3D
+				break
+	if col != null:
+		var box_shape := col.shape as BoxShape3D
+		if box_shape == null:
+			box_shape = BoxShape3D.new()
+			col.shape = box_shape
+		box_shape.size = size
+	var invis := body.get_node_or_null("InvisibleMesh") as MeshInstance3D
+	if invis != null:
+		var mesh := invis.mesh as BoxMesh
+		if mesh == null:
+			mesh = BoxMesh.new()
+			invis.mesh = mesh
 		mesh.size = size
-		mesh_inst.mesh = mesh
-		var mat := StandardMaterial3D.new()
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.albedo_color = Color(0.7, 0.85, 1.0, 0.0)
-		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		mesh_inst.material_override = mat
-		mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		body.add_child(mesh_inst)
 
 
 func _setup_hud() -> void:
