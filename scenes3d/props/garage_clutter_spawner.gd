@@ -9,6 +9,7 @@ const PROP_MASK := 4
 signal objective_changed(remaining: int, total: int)
 signal level_cleared
 signal reinforcement_spawned(count: int)
+signal section_advanced(section_index: int, section_count: int, section: Dictionary)
 
 @export var spawn_on_ready: bool = false
 
@@ -21,6 +22,9 @@ var _reinforce_cd: float = 0.0
 var _tempo: TempoPhaseDirector
 var _pressure_active: bool = false
 var _boss_mode: String = ""
+var _soft_pressure: bool = false
+var _sections: Array = []
+var _section_index: int = 0
 
 
 func _ready() -> void:
@@ -35,13 +39,20 @@ func bind_tempo(tempo: TempoPhaseDirector) -> void:
 		_tempo.tempo_phase_changed.connect(_on_tempo_phase)
 
 
-func start_pressure(boss_mode: String = "") -> void:
+func start_pressure(boss_mode: String = "", soft: bool = false) -> void:
 	_boss_mode = boss_mode
+	_soft_pressure = soft
 	_pressure_active = true
+	if soft:
+		_reinforce_cd = 12.0
+		return
 	if _boss_mode.is_empty():
 		_reinforce_cd = 8.0
+	elif _boss_mode == "mega_scrub":
+		# L5: daha yavaş takviye
+		_reinforce_cd = 5.5
+		spawn_reinforcement(1)
 	else:
-		# Boss: hemen basınç
 		_reinforce_cd = 2.2
 		spawn_reinforcement(2 if _boss_mode == "box_rain" else 1)
 
@@ -50,12 +61,22 @@ func stop_pressure() -> void:
 	_pressure_active = false
 	_reinforce_cd = 0.0
 	_boss_mode = ""
+	_soft_pressure = false
 
 
 func _process(delta: float) -> void:
 	if not _pressure_active or _cleared or _tempo == null:
 		return
 	var phase := _tempo.get_phase()
+	# Soft tutorial: ısınma fazında da yavaş takviye
+	if _soft_pressure:
+		_reinforce_cd -= delta
+		if _reinforce_cd > 0.0:
+			return
+		_reinforce_cd = randf_range(11.0, 15.0)
+		if get_remaining_objectives() < 10:
+			spawn_reinforcement(1)
+		return
 	# Boss: faz beklemeden takviye
 	if _boss_mode.is_empty() and phase < TempoPhaseDirector.PHASE_RAMP:
 		return
@@ -64,13 +85,17 @@ func _process(delta: float) -> void:
 		return
 	var mult := _tempo.get_spawn_rate_mult()
 	if not _boss_mode.is_empty():
-		mult *= 1.35
+		mult *= 1.15 if _boss_mode == "mega_scrub" else 1.35
 	_reinforce_cd = (10.0 / mult) * randf_range(0.75, 1.05)
 	if _boss_mode == "box_rain":
 		_reinforce_cd = maxf(2.4, _reinforce_cd * 0.55)
+	elif _boss_mode == "mega_scrub":
+		_reinforce_cd = maxf(6.0, _reinforce_cd * 1.25)
 	var n := 1
 	if phase >= TempoPhaseDirector.PHASE_FINALE or not _boss_mode.is_empty():
 		n = 2
+	if _boss_mode == "mega_scrub":
+		n = 1
 	if _boss_mode == "box_rain":
 		n = 3
 	spawn_reinforcement(n)
@@ -79,14 +104,13 @@ func _process(delta: float) -> void:
 func _on_tempo_phase(phase: int) -> void:
 	if not _pressure_active or _cleared:
 		return
-	# Ani faz geçişinde net spawn patlaması
 	match phase:
 		TempoPhaseDirector.PHASE_RAMP:
-			spawn_reinforcement(2)
-			_reinforce_cd = 5.5
+			spawn_reinforcement(1 if _boss_mode == "mega_scrub" else 2)
+			_reinforce_cd = 7.0 if _boss_mode == "mega_scrub" else 5.5
 		TempoPhaseDirector.PHASE_FINALE:
-			spawn_reinforcement(3)
-			_reinforce_cd = 3.5
+			spawn_reinforcement(1 if _boss_mode == "mega_scrub" else 3)
+			_reinforce_cd = 5.0 if _boss_mode == "mega_scrub" else 3.5
 
 
 func load_level(index: int) -> Dictionary:
@@ -100,6 +124,8 @@ func populate_from_spec(spec: Dictionary) -> void:
 	_level_spec = spec.duplicate(true)
 	_clear_children()
 	_objective_total = 0
+	_sections = (spec.get("sections", []) as Array).duplicate(true)
+	_section_index = 0
 	stop_pressure()
 
 	var stations: Array = spec.get("stations", ["trash", "bucket"]) as Array
@@ -113,7 +139,37 @@ func populate_from_spec(spec: Dictionary) -> void:
 	_placed = [
 		Vector3(0, 0, 4.2), Vector3(-2.8, 0, 4.0), Vector3(2.8, 0, 4.2), Vector3(0, 0, 2.0)
 	]
-	var props: Array = spec.get("props", []) as Array
+	var props: Array = _props_for_current_section()
+	_spawn_prop_entries(props)
+	call_deferred("_recount_objectives")
+
+
+func get_section_count() -> int:
+	return _sections.size()
+
+
+func get_section_index() -> int:
+	return _section_index
+
+
+func get_current_section() -> Dictionary:
+	if _section_index < 0 or _section_index >= _sections.size():
+		return {}
+	return _sections[_section_index] as Dictionary
+
+
+func has_sections() -> bool:
+	return not _sections.is_empty()
+
+
+func _props_for_current_section() -> Array:
+	if not _sections.is_empty():
+		var sec: Dictionary = _sections[_section_index] as Dictionary
+		return sec.get("props", []) as Array
+	return _level_spec.get("props", []) as Array
+
+
+func _spawn_prop_entries(props: Array) -> void:
 	for entry_variant in props:
 		var entry: Dictionary = entry_variant as Dictionary
 		var type: String = String(entry.get("type", "box"))
@@ -123,8 +179,6 @@ func populate_from_spec(spec: Dictionary) -> void:
 			var pos: Vector3 = _free_pos(_placed)
 			_placed.append(pos)
 			_spawn_prop(type, pos, fallen)
-
-	call_deferred("_recount_objectives")
 
 
 ## Faz baskısı: ekstra kir/koli düşürür (2D MoldSpawner hızlanmasının 3D karşılığı).
@@ -159,9 +213,13 @@ func _reinforcement_types() -> Array[String]:
 	if _boss_mode == "box_rain":
 		return ["box", "box", "box", "crumb", "box"]
 	if _boss_mode == "mega_scrub":
-		return ["slime", "potion", "slime", "crumb"]
+		return ["crumb", "slime", "potion"]
+	if _soft_pressure:
+		return ["box", "box"]
 	var out: Array[String] = []
-	var props: Array = _level_spec.get("props", []) as Array
+	var props: Array = _props_for_current_section()
+	if props.is_empty():
+		props = _level_spec.get("props", []) as Array
 	for entry_variant in props:
 		var entry: Dictionary = entry_variant as Dictionary
 		var t := String(entry.get("type", "box"))
@@ -193,8 +251,40 @@ func _emit_objective_state() -> void:
 	var left := get_remaining_objectives()
 	objective_changed.emit(left, _objective_total)
 	if left <= 0 and not _cleared:
+		if _try_advance_section():
+			return
 		_cleared = true
 		level_cleared.emit()
+
+
+func _try_advance_section() -> bool:
+	if _sections.is_empty():
+		return false
+	if _section_index + 1 >= _sections.size():
+		return false
+	_section_index += 1
+	# Eski takviye / props temiz; istasyonları koru
+	_clear_clutter_only()
+	_placed = [
+		Vector3(0, 0, 4.2), Vector3(-2.8, 0, 4.0), Vector3(2.8, 0, 4.2), Vector3(0, 0, 2.0)
+	]
+	_spawn_prop_entries(_props_for_current_section())
+	_recount_objectives()
+	section_advanced.emit(_section_index, _sections.size(), get_current_section())
+	return true
+
+
+func _clear_clutter_only() -> void:
+	var to_free: Array[Node] = []
+	for c in get_children():
+		if c is ClutterProp:
+			to_free.append(c)
+	for c in to_free:
+		var prop := c as ClutterProp
+		if prop.destroyed.is_connected(_on_prop_destroyed):
+			prop.destroyed.disconnect(_on_prop_destroyed)
+		remove_child(c)
+		c.free()
 
 
 func get_remaining_objectives() -> int:
@@ -288,12 +378,16 @@ func _add_scrub_puddle(
 	root.requires_scrub = true
 	root.scrub_radius = radius * scale_mul
 	root.scrub_work_needed = work
-	root.max_hit_distance = radius * scale_mul + 0.6
-	root.react_distance = radius * scale_mul + 0.8
+	root.max_hit_distance = radius * scale_mul + 1.0
+	root.react_distance = radius * scale_mul + 1.15
+	root.scrub_radius = maxf(root.scrub_radius, radius * scale_mul + 0.55)
 	root.position = pos
 	root.scale = Vector3.ONE * scale_mul
 	root.set_meta("objective", true)
 	root.set_meta("deliver_to", "")
+	# Mor iksir: üzerindeyken sarhoş dans
+	if prop_id == "potion":
+		root.set_meta("causes_drunk", true)
 	add_child(root)
 
 	var pivot := Node3D.new()
@@ -368,8 +462,8 @@ func _add_blob(
 	root.hit_wobble_enabled = true
 	root.hits_to_destroy = hits
 	root.can_carry = carry
-	root.max_hit_distance = 2.8
-	root.react_distance = 2.4 if not hidden else 1.6
+	root.max_hit_distance = 3.2
+	root.react_distance = 2.9 if not hidden else 2.0
 	root.position = pos
 	root.scale = Vector3.ONE * scale_mul
 	root.set_meta("objective", true)
@@ -437,7 +531,8 @@ func _add_box_stack(pos: Vector3, count: int, yaw: float, scale: Vector3 = Vecto
 	root.hits_to_destroy = 0
 	root.hit_wobble_enabled = true
 	root.can_carry = true
-	root.max_hit_distance = 2.4
+	root.max_hit_distance = 3.0
+	root.react_distance = 2.8
 	root.position = pos
 	root.rotation.y = yaw
 	root.scale = scale
@@ -492,7 +587,8 @@ func _add_single_box(pos: Vector3, rot: Vector3, fallen: bool = false) -> void:
 	root.hits_to_destroy = 0
 	root.hit_wobble_enabled = true
 	root.can_carry = true
-	root.max_hit_distance = 2.2
+	root.max_hit_distance = 2.95
+	root.react_distance = 2.75
 	root.position = pos
 	root.set_meta("objective", true)
 	root.set_meta("deliver_to", "trash")
@@ -534,10 +630,10 @@ func _add_broken_tv(pos: Vector3, yaw: float, on_side: bool = false) -> void:
 	root.prop_id = "broken_tv"
 	root.idle_style = ClutterProp.IdleStyle.FLICKER if not on_side else ClutterProp.IdleStyle.BUZZ
 	root.hit_wobble_enabled = true
-	root.hits_to_destroy = 6
-	root.max_hit_distance = 3.2
+	root.hits_to_destroy = 3 if bool(_level_spec.get("tutorial_level", false)) else 6
+	root.max_hit_distance = 3.6
 	root.sway_degrees = 1.0
-	root.react_distance = 3.2
+	root.react_distance = 3.5
 	root.can_carry = false
 	root.position = pos
 	root.rotation.y = yaw
@@ -593,8 +689,8 @@ func _add_trash_bin(pos: Vector3) -> void:
 	zone.add_to_group("TrashDrop")
 	zone.position = pos
 	# Mesh aynı kalır; kabul hacmi daha yüksek / geniş (fırlatılan yığınlar için)
-	zone.set_meta("interact_radius", 1.85)
-	zone.set_meta("interact_height", 3.4)
+	zone.set_meta("interact_radius", 2.45)
+	zone.set_meta("interact_height", 3.6)
 	add_child(zone)
 	_station_mesh(zone, Color(0.18, 0.22, 0.2), Color(0.35, 0.55, 0.4), "ÇÖP", false, Vector3(1.25, 1.05, 1.0))
 
@@ -604,6 +700,7 @@ func _add_bucket_station(pos: Vector3) -> void:
 	zone.name = "BucketStation"
 	zone.add_to_group("BucketStation")
 	zone.position = pos
+	zone.set_meta("interact_radius", 2.35)
 	add_child(zone)
 
 	var body := MeshInstance3D.new()
@@ -647,6 +744,8 @@ func _add_drain(pos: Vector3) -> void:
 	zone.name = "Drain"
 	zone.add_to_group("DrainDrop")
 	zone.position = pos
+	zone.set_meta("interact_radius", 2.3)
+	zone.set_meta("interact_height", 3.2)
 	add_child(zone)
 	_station_mesh(zone, Color(0.12, 0.2, 0.18), Color(0.3, 0.9, 0.7), "GİDER", true)
 

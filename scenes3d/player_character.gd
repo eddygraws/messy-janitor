@@ -23,8 +23,10 @@ signal forbidden_touched
 @export var camera_rig_path: NodePath = ^"../../IsometricCameraRig"
 
 @export_group("Etkileşim")
-@export var swing_range: float = 1.9
-@export var interact_cone_dot: float = 0.52
+@export var swing_range: float = 2.45 ## Menzil — yan/arka yaklaşmada da rahat
+@export var interact_cone_dot: float = 0.22 ## Uzak kenarda minimum bakış (≈77°)
+@export var close_magnet_range: float = 1.35 ## Bu mesafede bakış şart değil (360°)
+@export var soft_cone_range: float = 1.95 ## Bu mesafeye kadar yanlar da kabul
 @export var mop_swing_strength: float = 1.0
 @export var shovel_swing_strength: float = 1.45
 @export var mop_swing_cooldown: float = 0.2
@@ -51,9 +53,29 @@ signal forbidden_touched
 @export var slip_friction: float = 0.008 ## Kayganken fren
 @export var slip_speed_boost: float = 1.18 ## Buzda kayma hızı (kontrol zor)
 
+@export_group("İksir sarhoşluğu")
+@export var potion_drunk_build: float = 1.8 ## sn'de dolma
+@export var potion_drunk_decay: float = 0.55 ## sn'de iniş
+@export var potion_drunk_speed_mult: float = 0.72
+@export var potion_drunk_drift: float = 0.55 ## yön sapması
+
+@export_group("Karakter modeli")
+@export var use_janitor_model: bool = true
+@export var janitor_yaw_offset: float = 0.0 ## ters yürüyorsa PI dene
+## 1.0 = sahne boyu · 0.7 küçült · 1.3 büyüt (kolay slider)
+@export_range(0.25, 1.75, 0.01) var janitor_size_mult: float = 1.0
+## 0=otomatik. Elle: ham FBX scale (bu modelde genelde 12–18)
+@export var janitor_manual_scale: float = 0.0
+@export var move_anim_speed_threshold: float = 0.45
+
+const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
 const PROP_GROUP := &"ClutterProp"
 const TRASH_GROUP := &"TrashDrop"
 const BUCKET_GROUP := &"BucketStation"
+## Bakış yönüne göre sol-ön; kutuyu karakterin solunda taşır
+const HOLD_RIGHT := -0.30
+const HOLD_FORWARD := 0.52
+const HOLD_Y := -0.20
 
 enum ToolKind { MOP, SHOVEL }
 
@@ -83,6 +105,10 @@ var _visual_spin: float = 0.0
 var _hop_y: float = 0.0
 var _fail_stun: float = 0.0
 var _floor_slip: float = 0.0
+var _potion_drunk: float = 0.0
+var _drunk_t: float = 0.0
+var _face_root: Node3D
+var _janitor: Node # JanitorVisual
 # Lanet / baseline
 var _base_carry_speed_mult: float = -1.0
 var _base_stack_falloff: float = -1.0
@@ -91,6 +117,10 @@ var _base_scrub_mash_cooldown: float = -1.0
 
 func set_floor_slip(amount: float) -> void:
 	_floor_slip = clampf(amount, 0.0, 1.0)
+
+
+func get_potion_drunk() -> float:
+	return _potion_drunk
 
 
 func apply_curse_mods(carry_mult: float, stack_falloff_mult: float, scrub_cd_mult: float) -> void:
@@ -131,23 +161,104 @@ func apply_hazard_shove(dir: Vector3, power: float = 13.5) -> void:
 
 func _ready() -> void:
 	add_to_group("Player")
-	_visual = get_node_or_null("Mesh") as Node3D
-	if _visual == null:
-		_visual = self
-	if _visual is MeshInstance3D:
-		(_visual as MeshInstance3D).material_override = HitWobbleMaterial.create(
-			Color(0.92, 0.72, 0.45), 0.75, Color(1.0, 0.85, 0.55), 0.08, 0.06, true, 0.035
-		)
-	_hold_point = Node3D.new()
-	_hold_point.name = "HoldPoint"
-	_hold_point.position = Vector3(0.0, 0.95, -0.55)
-	add_child(_hold_point)
+	_setup_visuals()
+	_hold_point = get_node_or_null("HoldPoint") as Node3D
+	if _hold_point == null:
+		_hold_point = Node3D.new()
+		_hold_point.name = "HoldPoint"
+		add_child(_hold_point)
+	_place_hold_point()
 	_sfx = AudioStreamPlayer.new()
 	_sfx.name = "Sfx"
 	_sfx.bus = &"Master"
 	_sfx.volume_db = -6.0
 	add_child(_sfx)
 	call_deferred("_bind_camera")
+
+
+func _setup_visuals() -> void:
+	var capsule := get_node_or_null("Mesh") as Node3D
+	_visual = get_node_or_null("VisualRoot") as Node3D
+	if _visual == null:
+		_visual = Node3D.new()
+		_visual.name = "VisualRoot"
+		add_child(_visual)
+	# Player y≈0.9 iken ayaklar yere (~0) otursun
+	_visual.position = Vector3(0.0, -0.9, 0.0)
+
+	if use_janitor_model:
+		_janitor = JanitorVisualScript.new()
+		_janitor.name = "JanitorVisual"
+		_janitor.yaw_offset = janitor_yaw_offset
+		_janitor.size_mult = janitor_size_mult
+		_janitor.manual_scale = janitor_manual_scale
+		_visual.add_child(_janitor)
+		if _janitor.setup():
+			if capsule != null:
+				capsule.visible = false
+			return
+		_janitor.queue_free()
+		_janitor = null
+
+	# Fallback: eski kapsül + yüz ipucu
+	if capsule != null:
+		capsule.reparent(_visual)
+		capsule.position = Vector3(0.0, 0.9, 0.0)
+		capsule.visible = true
+		if capsule is MeshInstance3D:
+			(capsule as MeshInstance3D).material_override = HitWobbleMaterial.create(
+				Color(0.92, 0.72, 0.45), 0.75, Color(1.0, 0.85, 0.55), 0.08, 0.06, true, 0.035
+			)
+	_build_facing_face()
+
+
+## Capsule belirsiz — burun + göz ile bakış yönü (lokal -Z = ön).
+func _build_facing_face() -> void:
+	_face_root = Node3D.new()
+	_face_root.name = "FaceHint"
+	if _visual != null and _visual != self:
+		_visual.add_child(_face_root)
+	else:
+		add_child(_face_root)
+	_face_root.position = Vector3(0.0, 0.35, 0.0)
+
+	var nose := MeshInstance3D.new()
+	nose.name = "Nose"
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.02
+	cone.bottom_radius = 0.12
+	cone.height = 0.28
+	nose.mesh = cone
+	nose.material_override = HitWobbleMaterial.create(
+		Color(0.95, 0.45, 0.35), 0.7, Color(1.0, 0.5, 0.35), 0.15, 0.04, true, 0.02
+	)
+	nose.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+	nose.position = Vector3(0.0, 0.15, -0.38)
+	_face_root.add_child(nose)
+
+	for side in [-1.0, 1.0]:
+		var eye := MeshInstance3D.new()
+		var sphere := SphereMesh.new()
+		sphere.radius = 0.07
+		sphere.height = 0.14
+		eye.mesh = sphere
+		eye.material_override = HitWobbleMaterial.create(
+			Color(0.12, 0.1, 0.14), 0.5, Color(0.9, 0.95, 1.0), 0.35, 0.02, true, 0.015
+		)
+		eye.position = Vector3(side * 0.12, 0.28, -0.28)
+		_face_root.add_child(eye)
+
+	var back := MeshInstance3D.new()
+	var cap := SphereMesh.new()
+	cap.radius = 0.22
+	cap.height = 0.28
+	back.mesh = cap
+	back.material_override = HitWobbleMaterial.create(
+		Color(0.25, 0.45, 0.85), 0.8, Color.BLACK, 0.0, 0.03, true, 0.02
+	)
+	back.position = Vector3(0.0, 0.55, 0.12)
+	back.scale = Vector3(1.1, 0.55, 0.9)
+	_face_root.add_child(back)
 
 
 func _bind_camera() -> void:
@@ -165,7 +276,9 @@ func _physics_process(delta: float) -> void:
 		_fail_stun = maxf(0.0, _fail_stun - delta)
 
 	_update_bucket_rinse(delta)
+	_update_potion_drunk(delta)
 	_update_comedy_visuals(delta)
+	_update_janitor_anim()
 
 	# Emir fail sendeleme
 	if _fail_stun > 0.0:
@@ -279,11 +392,20 @@ func _apply_overcooked_movement() -> void:
 	var axes: Dictionary = _get_movement_axes()
 	var right: Vector3 = axes["right"] as Vector3
 	var forward: Vector3 = axes["forward"] as Vector3
+	# İksir: input sapması — dans/sarhoş kontrol
+	if _potion_drunk > 0.12:
+		var w := _potion_drunk
+		_drunk_t += get_physics_process_delta_time()
+		input.x += sin(_drunk_t * 7.5) * potion_drunk_drift * w
+		input.y += cos(_drunk_t * 5.2) * potion_drunk_drift * w * 0.85
+		input = input.limit_length(1.15)
 	var wish: Vector3 = right * input.x + forward * (-input.y)
 	wish.y = 0.0
 	var speed := move_speed * _carry_move_mult()
 	if _dancing:
 		speed *= 0.55
+	if _potion_drunk > 0.1:
+		speed *= lerpf(1.0, potion_drunk_speed_mult, _potion_drunk)
 	if _floor_slip > 0.05:
 		speed *= lerpf(1.0, slip_speed_boost, _floor_slip)
 
@@ -291,24 +413,24 @@ func _apply_overcooked_movement() -> void:
 		wish = wish.normalized()
 		_facing = wish
 		var wish_vel := wish * speed
-		if _floor_slip > 0.05:
-			# Çok kaygan: eski momentum ağır basar, yön zor değişir
-			var blend := lerpf(1.0, slip_accel, _floor_slip)
+		if _floor_slip > 0.05 or _potion_drunk > 0.2:
+			var slip_amt := maxf(_floor_slip, _potion_drunk * 0.85)
+			var blend := lerpf(1.0, slip_accel, slip_amt)
 			velocity.x = lerpf(velocity.x, wish_vel.x, blend)
 			velocity.z = lerpf(velocity.z, wish_vel.z, blend)
-			# Hafif “buz drift” — yan bileşen yavaş erir
 			var side := Vector3(-wish.z, 0.0, wish.x)
 			var lateral := velocity.dot(side)
-			velocity.x -= side.x * lateral * (0.04 * _floor_slip)
-			velocity.z -= side.z * lateral * (0.04 * _floor_slip)
+			velocity.x -= side.x * lateral * (0.04 * slip_amt)
+			velocity.z -= side.z * lateral * (0.04 * slip_amt)
 		else:
 			velocity.x = wish_vel.x
 			velocity.z = wish_vel.z
 		if not _dancing:
 			_snap_face(wish)
 	else:
-		if _floor_slip > 0.05:
-			var brake := lerpf(1.0, slip_friction, _floor_slip)
+		if _floor_slip > 0.05 or _potion_drunk > 0.25:
+			var slip_amt2 := maxf(_floor_slip, _potion_drunk * 0.7)
+			var brake := lerpf(1.0, slip_friction, slip_amt2)
 			velocity.x = lerpf(velocity.x, 0.0, brake)
 			velocity.z = lerpf(velocity.z, 0.0, brake)
 		else:
@@ -318,6 +440,25 @@ func _apply_overcooked_movement() -> void:
 	velocity.y = 0.0
 	move_and_slide()
 	_process_bumps(false)
+
+
+func _update_potion_drunk(delta: float) -> void:
+	var on_potion := false
+	for node in get_tree().get_nodes_in_group(PROP_GROUP):
+		var prop := node as ClutterProp
+		if prop == null or not bool(prop.get_meta("causes_drunk", false)):
+			continue
+		if prop.is_destroying() or not prop.is_scrub_target():
+			continue
+		var flat := prop.global_position - global_position
+		flat.y = 0.0
+		if flat.length() <= prop.scrub_radius + 0.25:
+			on_potion = true
+			break
+	if on_potion:
+		_potion_drunk = minf(1.0, _potion_drunk + potion_drunk_build * delta)
+	else:
+		_potion_drunk = maxf(0.0, _potion_drunk - potion_drunk_decay * delta)
 
 
 func _process_bumps(from_dash: bool) -> void:
@@ -369,6 +510,10 @@ func _process_bumps(from_dash: bool) -> void:
 		if _dancing:
 			strength *= 1.4
 		hit_prop.apply_impact(-impact, strength)
+		# Objeye çarpınca kısa hit (≈ yarı süre)
+		if _janitor != null:
+			_janitor.play_hit(2.4)
+		_snap_face(-impact)
 
 
 func _find_prop_from(node: Node) -> ClutterProp:
@@ -380,14 +525,40 @@ func _find_prop_from(node: Node) -> ClutterProp:
 	return null
 
 
+func _update_janitor_anim() -> void:
+	if _janitor == null or not _janitor.is_ready_visual():
+		return
+	if _janitor.is_oneshot():
+		return
+	if _dancing:
+		_janitor.play_loco(&"dance", 1.0)
+		return
+	if _dash_time > 0.0:
+		_janitor.play_loco(&"run", 1.85)
+		return
+	var speed := Vector2(velocity.x, velocity.z).length()
+	if _held != null:
+		if speed > move_anim_speed_threshold:
+			_janitor.play_loco(&"carry_walk", clampf(speed / move_speed, 0.8, 1.25))
+		else:
+			_janitor.play_loco(&"carry", 1.0)
+	elif speed > move_anim_speed_threshold:
+		_janitor.play_loco(&"run", clampf(speed / move_speed, 0.85, 1.35))
+	else:
+		_janitor.play_loco(&"idle", 1.0)
+
+
 func _update_comedy_visuals(delta: float) -> void:
 	if _visual == null:
 		return
 	var target_squash := Vector3.ONE
 	var target_spin := 0.0
 	var target_hop := 0.0
+	var has_model: bool = _janitor != null and bool(_janitor.call("is_ready_visual"))
+	var has_dance_anim: bool = has_model and bool(_janitor.call("has_anim", &"dance"))
 
-	if _dancing:
+	if _dancing and not has_dance_anim:
+		# Dans animi yoksa eski squash dansı
 		_dance_t += delta
 		var bob := sin(_dance_t * 14.0)
 		var sway := sin(_dance_t * 9.0)
@@ -398,8 +569,30 @@ func _update_comedy_visuals(delta: float) -> void:
 		)
 		target_spin = sway * 0.55
 		target_hop = absf(sin(_dance_t * 7.0)) * dance_hop
-		# Dans ederken kendi etrafında dön
 		rotation.y += dance_spin_speed * delta * (1.2 + 0.4 * sin(_dance_t * 3.0))
+	elif _dancing and has_dance_anim:
+		# Anim varken sadece yavaş dönüş
+		rotation.y += dance_spin_speed * delta * 0.55
+	elif _potion_drunk > 0.15 and not has_model:
+		_drunk_t += delta
+		var w := _potion_drunk
+		var bob2 := sin(_drunk_t * 16.0)
+		var sway2 := sin(_drunk_t * 11.0)
+		target_squash = Vector3(
+			1.1 + bob2 * 0.22 * w,
+			0.82 - bob2 * 0.18 * w,
+			1.1 + bob2 * 0.22 * w
+		)
+		target_spin = sway2 * 0.7 * w
+		target_hop = absf(sin(_drunk_t * 9.0)) * dance_hop * 0.85 * w
+		if Engine.get_physics_frames() % 20 == 0 and w > 0.45:
+			fx_burst.emit(&"dance", global_position + Vector3(0, 0.4, 0), 0.45 * w)
+
+	# Janitor modelinde squash/tilt ışınlanma gibi kaydırır — kilitle
+	if has_model:
+		target_squash = Vector3.ONE
+		target_spin = 0.0
+		target_hop = 0.0
 
 	_squash = _squash.lerp(target_squash, clampf(10.0 * delta, 0.0, 1.0))
 	_visual_spin = lerpf(_visual_spin, target_spin, clampf(8.0 * delta, 0.0, 1.0))
@@ -408,10 +601,23 @@ func _update_comedy_visuals(delta: float) -> void:
 	_visual.scale = _squash
 	_visual.rotation.z = _visual_spin * 0.35
 	_visual.rotation.x = -_visual_spin * 0.15
-	_visual.position.y = _hop_y
-	if _hold_point != null:
-		_hold_point.position = Vector3(0.0, 0.95 + _hop_y * 0.6, -0.55)
-		_hold_point.rotation.z = _visual_spin * 0.5
+	_visual.position = Vector3(0.0, -0.9 + _hop_y, 0.0)
+	_place_hold_point()
+
+
+func _place_hold_point() -> void:
+	if _hold_point == null:
+		return
+	# Dünya uzayında bakış yönüne göre yerleştir — yerel eksen sapmalarını aşar
+	var fwd := _facing
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3(0.0, 0.0, -1.0)
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var right := Vector3(fwd.z, 0.0, -fwd.x)
+	var world_off := right * HOLD_RIGHT + fwd * HOLD_FORWARD + Vector3(0.0, HOLD_Y + _hop_y * 0.25, 0.0)
+	_hold_point.global_position = global_position + world_off
+	_hold_point.rotation = Vector3.ZERO
 
 
 func _get_movement_axes() -> Dictionary:
@@ -534,6 +740,8 @@ func _try_interact() -> void:
 	prop.apply_hit(prop.global_position, hit_dir, strength, tool_name)
 	_swing_cooldown = mop_swing_cooldown if active_tool == ToolKind.MOP else shovel_swing_cooldown
 	_snap_face(hit_dir)
+	if _janitor != null:
+		_janitor.play_hit()
 	_play_sfx(PrototypeSfx.Kind.HIT, 1.0 + strength * 0.08)
 	fx_burst.emit(&"hit", prop.global_position + Vector3(0, 0.7, 0), strength)
 	if active_tool == ToolKind.MOP:
@@ -720,6 +928,7 @@ func _update_mop_scrub(delta: float) -> void:
 func _find_scrub_target() -> ClutterProp:
 	var best: ClutterProp = null
 	var best_dist := 999.0
+	var facing := _aim_direction()
 	for node in get_tree().get_nodes_in_group(PROP_GROUP):
 		var prop := node as ClutterProp
 		if prop == null or not prop.is_scrub_target():
@@ -727,9 +936,14 @@ func _find_scrub_target() -> ClutterProp:
 		var flat := prop.global_position - global_position
 		flat.y = 0.0
 		var dist := flat.length()
-		# Biraz cömert menzil — mash için rahat
-		if dist > prop.scrub_radius + 0.55:
+		# Yakın leke: bakış gerekmez; biraz uzakta yan yaklaşma OK
+		var reach := prop.scrub_radius + 0.85
+		if dist > reach:
 			continue
+		if dist > close_magnet_range:
+			var dir := flat / maxf(dist, 0.001)
+			if not _facing_ok(facing.dot(dir), dist, reach, true):
+				continue
 		if dist < best_dist:
 			best_dist = dist
 			best = prop
@@ -743,14 +957,50 @@ func _add_mop_dirt(amount: float) -> void:
 		mop_dirt_changed.emit(_mop_dirt)
 
 
-func _find_station(group_name: StringName) -> Node3D:
+## Bakış + hareket yönü karışımı — koşarak yaklaşırken yan objeler de yakalanır.
+func _aim_direction() -> Vector3:
 	var facing := _facing
 	facing.y = 0.0
 	if facing.length_squared() < 0.0001:
+		facing = -global_transform.basis.z
+		facing.y = 0.0
+	if facing.length_squared() < 0.0001:
 		facing = Vector3(0, 0, -1)
 	facing = facing.normalized()
+	var vel := Vector3(velocity.x, 0.0, velocity.z)
+	if vel.length_squared() > 1.2:
+		facing = facing.lerp(vel.normalized(), 0.42).normalized()
+	return facing
+
+
+## Mesafe → bakış toleransı: yakın = 360°, orta = yanlar OK, uzak = hafif koni.
+func _facing_ok(dot: float, dist: float, range_limit: float, generous: bool = false) -> bool:
+	var magnet := close_magnet_range * (1.15 if generous else 1.0)
+	if dist <= magnet:
+		return true
+	var soft := soft_cone_range * (1.1 if generous else 1.0)
+	if dist <= soft:
+		return dot >= (-0.45 if generous else -0.25)
+	var t := 0.0
+	if range_limit > soft:
+		t = clampf((dist - soft) / (range_limit - soft), 0.0, 1.0)
+	var need := lerpf(-0.08, interact_cone_dot, t * t)
+	if generous:
+		need -= 0.2
+	return dot >= need
+
+
+func _score_target(dot: float, dist: float, range_limit: float) -> float:
+	# Önce yakınlık, sonra bakış — önünde olan kazanır ama yan da alınır
+	return (1.0 - dist / maxf(range_limit, 0.01)) * 2.4 + maxf(dot, -0.2) * 1.1
+
+
+func _find_station(group_name: StringName) -> Node3D:
+	var facing := _aim_direction()
 	var best: Node3D = null
 	var best_score := -999.0
+	# Elde bir şey varken çöp/kova: bakış neredeyse şart değil
+	var holding := _held != null
 	for node in get_tree().get_nodes_in_group(group_name):
 		var zone := node as Node3D
 		if zone == null:
@@ -758,13 +1008,17 @@ func _find_station(group_name: StringName) -> Node3D:
 		var to_z := zone.global_position - global_position
 		to_z.y = 0.0
 		var dist := to_z.length()
-		var max_dist := float(zone.get_meta("interact_radius", swing_range * 1.2))
+		var max_dist := float(zone.get_meta("interact_radius", swing_range * 1.25))
+		if holding:
+			max_dist *= 1.2
 		if dist > max_dist or dist < 0.05:
 			continue
 		var dot := facing.dot(to_z / dist)
-		if dot < interact_cone_dot * 0.8:
+		if not _facing_ok(dot, dist, max_dist, true):
 			continue
-		var score := (1.0 - dist / max_dist) * 2.0 + dot
+		var score := _score_target(dot, dist, max_dist)
+		if holding:
+			score += 1.5 # Dispose önceliği
 		if score > best_score:
 			best_score = score
 			best = zone
@@ -772,14 +1026,10 @@ func _find_station(group_name: StringName) -> Node3D:
 
 
 func _find_marked_carry_target() -> ClutterProp:
-	var facing := _facing
-	facing.y = 0.0
-	if facing.length_squared() < 0.0001:
-		facing = -global_transform.basis.z
-		facing.y = 0.0
-	facing = facing.normalized()
+	var facing := _aim_direction()
 	var best: ClutterProp = null
 	var best_score := -999.0
+	var range_limit := swing_range + 1.15
 	for node in get_tree().get_nodes_in_group(PROP_GROUP):
 		var prop := node as ClutterProp
 		if prop == null or prop.is_destroying() or prop.is_being_carried():
@@ -793,14 +1043,13 @@ func _find_marked_carry_target() -> ClutterProp:
 		var to_prop := prop.global_position - global_position
 		to_prop.y = 0.0
 		var dist := to_prop.length()
-		if dist > swing_range + 0.95 or dist < 0.05:
+		if dist > range_limit or dist < 0.05:
 			continue
 		var dir := to_prop / dist
 		var dot := facing.dot(dir)
-		# İşaretli hedef: neredeyse 180° kabul (arka hariç)
-		if dot < -0.15:
+		if not _facing_ok(dot, dist, range_limit, true):
 			continue
-		var score := (1.0 - dist / (swing_range + 0.95)) * 2.0 + maxf(dot, 0.0)
+		var score := _score_target(dot, dist, range_limit) + 3.5
 		if score > best_score:
 			best_score = score
 			best = prop
@@ -808,40 +1057,34 @@ func _find_marked_carry_target() -> ClutterProp:
 
 
 func _find_interact_target() -> ClutterProp:
-	var facing := _facing
-	facing.y = 0.0
-	if facing.length_squared() < 0.0001:
-		facing = -global_transform.basis.z
-		facing.y = 0.0
-	facing = facing.normalized()
-
+	var facing := _aim_direction()
 	var best: ClutterProp = null
 	var best_score := -999.0
 	for node in get_tree().get_nodes_in_group(PROP_GROUP):
 		var prop := node as ClutterProp
 		if prop == null or prop.is_being_carried() or prop.is_destroying():
 			continue
-		if bool(prop.get_meta("forbidden", false)):
-			# Yasak: sadece çok yakından ve bakınca (ceza için), öncelik değil
-			pass
 		var to_prop := prop.global_position - global_position
 		to_prop.y = 0.0
 		var dist := to_prop.length()
 		var marked := bool(prop.get_meta("micro_task_marked", false))
-		var range_limit := swing_range + (0.85 if marked else 0.0)
+		# Prop kendi hitbox menzilini de kullan — büyük objeler (TV) daha cömert
+		var prop_reach := maxf(prop.max_hit_distance, prop.react_distance) * 0.92
+		var range_limit := maxf(swing_range, prop_reach) + (0.9 if marked else 0.0)
 		if dist > range_limit or dist < 0.05:
 			continue
 		var dir := to_prop / dist
 		var dot := facing.dot(dir)
-		# İşaretli emir kutusu: koni daha toleranslı
-		var cone := interact_cone_dot * (0.55 if marked else 1.0)
-		if dot < cone:
+		if not _facing_ok(dot, dist, range_limit, marked):
 			continue
-		var score := (1.0 - dist / range_limit) * 2.0 + dot
+		var score := _score_target(dot, dist, range_limit)
 		if marked:
-			score += 3.5 # Emir hedefi her zaman öncelikli
+			score += 3.5
 		if bool(prop.get_meta("forbidden", false)):
 			score -= 2.0
+		# Taşınabilir / vurulabilir: aynı mesafede bakılan kazanır
+		if prop.can_carry and prop.is_carryable():
+			score += 0.15
 		if score > best_score:
 			best_score = score
 			best = prop

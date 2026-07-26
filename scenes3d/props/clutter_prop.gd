@@ -18,14 +18,14 @@ signal merged_into(host: ClutterProp)
 @export var hits_to_destroy: int = 0
 @export var can_carry: bool = false
 @export var requires_scrub: bool = false
-@export var scrub_radius: float = 1.15
+@export var scrub_radius: float = 1.35
 @export var scrub_work_needed: float = 2.6
-@export var max_hit_distance: float = 2.6
+@export var max_hit_distance: float = 3.0
 @export var sway_degrees: float = 1.4
 @export var sway_speed: float = 1.1
 @export var flicker_energy_min: float = 0.05
 @export var flicker_energy_max: float = 0.55
-@export var react_distance: float = 2.8
+@export var react_distance: float = 3.1
 @export var react_once: bool = false
 @export var player_group: StringName = &"Player"
 
@@ -390,7 +390,11 @@ func begin_carry(holder: Node3D) -> bool:
 	_disable_collisions()
 	_world_parent = get_parent()
 	reparent(holder, false)
-	position = Vector3.ZERO
+	# Origin kutu tabanı — eller üstte, hold point'e yapışık
+	var hold_y := -get_stack_top_y() * 0.82
+	if hold_y > -0.2:
+		hold_y = -0.35
+	position = Vector3(0.0, hold_y, 0.0)
 	rotation = Vector3.ZERO
 	if _anim_root != null:
 		_anim_root.rotation = _base_rot
@@ -593,8 +597,12 @@ func apply_hit(hit_pos: Vector3, hit_dir: Vector3, strength: float = 1.0, tool: 
 	if requires_scrub:
 		_play_react()
 		return
-	if _player != null and global_position.distance_to(_player.global_position) > max_hit_distance:
-		return
+	# Yatay mesafe — yükseklik farkı vuruşu bozmasın; biraz cömert tolerans
+	if _player != null:
+		var flat := global_position - _player.global_position
+		flat.y = 0.0
+		if flat.length() > max_hit_distance + 0.35:
+			return
 	# Kutular paspasla temizlenemez (sadece taşı/çöp).
 	if tool == "mop" and bool(get_meta("immune_mop", false)):
 		_play_react()

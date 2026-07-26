@@ -87,6 +87,12 @@ func start_session(level_index: int, allow_mop: bool = true) -> void:
 	_level_index = level_index
 	_allow_mop = allow_mop
 	_active = true
+	# Tutorial / L1: mobilya + düşen yok
+	if _level_index <= 0:
+		_fall_cd = 9999.0
+		_furn_cd = 9999.0
+		_furn_phase = FurnPhase.IDLE
+		return
 	# İlk düşme / mobilya biraz geciksin
 	_fall_cd = fall_base_interval * randf_range(0.55, 0.9)
 	_furn_cd = furniture_interval * randf_range(0.55, 0.85)

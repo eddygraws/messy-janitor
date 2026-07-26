@@ -48,6 +48,9 @@ var _menu_open: bool = false
 var _save_path := "user://messy3d_progress.cfg"
 var _arcade_void_mat: ShaderMaterial
 var _arcade_void: MeshInstance3D
+var _section_hint: String = ""
+var _tutorial_banner_sticky: bool = false
+var _tutorial_section_busy: bool = false
 @export var task_fail_stress: float = 14.0
 @export var task_success_relief: float = 6.0
 
@@ -79,6 +82,7 @@ func _ready() -> void:
 		_spawner.objective_changed.connect(_on_objective_changed)
 		_spawner.level_cleared.connect(_on_level_cleared)
 		_spawner.reinforcement_spawned.connect(_on_reinforcement_spawned)
+		_spawner.section_advanced.connect(_on_section_advanced)
 
 	_show_menu(true)
 
@@ -202,15 +206,28 @@ func _process(_delta: float) -> void:
 		return
 	if _banner != null and _micro != null and _micro.has_active_task():
 		_banner.set_time_ratio(_micro.get_time_ratio())
+	elif _banner != null and _tutorial_banner_sticky:
+		_banner.set_time_ratio(1.0)
 	_update_phase_progress_hud()
 	if _music != null and _tempo != null and _tempo.is_running():
 		_music.set_intensity(_tempo.get_elapsed_ratio())
+	if _player != null and _player.get_potion_drunk() > 0.2:
+		_refresh_hint()
 
 
 func _update_phase_progress_hud() -> void:
 	if _phase_hud == null or _tempo == null or not _tempo.is_running():
 		return
 	var ratio := _tempo.get_elapsed_ratio()
+	if LevelData3D.is_tutorial_level(_level_index):
+		if _spawner != null and _spawner.has_sections():
+			var s := _spawner.get_section_index() + 1
+			var n := _spawner.get_section_count()
+			_phase_hud.text = "TUTORIAL · Bölüm %d/%d  (%d%%)" % [s, n, int(ratio * 100.0)]
+		else:
+			_phase_hud.text = "TUTORIAL · Sakin öğren  (%d%%)" % int(ratio * 100.0)
+		_phase_hud.modulate = Color(0.65, 0.95, 0.75)
+		return
 	var phase := _tempo.get_phase()
 	var phase_name := "Isınma"
 	match phase:
@@ -242,6 +259,9 @@ func start_level(index: int, daily: bool = false) -> void:
 	_pending_next_level = -1
 	_level_index = clampi(index, 0, LevelData3D.level_count() - 1)
 	_show_menu(false)
+	_section_hint = ""
+	_tutorial_banner_sticky = false
+	_tutorial_section_busy = false
 	if _player != null:
 		_player.global_position = Vector3(0.0, 0.9, 2.0)
 		_player.velocity = Vector3.ZERO
@@ -286,10 +306,14 @@ func start_level(index: int, daily: bool = false) -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.05)
 
 	# Tempo + mikro-görev seansı
-	var is_boss := bool(spec.get("is_boss_room", false))
-	var boss_mode := String(spec.get("boss_mode", ""))
+	var is_tutorial := bool(spec.get("tutorial_level", false)) or LevelData3D.is_tutorial_level(_level_index)
+	var is_boss := bool(spec.get("is_boss_room", false)) and not is_tutorial
+	var boss_mode := String(spec.get("boss_mode", "")) if not is_tutorial else ""
 	var duration := lerpf(62.0, 48.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
-	if is_boss:
+	if is_tutorial:
+		# Çok bölümlü tutorial — tempo ısınması için uzun oda
+		duration = 220.0 if (_spawner != null and _spawner.has_sections()) else 96.0
+	elif is_boss:
 		duration = lerpf(55.0, 70.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
 	if _camera_rig != null:
 		_camera_rig.set_finale_zoom(is_boss)
@@ -300,35 +324,59 @@ func start_level(index: int, daily: bool = false) -> void:
 			_tempo.start_room(duration)
 	if _spawner != null:
 		_spawner.bind_tempo(_tempo)
-		_spawner.start_pressure(boss_mode if is_boss else "")
+		var no_pressure := is_tutorial or bool(spec.get("disable_pressure", false))
+		if not no_pressure:
+			_spawner.start_pressure(boss_mode if is_boss else "")
 	if _micro != null:
-		_micro.setup(_tempo, _spawner, _player)
-		_micro.configure_for_level(_level_index)
-		if is_boss:
-			_micro.configure_boss_mode(boss_mode)
-		_micro.start_session()
+		var no_micro := is_tutorial or bool(spec.get("disable_micro", false))
+		if not no_micro:
+			_micro.setup(_tempo, _spawner, _player)
+			_micro.configure_for_level(_level_index)
+			if is_boss:
+				_micro.configure_boss_mode(boss_mode)
+			_micro.start_session()
 	if _hazards != null:
-		_hazards.setup(_player, _stress, _spawner, $World as Node3D, _tempo)
-		_hazards.start_session(_level_index, mop_ok)
-	# Günlük lanet — level/boss ayarlarından sonra uygula
+		var no_hazards := is_tutorial or bool(spec.get("disable_hazards", false))
+		if not no_hazards:
+			_hazards.setup(_player, _stress, _spawner, $World as Node3D, _tempo)
+			_hazards.start_session(_level_index, mop_ok)
+	# Günlük lanet — tutorial'da kapalı
 	if _curses != null:
-		if not _curses.has_curses():
-			_curses.roll_daily()
-		_curses.apply_to(_stress, _player, _micro, _hazards)
-		_refresh_curse_hud()
-	_apply_difficulty_profile()
+		var no_curses := is_tutorial or bool(spec.get("disable_curses", false))
+		if no_curses:
+			_curses.revert_defaults(_stress, _player, _micro, _hazards)
+			_refresh_curse_hud()
+		else:
+			if not _curses.has_curses():
+				_curses.roll_daily()
+			_curses.apply_to(_stress, _player, _micro, _hazards)
+			_refresh_curse_hud()
+	if is_tutorial:
+		if _stress != null:
+			_stress.gain_scale = 0.4
+			_stress.mistake_multiplier = 0.45
+	else:
+		_apply_difficulty_profile()
 	if _music != null:
 		_music.start(3 if is_boss else 1)
 	if _stress != null:
 		_stress.reset_stress()
-		if _commission != null:
+		if is_tutorial:
+			_stress.mistake_multiplier = 0.45
+		elif _commission != null:
 			var c := _commission.get_current()
 			if int(c.get("rule", 0)) == CommissionData.Rule.HIGH_RISK:
 				_stress.mistake_multiplier = clampf(float(c.get("param", 2.0)), 1.4, 3.0)
 	if _combo != null:
 		_combo.reset()
 	if _phase_hud != null:
-		if is_boss:
+		if is_tutorial:
+			if _spawner != null and _spawner.has_sections():
+				_phase_hud.text = "TUTORIAL · Bölüm 1/%d" % _spawner.get_section_count()
+			else:
+				_phase_hud.text = "TUTORIAL · Sakin öğren"
+			_phase_hud.modulate = Color(0.65, 0.95, 0.75)
+		elif is_boss:
 			_phase_hud.text = "BOSS · Son Patlama"
 			_phase_hud.modulate = Color(1.0, 0.35, 0.4)
 		else:
@@ -343,6 +391,9 @@ func start_level(index: int, daily: bool = false) -> void:
 		_flash_boss_intro(String(spec.get("boss_title", "SET-PIECE")))
 	if _daily_mode and _hint != null:
 		_hint.text = "📅 Günlük meydan okuma — kendini geç!"
+	# Tutorial bölüm 1 UI (komisyon kartından sonra, ikinci kart yok)
+	if is_tutorial and _spawner != null and _spawner.has_sections():
+		await _apply_tutorial_section(_spawner.get_current_section(), 0, _spawner.get_section_count(), false)
 
 
 func _start_daily_challenge() -> void:
@@ -399,6 +450,9 @@ func _on_tempo_phase_changed(phase: int) -> void:
 
 
 func _on_phase_flash(phase: int) -> void:
+	# Erken tutorial bölümlerinde faz flaşı banner'ı bozmasın
+	if _tutorial_banner_sticky:
+		return
 	if _banner != null:
 		_banner.flash_phase(phase)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 1.0 + float(phase) * 0.08)
@@ -421,7 +475,10 @@ func _on_reinforcement_spawned(count: int) -> void:
 	if _particles != null and _player != null:
 		_particles.burst(&"throw", _player.global_position + Vector3(0, 0.5, 0), 0.9)
 	if _hint != null:
-		_hint.text = "Yeni kir düştü! (+%d)" % count
+		if LevelData3D.is_tutorial_level(_level_index):
+			_hint.text = "📦 Ekstra koli düştü! (+%d) — tempo ısınması" % count
+		else:
+			_hint.text = "Yeni kir düştü! (+%d)" % count
 
 
 func _on_task_issued(task_type: String, duration: float, color: Color) -> void:
@@ -605,7 +662,22 @@ func _on_combo_milestone(combo: int) -> void:
 
 
 func _on_task_cleared() -> void:
-	pass
+	# Tutorial tempo bölümünde emir aralarında öğretici şeridi geri getir
+	if not LevelData3D.is_tutorial_level(_level_index):
+		return
+	if _spawner == null or not _spawner.has_sections() or _banner == null:
+		return
+	var sec := _spawner.get_current_section()
+	if sec.is_empty() or not bool(sec.get("enable_micro", false)):
+		return
+	_banner.show_task(
+		String(sec.get("banner", "EMİRLER GELİYOR!")),
+		sec.get("banner_color", Color(1.0, 0.45, 0.55)) as Color,
+		String(sec.get("subtitle", "")),
+		""
+	)
+	if not _section_hint.is_empty() and _hint != null:
+		_hint.text = _section_hint
 
 
 func _apply_theme(spec: Dictionary) -> void:
@@ -688,15 +760,90 @@ func _apply_arcade_void(theme: Color, accent_fallback: Color) -> void:
 func _on_objective_changed(remaining: int, total: int) -> void:
 	if _objective_label == null:
 		return
+	var section_prefix := ""
+	if _spawner != null and _spawner.has_sections():
+		section_prefix = "Bölüm %d/%d · " % [_spawner.get_section_index() + 1, _spawner.get_section_count()]
 	if remaining <= 0:
-		_objective_label.text = "✓ ODA TEMİZ!"
+		_objective_label.text = "✓ %sGEÇİLDİ!" % section_prefix
 		_objective_label.modulate = Color(0.5, 1.0, 0.6)
 	else:
-		_objective_label.text = "HEDEF: %d / %d temizlendi" % [total - remaining, total]
+		_objective_label.text = "%sHEDEF: %d / %d" % [section_prefix, total - remaining, total]
 		_objective_label.modulate = Color(0.9, 0.92, 1.0)
 
 
+func _on_section_advanced(section_index: int, section_count: int, section: Dictionary) -> void:
+	if _tutorial_section_busy:
+		return
+	await _apply_tutorial_section(section, section_index, section_count, true)
+
+
+func _apply_tutorial_section(section: Dictionary, section_index: int, section_count: int, with_card: bool) -> void:
+	if section.is_empty():
+		return
+	_tutorial_section_busy = true
+	_section_hint = String(section.get("hint", ""))
+	var title := String(section.get("title", "Bölüm %d" % (section_index + 1)))
+	var banner := String(section.get("banner", title))
+	var subtitle := String(section.get("subtitle", ""))
+	var col: Color = section.get("banner_color", Color(0.65, 0.92, 0.75)) as Color
+	var enable_micro := bool(section.get("enable_micro", false))
+	var enable_pressure := bool(section.get("enable_pressure", false))
+	var soft_pressure := bool(section.get("soft_pressure", false))
+
+	if _phase_hud != null:
+		_phase_hud.text = "TUTORIAL · Bölüm %d/%d" % [section_index + 1, section_count]
+		_phase_hud.modulate = Color(0.65, 0.95, 0.75)
+	if _level_label != null:
+		_level_label.text = "1 · Tutorial · %s" % title
+	if _commission_info != null:
+		_commission_info.text = "📘 %s  (%d / %d)" % [title, section_index + 1, section_count]
+		_commission_info.modulate = col
+
+	if with_card and _commission_card != null:
+		var card := {
+			"npc": "Kuzen Marv",
+			"icon": "📘",
+			"title": title,
+			"desc": String(section.get("card_desc", subtitle)),
+			"rule": CommissionData.Rule.NONE,
+			"param": 0.0,
+		}
+		var prev_mode := process_mode
+		process_mode = Node.PROCESS_MODE_ALWAYS
+		get_tree().paused = true
+		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 1.0)
+		await _commission_card.show_card(card, 5.5, true)
+		get_tree().paused = false
+		process_mode = prev_mode
+		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.05)
+
+	if _banner != null:
+		_banner.show_task(banner, col, subtitle, "")
+	_tutorial_banner_sticky = not enable_micro
+
+	if _micro != null:
+		if enable_micro:
+			_micro.setup(_tempo, _spawner, _player)
+			_micro.configure_tutorial_tempo()
+			_micro.start_session()
+		else:
+			_micro.stop_session()
+	if _spawner != null:
+		if enable_pressure:
+			_spawner.start_pressure("", soft_pressure)
+		else:
+			_spawner.stop_pressure()
+
+	if _hint != null and not _section_hint.is_empty():
+		_hint.text = _section_hint
+	_spawn_pop("Bölüm %d/%d" % [section_index + 1, section_count], col, 56)
+	_tutorial_section_busy = false
+
+
 func _on_level_cleared() -> void:
+	_section_hint = ""
+	_tutorial_banner_sticky = false
+	_tutorial_section_busy = false
 	if _tempo != null:
 		_tempo.stop_room()
 	if _micro != null:
@@ -714,6 +861,8 @@ func _on_level_cleared() -> void:
 	if _banner != null:
 		_banner.hide_task(true)
 		_banner.set_vignette_heat(0.0)
+	if _commission_info != null:
+		_commission_info.text = ""
 	if _camera_rig != null:
 		_camera_rig.set_finale_zoom(false)
 
@@ -1046,8 +1195,13 @@ func _show_menu(open: bool) -> void:
 func _refresh_hint() -> void:
 	if _hint == null or _menu_open:
 		return
+	if _player != null and _player.get_potion_drunk() > 0.35:
+		_hint.text = "😵 İksir sarhoşu! Mor lekeden çık / paspasla temizle"
+		return
 	if _player != null and _player.is_holding():
 		_hint.text = "Kutu elde · başka kutuya Space = stack · çöpe Space = at (max 5)"
+	elif not _section_hint.is_empty():
+		_hint.text = _section_hint
 	else:
 		_hint.text = "WASD · Shift dash · G dans · Space tut/fırlat · Esc menü"
 

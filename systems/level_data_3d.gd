@@ -15,6 +15,11 @@ static func get_level(index: int) -> Dictionary:
 	return levels[index]
 
 
+static func is_tutorial_level(index: int) -> bool:
+	var info := get_level(index)
+	return bool(info.get("tutorial_level", false)) or index == 0
+
+
 static func _commission(npc: String, icon: String, title: String, desc: String, rule: int, param: float) -> Dictionary:
 	return {
 		"npc": npc,
@@ -30,24 +35,88 @@ static func _all() -> Array[Dictionary]:
 	return [
 		{
 			"id": "garage",
-			"name": "1 · Kuzen'in Garajı",
-			"subtitle": "Koli taşı · TV parçala",
+			"name": "1 · Tutorial · Garaj",
+			"subtitle": "4 bölüm · öğren + tempo",
 			"npc": "Kuzen Marv",
 			"icon": "🧹",
-			"intro": "Garaj yıllardır birikmiş. Kolileri tutup çöpe at, TV'leri kürekle parçala. Paspas bu seviyede yok.",
+			"intro": "Hoş geldin! Dört kısa bölüm: taşı, vur, birleştir, sonra gerçek tempoya ısın. Paspas ve tehlike yok.",
 			"floor": Color(0.34, 0.36, 0.38),
 			"wall": Color(0.52, 0.51, 0.50),
 			"accent": Color(0.72, 0.58, 0.32),
 			"stations": ["trash"],
 			"allow_mop": false,
-			"tutorial": "Space: tut / çöpe at veya fırlat  ·  TV'ye vur",
-			"commission": _commission("Kuzen Marv", "🧹", "İlk Gün",
-				"Garaj yıllardır birikmiş. Kolileri çöpe, TV'leri kürekle. Basit başlıyoruz.",
+			"tutorial_level": true,
+			"disable_hazards": true,
+			"disable_micro": true,
+			"disable_pressure": true,
+			"disable_curses": true,
+			"tutorial": "WASD hareket  ·  Space: tut / çöpe at  ·  Shift dash",
+			"commission": _commission("Kuzen Marv", "🧹", "İlk Gün · Tutorial",
+				"Dört bölüm var. Önce sakin öğren, sonda emir temposuna alışırsın. Hazır mısın?",
 				CommissionData.Rule.NONE, 0.0),
-			"props": [
-				{"type": "box", "count": 4},
-				{"type": "tv", "count": 2},
-				{"type": "box", "count": 2, "fallen": true},
+			"props": [],
+			"sections": [
+				{
+					"id": "carry",
+					"title": "Bölüm 1 · Taşı",
+					"banner": "KOLİLERİ ÇÖPE TAŞI",
+					"subtitle": "Space ile tut → çöpe yaklaş → Space",
+					"hint": "WASD ile yaklaş · Space tut · çöpün yanında Space ile at",
+					"card_desc": "İki koli var. Tut, çöpe götür, at. Bakmak şart değil — yanındayken Space yeter.",
+					"banner_color": Color(0.55, 0.92, 0.65),
+					"enable_micro": false,
+					"enable_pressure": false,
+					"props": [
+						{"type": "box", "count": 2},
+					],
+				},
+				{
+					"id": "smash",
+					"title": "Bölüm 2 · Vur",
+					"banner": "TV'Yİ KÜREKLE PARÇALA",
+					"subtitle": "Yaklaş · Space ile vur (birkaç kez)",
+					"hint": "TV'ye yaklaş · Space = vur · 3 vuruşta kırılır",
+					"card_desc": "Bazı şeyler taşınmaz — vurulur. TV'ye yaklaş ve Space'e bas. Dash (Shift) ile hızlan.",
+					"banner_color": Color(1.0, 0.75, 0.35),
+					"enable_micro": false,
+					"enable_pressure": false,
+					"props": [
+						{"type": "tv", "count": 1},
+					],
+				},
+				{
+					"id": "mix",
+					"title": "Bölüm 3 · Karışık",
+					"banner": "TAŞI + VUR — BİRLİKTE",
+					"subtitle": "Koli çöp · TV parçala · Shift dash",
+					"hint": "İkisini de yap: koli→çöp, TV→vur · Shift ile koş",
+					"card_desc": "Artık ikisi birden. Eldeki koliyle başka koliye Space = stack. Hızlanmak için Shift.",
+					"banner_color": Color(0.55, 0.78, 1.0),
+					"enable_micro": false,
+					"enable_pressure": false,
+					"props": [
+						{"type": "box", "count": 2},
+						{"type": "box", "count": 1, "fallen": true},
+						{"type": "tv", "count": 1},
+					],
+				},
+				{
+					"id": "tempo",
+					"title": "Bölüm 4 · Tempo",
+					"banner": "EMİRLER GELİYOR!",
+					"subtitle": "Üst şeritteki emri süre içinde yap",
+					"hint": "★ işaretli hedefi öncelikle temizle · üst şerit = emir",
+					"card_desc": "Son tur: gerçek tempo. Üstte sarı emirler çıkacak — yıldızlı hedefe koş. Biraz ekstra koli de düşebilir. L2'ye hazırlık!",
+					"banner_color": Color(1.0, 0.45, 0.55),
+					"enable_micro": true,
+					"enable_pressure": true,
+					"soft_pressure": true,
+					"props": [
+						{"type": "box", "count": 3},
+						{"type": "tv", "count": 1},
+						{"type": "box", "count": 1, "fallen": true},
+					],
+				},
 			],
 		},
 		{
@@ -124,17 +193,17 @@ static func _all() -> Array[Dictionary]:
 			"wall": Color(0.32, 0.18, 0.4),
 			"accent": Color(0.85, 0.4, 1.0),
 			"stations": ["trash", "bucket"],
-			"tutorial": "Mor leke = sol tık mash  ·  Kabuk = kürek",
+			"tutorial": "Mor leke = mash  ·  Kabuk = kürek  ·  İksire basma = sarhoş dans!",
 			"commission": _commission("Cadı Morgana", "☠", "Karışan İksirler",
-				"Malzemelerim birbirine karıştı. Hata payın dar — stres daha hızlı dolar!",
-				CommissionData.Rule.HIGH_RISK, 2.2),
+				"Malzemelerim birbirine karıştı. Mor iksire basma — dans ettirir!",
+				CommissionData.Rule.HIGH_RISK, 1.65),
 			"is_boss_room": true,
 			"boss_mode": "mega_scrub",
 			"boss_title": "SET-PIECE · İKSİR PATLAMASI",
 			"props": [
-				{"type": "potion", "count": 4},
-				{"type": "crust", "count": 4},
-				{"type": "slime", "count": 2},
+				{"type": "potion", "count": 2},
+				{"type": "crust", "count": 2},
+				{"type": "slime", "count": 1},
 				{"type": "boss_slime", "count": 1},
 			],
 		},

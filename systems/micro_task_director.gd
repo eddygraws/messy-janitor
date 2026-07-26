@@ -81,6 +81,20 @@ func configure_for_level(level_index: int) -> void:
 	_reapply_curse_to_timing()
 
 
+## Tutorial son bölüm: yavaş emir temposu (ısınma).
+func configure_tutorial_tempo() -> void:
+	_level_index = 0
+	_chaos = 0.0
+	_boss_mode = ""
+	first_task_delay = 5.5
+	_timing_base_interval = 12.5
+	_timing_base_duration = 4.6
+	_timing_base_min = 3.6
+	_timing_base_max = 5.0
+	gather_count = 2
+	_reapply_curse_to_timing()
+
+
 func configure_boss_mode(mode: String) -> void:
 	_boss_mode = mode
 	first_task_delay = 1.4
