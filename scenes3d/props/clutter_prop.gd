@@ -28,6 +28,12 @@ signal merged_into(host: ClutterProp)
 @export var react_distance: float = 3.1
 @export var react_once: bool = false
 @export var player_group: StringName = &"Player"
+## mop|broom|brush|spray|tweezers|"" — boş = herhangi
+@export var required_tool: String = ""
+@export var repair_taps_needed: int = 0 ## >0 ise smash yerine mash tamir/düzelt
+@export var is_junk_food: bool = false
+@export var is_painting: bool = false
+@export var needs_spray_first: bool = false ## wet: önce sprey, sonra paspas
 
 ## Oda sınırı — duvardan biraz içeride (köşeye yığılmayı azaltır).
 const ROOM_HALF_X := 7.7
@@ -63,6 +69,10 @@ var _scrub_progress: float = 0.0
 var _scrub_base_scale: Vector3 = Vector3.ONE
 var _scrub_ring: MeshInstance3D
 var _scrub_ring_mat: StandardMaterial3D
+var _repair_taps: int = 0
+var _sprayed: bool = false
+var _tilt_rest: Vector3 = Vector3.ZERO
+var _repaired: bool = false
 
 
 func _ready() -> void:
@@ -71,12 +81,24 @@ func _ready() -> void:
 	if _anim_root == null:
 		_anim_root = self
 	_base_rot = _anim_root.rotation
+	_tilt_rest = _base_rot
 	_scrub_base_scale = scale
 	_cache_flicker_targets()
 	_start_idle()
 	if requires_scrub:
 		call_deferred("_update_scrub_ring")
 	call_deferred("_bind_player")
+	if is_junk_food:
+		add_to_group("JunkFood3D")
+	if is_painting and repair_taps_needed <= 0:
+		repair_taps_needed = 4
+
+
+func _cache_painting_tilt() -> void:
+	if _anim_root == null:
+		return
+	_tilt_rest = _anim_root.rotation
+	_base_rot = _tilt_rest
 
 
 func _bind_player() -> void:
@@ -181,7 +203,133 @@ func set_micro_task_highlight(on: bool, style: String = "correct") -> void:
 
 
 func is_scrub_target() -> bool:
+	if needs_spray_first and not _sprayed:
+		return false
 	return requires_scrub and not _destroying and not _carried and not _throwing
+
+
+func is_repair_target() -> bool:
+	return repair_taps_needed > 0 and not _destroying and not is_junk_food and not _repaired
+
+
+func is_junk() -> bool:
+	return is_junk_food and not _destroying
+
+
+func needs_spray() -> bool:
+	return needs_spray_first and not _sprayed and not _destroying
+
+
+func can_interact_with(tool_name: String) -> bool:
+	if required_tool.is_empty():
+		return true
+	if needs_spray_first and not _sprayed:
+		return tool_name == "spray"
+	if needs_spray_first and _sprayed and requires_scrub:
+		return tool_name == "mop"
+	return tool_name == required_tool
+
+
+func apply_spray() -> bool:
+	if _destroying or not needs_spray_first or _sprayed:
+		return false
+	_sprayed = true
+	requires_scrub = true
+	required_tool = "mop"
+	_play_react()
+	_update_scrub_ring()
+	var mark := Label3D.new()
+	mark.text = "PASPAS"
+	mark.font_size = 40
+	mark.modulate = Color(0.55, 0.9, 1.0)
+	mark.position = Vector3(0.0, 0.7, 0.0)
+	mark.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	add_child(mark)
+	var tw := create_tween()
+	tw.tween_property(mark, "modulate:a", 0.0, 0.8)
+	tw.tween_callback(mark.queue_free)
+	return true
+
+
+## Tamir / tablo düzelt — tamamlanınca true.
+func apply_repair_tap() -> bool:
+	if not is_repair_target():
+		return false
+	_repair_taps += 1
+	var t := clampf(float(_repair_taps) / float(maxi(1, repair_taps_needed)), 0.0, 1.0)
+	if is_painting and _anim_root != null:
+		_anim_root.rotation = _tilt_rest.lerp(Vector3.ZERO, t)
+		_base_rot = _anim_root.rotation
+	else:
+		_play_hit_shake(Vector3(1, 0, 0), 0.6 + t)
+	if _repair_taps >= repair_taps_needed:
+		_finish_repair()
+		return true
+	return false
+
+
+func apply_straighten_tap() -> bool:
+	return apply_repair_tap()
+
+
+func consume_junk() -> void:
+	if not is_junk_food or _destroying:
+		return
+	_destroying = true
+	_kill_idle()
+	_disable_collisions()
+	destroyed.emit()
+	var tw := create_tween()
+	tw.tween_property(self, "scale", Vector3(0.05, 0.05, 0.05), 0.18)\
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tw.tween_callback(queue_free)
+
+
+func _finish_repair() -> void:
+	if _destroying or _repaired:
+		return
+	# Tablo: duvarda kalsın — sadece düzelsin + objective kapansın
+	if is_painting:
+		_repaired = true
+		if _anim_root != null:
+			_anim_root.rotation = Vector3.ZERO
+			_base_rot = Vector3.ZERO
+			_tilt_rest = Vector3.ZERO
+		set_meta("objective", false)
+		_remove_yamuk_label()
+		var base_s := scale
+		var tw := create_tween()
+		tw.tween_property(self, "scale", base_s * 1.06, 0.1)
+		tw.tween_property(self, "scale", base_s, 0.18)\
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		# Objective sayımı için (queue_free yok)
+		destroyed.emit()
+		return
+	# TV tamir vb. — eski davranış: temizlenip kaybolur
+	_destroying = true
+	_kill_idle()
+	_disable_collisions()
+	destroyed.emit()
+	var tw2 := create_tween().set_parallel(true)
+	tw2.tween_property(self, "scale", scale * 1.08, 0.12)
+	tw2.chain().tween_property(self, "scale", Vector3(0.02, 0.02, 0.02), 0.28)\
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tw2.chain().tween_callback(queue_free)
+
+
+func _remove_yamuk_label() -> void:
+	for n in get_children():
+		_strip_yamuk_labels(n)
+
+
+func _strip_yamuk_labels(node: Node) -> void:
+	if node is Label3D:
+		var lab := node as Label3D
+		if lab.text == "YAMUK" or lab.text == "TAMİR":
+			lab.queue_free()
+			return
+	for c in node.get_children():
+		_strip_yamuk_labels(c)
 
 
 func get_scrub_progress() -> float:
@@ -627,8 +775,17 @@ func clear_vis_mask() -> void:
 func apply_hit(hit_pos: Vector3, hit_dir: Vector3, strength: float = 1.0, tool: String = "mop") -> void:
 	if _destroying or _carried or _throwing:
 		return
+	if is_junk_food or repair_taps_needed > 0:
+		_play_react()
+		return
+	if needs_spray_first and not _sprayed:
+		_play_react()
+		return
 	# Scrub lekeleri tek vuruşla bitmez.
 	if requires_scrub:
+		_play_react()
+		return
+	if not required_tool.is_empty() and tool != required_tool:
 		_play_react()
 		return
 	# Yatay mesafe — yükseklik farkı vuruşu bozmasın; biraz cömert tolerans

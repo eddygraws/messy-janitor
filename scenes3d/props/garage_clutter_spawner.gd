@@ -229,7 +229,7 @@ func _reinforcement_types() -> Array[String]:
 		var entry: Dictionary = entry_variant as Dictionary
 		var t := String(entry.get("type", "box"))
 		# TV/boss gibi ağır objeleri sürekli çoğaltma
-		if t in ["tv", "boss_slime", "hidden", "crust"]:
+		if t in ["tv", "tv_repair", "painting", "boss_slime", "hidden", "crust"]:
 			continue
 		out.append(t)
 	if out.is_empty():
@@ -344,22 +344,26 @@ func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
 				_add_box_stack(pos, _rng.randi_range(1, 3), _rng.randf_range(-0.4, 0.4))
 		"tv":
 			_add_broken_tv(pos, _rng.randf_range(-1.0, 1.0), _rng.randf() > 0.65)
+		"tv_repair":
+			_add_repair_tv(pos, _rng.randf_range(-0.6, 0.6))
+		"painting":
+			_add_crooked_painting()
 		"mold":
-			_add_blob(pos, "mold", Color(0.35, 0.7, 0.3), 3, true, "")
+			_add_blob(pos, "mold", Color(0.35, 0.7, 0.3), 3, true, "", 1.0, false, "mop")
 		"crumb":
-			_add_blob(pos, "crumb", Color(0.72, 0.58, 0.35), 0, true, "trash")
+			_add_blob(pos, "crumb", Color(0.72, 0.58, 0.35), 0, true, "trash", 1.0, false, "broom")
 		"slime":
 			_add_scrub_puddle(pos, "slime", Color(0.35, 0.95, 0.55), 1.15, 2.4, 1.0)
 		"potion":
 			_add_scrub_puddle(pos, "potion", Color(0.75, 0.35, 0.95), 1.05, 3.4, 0.95)
 		"crust":
-			_add_blob(pos, "crust", Color(0.42, 0.32, 0.22), 7, false, "")
+			_add_blob(pos, "crust", Color(0.42, 0.32, 0.22), 7, false, "", 1.0, false, "brush")
 		"wet":
-			_add_blob(pos, "wet", Color(0.4, 0.7, 0.95), 3, false, "")
+			_add_wet_stain(pos)
 		"tiny":
-			_add_blob(pos, "tiny", Color(0.9, 0.95, 1.0), 2, true, "trash", 0.35)
+			_add_blob(pos, "tiny", Color(0.9, 0.95, 1.0), 2, true, "trash", 0.35, false, "tweezers")
 		"hidden":
-			_add_blob(pos, "hidden", Color(0.15, 0.15, 0.2), 3, true, "", 0.7, true)
+			_add_blob(pos, "hidden", Color(0.15, 0.15, 0.2), 3, true, "", 0.7, true, "mop")
 		"boss_slime":
 			_add_scrub_puddle(pos, "boss_slime", Color(0.25, 1.0, 0.45), 1.85, 5.5, 1.55)
 		_:
@@ -391,6 +395,7 @@ func _add_scrub_puddle(
 	root.scale = Vector3.ONE * scale_mul
 	root.set_meta("objective", true)
 	root.set_meta("deliver_to", "")
+	root.required_tool = "mop"
 	# Mor iksir: üzerindeyken sarhoş dans
 	if prop_id == "potion":
 		root.set_meta("causes_drunk", true)
@@ -460,6 +465,7 @@ func _add_blob(
 	deliver: String,
 	scale_mul: float = 1.0,
 	hidden: bool = false,
+	req_tool: String = "",
 ) -> void:
 	var root := ClutterPropScript.new()
 	root.name = prop_id.capitalize()
@@ -470,6 +476,7 @@ func _add_blob(
 	root.can_carry = carry
 	root.max_hit_distance = 3.2
 	root.react_distance = 2.9 if not hidden else 2.0
+	root.required_tool = req_tool
 	root.position = pos
 	root.scale = Vector3.ONE * scale_mul
 	root.set_meta("objective", true)
@@ -644,6 +651,9 @@ func _add_broken_tv(pos: Vector3, yaw: float, on_side: bool = false) -> void:
 	root.position = pos
 	root.rotation.y = yaw
 	root.set_meta("objective", true)
+	# Tutorial: herhangi / güçlü vuruş; sonra fırça
+	if not bool(_level_spec.get("tutorial_level", false)):
+		root.required_tool = "brush"
 	add_child(root)
 
 	var pivot := Node3D.new()
@@ -792,3 +802,185 @@ func _station_mesh(
 	label.position = Vector3(0.0, 0.55 if flat else body_size.y + 0.3, 0.0)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	zone.add_child(label)
+
+
+func _add_wet_stain(pos: Vector3) -> void:
+	var root := ClutterPropScript.new()
+	root.name = "Wet"
+	root.prop_id = "wet"
+	root.idle_style = ClutterProp.IdleStyle.BUZZ
+	root.hit_wobble_enabled = true
+	root.hits_to_destroy = 0
+	root.can_carry = false
+	root.requires_scrub = false
+	root.needs_spray_first = true
+	root.required_tool = "spray"
+	root.scrub_radius = 1.2
+	root.scrub_work_needed = 2.2
+	root.max_hit_distance = 3.0
+	root.react_distance = 2.8
+	root.position = pos
+	root.set_meta("objective", true)
+	add_child(root)
+
+	var pivot := Node3D.new()
+	pivot.name = "Pivot"
+	root.add_child(pivot)
+
+	var body := StaticBody3D.new()
+	body.collision_layer = 0
+	body.collision_mask = 0
+	pivot.add_child(body)
+
+	var puddle := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.85
+	disc.bottom_radius = 0.85
+	disc.height = 0.05
+	puddle.mesh = disc
+	puddle.material_override = HitWobbleMaterial.create(
+		Color(0.4, 0.7, 0.95), 0.5, Color(0.55, 0.85, 1.0), 0.3, 0.12, true, 0.018
+	)
+	puddle.position = Vector3(0.0, 0.03, 0.0)
+	pivot.add_child(puddle)
+	root.register_wobble_mesh(puddle)
+
+	var tag := Label3D.new()
+	tag.text = "SPREY"
+	tag.font_size = 40
+	tag.modulate = Color(0.55, 0.85, 1.0)
+	tag.position = Vector3(0.0, 0.55, 0.0)
+	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	pivot.add_child(tag)
+
+
+func _add_repair_tv(pos: Vector3, yaw: float) -> void:
+	var root := ClutterPropScript.new()
+	root.name = "RepairTV"
+	root.prop_id = "tv_repair"
+	root.idle_style = ClutterProp.IdleStyle.FLICKER
+	root.hit_wobble_enabled = true
+	root.hits_to_destroy = 0
+	root.can_carry = false
+	root.repair_taps_needed = 6
+	root.required_tool = ""
+	root.max_hit_distance = 3.6
+	root.react_distance = 3.4
+	root.position = pos
+	root.rotation.y = yaw
+	root.set_meta("objective", true)
+	add_child(root)
+
+	var pivot := Node3D.new()
+	pivot.name = "Pivot"
+	root.add_child(pivot)
+
+	var body := StaticBody3D.new()
+	body.collision_layer = PROP_MASK
+	body.collision_mask = 0
+	pivot.add_child(body)
+
+	var cabinet := MeshInstance3D.new()
+	var cab_mesh := BoxMesh.new()
+	cab_mesh.size = Vector3(1.05, 0.72, 0.42)
+	cabinet.mesh = cab_mesh
+	cabinet.material_override = HitWobbleMaterial.create(Color(0.28, 0.18, 0.14), 0.88, Color.BLACK, 0.0, 0.1)
+	cabinet.position = Vector3(0, 0.36, 0)
+	pivot.add_child(cabinet)
+	root.register_wobble_mesh(cabinet)
+
+	var screen := MeshInstance3D.new()
+	var screen_mesh := BoxMesh.new()
+	screen_mesh.size = Vector3(0.88, 0.52, 0.04)
+	screen.mesh = screen_mesh
+	screen.material_override = HitWobbleMaterial.create(
+		Color(0.45, 0.12, 0.1), 0.4, Color(0.9, 0.35, 0.2), 0.35, 0.12)
+	screen.position = Vector3(0, 0.36, 0.24)
+	pivot.add_child(screen)
+	root.register_wobble_mesh(screen)
+
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(1.05, 0.72, 0.5)
+	shape.shape = box
+	shape.position = Vector3(0, 0.36, 0)
+	body.add_child(shape)
+
+	var tag := Label3D.new()
+	tag.text = "TAMİR"
+	tag.font_size = 48
+	tag.modulate = Color(1.0, 0.75, 0.35)
+	tag.position = Vector3(0.0, 1.15, 0.0)
+	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	pivot.add_child(tag)
+
+
+func _add_crooked_painting() -> void:
+	var on_back := _rng.randf() > 0.45
+	var root := ClutterPropScript.new()
+	root.name = "Painting"
+	root.prop_id = "painting"
+	root.is_painting = true
+	root.idle_style = ClutterProp.IdleStyle.NONE
+	root.hit_wobble_enabled = false
+	root.hits_to_destroy = 0
+	root.can_carry = false
+	root.repair_taps_needed = 4
+	root.required_tool = ""
+	root.max_hit_distance = 4.2
+	root.react_distance = 3.5
+	root.set_meta("objective", true)
+
+	var pivot := Node3D.new()
+	pivot.name = "Pivot"
+	root.add_child(pivot)
+
+	var body := StaticBody3D.new()
+	body.collision_layer = PROP_MASK
+	body.collision_mask = 0
+	pivot.add_child(body)
+
+	var frame := MeshInstance3D.new()
+	var frame_mesh := BoxMesh.new()
+	frame_mesh.size = Vector3(1.15, 0.85, 0.08)
+	frame.mesh = frame_mesh
+	frame.material_override = HitWobbleMaterial.create(Color(0.35, 0.22, 0.12), 0.95, Color.BLACK, 0.0, 0.04)
+	pivot.add_child(frame)
+
+	var canvas := MeshInstance3D.new()
+	var canvas_mesh := BoxMesh.new()
+	canvas_mesh.size = Vector3(0.95, 0.68, 0.03)
+	canvas.mesh = canvas_mesh
+	var hues := [
+		Color(0.75, 0.45, 0.35), Color(0.4, 0.55, 0.75), Color(0.55, 0.7, 0.4), Color(0.7, 0.55, 0.75)
+	]
+	canvas.material_override = HitWobbleMaterial.create(
+		hues[_rng.randi_range(0, hues.size() - 1)], 0.9, Color.BLACK, 0.0, 0.03)
+	canvas.position = Vector3(0, 0, 0.04)
+	pivot.add_child(canvas)
+
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(1.15, 0.85, 0.2)
+	shape.shape = box
+	body.add_child(shape)
+
+	var tilt := deg_to_rad(_rng.randf_range(12.0, 25.0) * (1.0 if _rng.randf() > 0.5 else -1.0))
+	pivot.rotation.z = tilt
+
+	var tag := Label3D.new()
+	tag.text = "YAMUK"
+	tag.font_size = 42
+	tag.modulate = Color(1.0, 0.85, 0.4)
+	tag.position = Vector3(0.0, 0.65, 0.12)
+	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	pivot.add_child(tag)
+
+	if on_back:
+		root.position = Vector3(_rng.randf_range(-5.5, 5.5), 1.65, -6.45)
+	else:
+		root.position = Vector3(-8.75, 1.65, _rng.randf_range(-3.5, 3.5))
+		root.rotation.y = deg_to_rad(90.0)
+
+	add_child(root)
+	root.call_deferred("_cache_painting_tilt")

@@ -2,7 +2,7 @@ class_name LevelData3D
 extends RefCounted
 
 ## 2D macera level design'ının 3D Overcooked portu (10 seviye).
-## Prop tipleri: box, tv, mold, crumb, slime, potion, crust, wet, tiny, hidden, boss_slime
+## Prop tipleri: box, tv, tv_repair, painting, mold, crumb, slime, potion, crust, wet, tiny, hidden, boss_slime
 
 static func level_count() -> int:
 	return 10
@@ -18,6 +18,24 @@ static func get_level(index: int) -> Dictionary:
 static func is_tutorial_level(index: int) -> bool:
 	var info := get_level(index)
 	return bool(info.get("tutorial_level", false)) or index == 0
+
+
+## 1=mop … 5=tweezers (L2=1, L3-4=2, L5=3, L6=4, L7+=5)
+static func unlocked_tools_for(index: int) -> int:
+	var info := get_level(index)
+	if info.has("unlocked_tools"):
+		return clampi(int(info.get("unlocked_tools", 1)), 1, 5)
+	if is_tutorial_level(index):
+		return 1
+	if index <= 1:
+		return 1
+	if index <= 3:
+		return 2
+	if index == 4:
+		return 3
+	if index == 5:
+		return 4
+	return 5
 
 
 static func _commission(npc: String, icon: String, title: String, desc: String, rule: int, param: float) -> Dictionary:
@@ -45,11 +63,14 @@ static func _all() -> Array[Dictionary]:
 			"accent": Color(0.72, 0.58, 0.32),
 			"stations": ["trash"],
 			"allow_mop": false,
+			"unlocked_tools": 1,
+			"allow_junk": false,
 			"tutorial_level": true,
 			"disable_hazards": true,
 			"disable_micro": true,
 			"disable_pressure": true,
 			"disable_curses": true,
+			"disable_junk": true,
 			"tutorial": "WASD hareket · Space tut/at/vur · Shift dash",
 			"commission": _commission("Kuzen Marv", "🧹", "İlk Gün · Tutorial",
 				"Beş bölüm: taşı → vur → yığ → karışık → tempo. Her kartı okuyup tıkla / Space ile geç.",
@@ -145,7 +166,9 @@ static func _all() -> Array[Dictionary]:
 			"wall": Color(0.22, 0.32, 0.24),
 			"accent": Color(0.45, 0.95, 0.40),
 			"stations": ["trash", "bucket"],
-			"tutorial": "Küf parçalarına vur — yayılmadan bitir!",
+			"tutorial": "Küf = paspas · yamuk tabloları Space ile düzelt · gökten burger!",
+			"unlocked_tools": 1,
+			"allow_junk": true,
 			"time_limit": 45.0,
 			"commission": _commission("Gargoyle Grimble", "🤢", "Midem Bulanıyor",
 				"Bu küf iğrenç! Yayılmadan hızlıca temizle, yoksa üstüne kusarım!",
@@ -154,6 +177,7 @@ static func _all() -> Array[Dictionary]:
 				{"type": "mold", "count": 5},
 				{"type": "box", "count": 3},
 				{"type": "tv", "count": 1},
+				{"type": "painting", "count": 2},
 			],
 		},
 		{
@@ -167,7 +191,9 @@ static func _all() -> Array[Dictionary]:
 			"wall": Color(0.36, 0.28, 0.2),
 			"accent": Color(0.95, 0.72, 0.35),
 			"stations": ["trash", "bucket"],
-			"tutorial": "Kırıntı = sadece taşıyıp çöpe at (vurma yetmez)",
+			"tutorial": "2=Süpürge · kırıntı sadece süpürgeyle · TV tamir = fırça (3)",
+			"unlocked_tools": 2,
+			"allow_junk": true,
 			"time_limit": 43.0,
 			"commission": _commission("Hayalet Ev Sahibi", "👻", "Kutsal Koli",
 				"Her yeri temizle AMA ✕ işaretli koliye SAKIN dokunma; o benim hatıram!",
@@ -176,6 +202,8 @@ static func _all() -> Array[Dictionary]:
 				{"type": "crumb", "count": 6},
 				{"type": "box", "count": 2},
 				{"type": "mold", "count": 2},
+				{"type": "painting", "count": 1},
+				{"type": "tv_repair", "count": 1},
 			],
 		},
 		{
@@ -190,6 +218,8 @@ static func _all() -> Array[Dictionary]:
 			"accent": Color(0.35, 1.0, 0.72),
 			"stations": ["trash", "bucket"],
 			"tutorial": "Lekeye yaklaş · sol tık / Space spam = ovala",
+			"unlocked_tools": 2,
+			"allow_junk": true,
 			"time_limit": 42.0,
 			"commission": _commission("Gargoyle Grimble", "⏰", "Kaygan Zemin",
 				"Balçık her yere yayıldı. Tempo tut — süreye karşı temizle!",
@@ -206,15 +236,17 @@ static func _all() -> Array[Dictionary]:
 			"subtitle": "Mor sıvı · kabuklu kir",
 			"npc": "Cadı Morgana",
 			"icon": "🧪",
-			"intro": "Mor iksir lekelerini paspasla ovala. Kabuklu tortuya kürekle vur.",
+			"intro": "Mor iksir lekelerini paspasla ovala. Kabuklu tortuya fırçayla vur.",
 			"floor": Color(0.42, 0.28, 0.52),
 			"wall": Color(0.32, 0.18, 0.4),
 			"accent": Color(0.85, 0.4, 1.0),
 			"stations": ["trash", "bucket"],
-			"tutorial": "Mor iksir = ovala ama üstünde durma · Kabuk = kürek · İksir = kısa silence",
+			"tutorial": "3=Fırça · kabuk/TV fırça · iksir = ovala ama basma",
+			"unlocked_tools": 3,
+			"allow_junk": true,
 			"time_limit": 40.0,
 			"commission": _commission("Cadı Morgana", "☠", "Karışan İksirler",
-				"Mor iksire basma — dans ettirir ve kısa süre etkileşimi kilitler. Kabuklara kürekle vur.",
+				"Mor iksire basma — dans ettirir ve kısa süre etkileşimi kilitler. Kabuklara fırçayla vur.",
 				CommissionData.Rule.HIGH_RISK, 1.4),
 			"is_boss_room": true,
 			"boss_mode": "mega_scrub",
@@ -232,21 +264,24 @@ static func _all() -> Array[Dictionary]:
 			"subtitle": "Islak lekeleri sil",
 			"npc": "Gargoyle Grimble",
 			"icon": "💧",
-			"intro": "Mavi ıslak lekeler her yerde. Vur, taşı, bitir. Bu seviyeden itibaren çift dash açılır!",
+			"intro": "Mavi ıslak lekeler: önce sprey, sonra paspas. Çift dash açık!",
 			"floor": Color(0.14, 0.2, 0.28),
 			"wall": Color(0.2, 0.28, 0.38),
 			"accent": Color(0.4, 0.85, 1.0),
 			"stations": ["trash", "bucket", "drain"],
-			"tutorial": "Yeni: çift dash (Shift x2) · ıslak leke + küf — öncelik tut",
+			"tutorial": "4=Sprey → ıslak · sonra 1=Paspas · yamuk tablo · çift dash",
+			"unlocked_tools": 4,
+			"allow_junk": true,
 			"time_limit": 38.0,
 			"commission": _commission("Gargoyle Grimble", "⏱", "Sabırsız Patron",
-				"Acelem var! Bu ıslaklığı süre dolmadan bitir. İpucu: artık art arda iki dash atabilirsin.",
+				"Acelem var! Sprey + paspas ile ıslaklığı bitir. Art arda iki dash atabilirsin.",
 				CommissionData.Rule.TIME_LIMIT, 38.0),
 			"props": [
 				{"type": "wet", "count": 5},
 				{"type": "mold", "count": 3},
 				{"type": "crumb", "count": 3},
 				{"type": "box", "count": 2},
+				{"type": "painting", "count": 2},
 			],
 		},
 		{
@@ -255,12 +290,14 @@ static func _all() -> Array[Dictionary]:
 			"subtitle": "Küçük parçalar",
 			"npc": "Hayalet Ev Sahibi",
 			"icon": "🕯",
-			"intro": "İnce iş. Minik parçaları bulup temizle — kolay kırılır.",
+			"intro": "İnce iş. Minik parçaları cımbızla topla — TV'yi de tamir et.",
 			"floor": Color(0.2, 0.2, 0.28),
 			"wall": Color(0.28, 0.28, 0.38),
 			"accent": Color(0.75, 0.85, 1.0),
 			"stations": ["trash", "bucket"],
-			"tutorial": "Tiny = 1-2 vuruş, dikkatli ol",
+			"tutorial": "5=Cımbız · tiny · TV tamir = fırça",
+			"unlocked_tools": 5,
+			"allow_junk": true,
 			"time_limit": 36.0,
 			"commission": _commission("Hayalet Ev Sahibi", "🕯", "Dokunulmaz",
 				"Şu ✕ işaretli koliyi kutsal sayıyorum. Gerisini temizle, ona el sürme!",
@@ -270,6 +307,7 @@ static func _all() -> Array[Dictionary]:
 				{"type": "crust", "count": 3},
 				{"type": "wet", "count": 2},
 				{"type": "box", "count": 2},
+				{"type": "tv_repair", "count": 1},
 			],
 		},
 		{
@@ -284,6 +322,8 @@ static func _all() -> Array[Dictionary]:
 			"accent": Color(0.45, 0.85, 1.0),
 			"stations": ["trash", "bucket", "drain"],
 			"tutorial": "Bakış konisindeki kirler parlar · yanına yaklaşınca da görünür",
+			"unlocked_tools": 5,
+			"allow_junk": true,
 			"time_limit": 34.0,
 			"commission": _commission("Vampir Kont", "🌑", "Ay Işığı",
 				"Karanlık. Bakış yönündeki mavi maske içindeki kirler görünür ve parlar — dönerek tara.",
@@ -307,6 +347,8 @@ static func _all() -> Array[Dictionary]:
 			"accent": Color(0.95, 0.4, 0.85),
 			"stations": ["trash", "bucket", "drain"],
 			"tutorial": "İksire basma = silence · çöp / gider ayrımına dikkat",
+			"unlocked_tools": 5,
+			"allow_junk": true,
 			"time_limit": 32.0,
 			"commission": _commission("Cadı Morgana", "🔮", "Titrek Eller",
 				"İksire basma — kısa silence yersin. Stres cezan sert; tempo tut.",
@@ -320,6 +362,7 @@ static func _all() -> Array[Dictionary]:
 				{"type": "crust", "count": 2},
 				{"type": "hidden", "count": 2},
 				{"type": "boss_slime", "count": 1},
+				{"type": "painting", "count": 1},
 			],
 		},
 		{
@@ -333,7 +376,9 @@ static func _all() -> Array[Dictionary]:
 			"wall": Color(0.38, 0.12, 0.14),
 			"accent": Color(1.0, 0.35, 0.4),
 			"stations": ["trash", "bucket", "drain"],
-			"tutorial": "Final gauntlet — hepsini bitir!",
+			"tutorial": "Final gauntlet — alet değiştir, burger ye, hepsini bitir!",
+			"unlocked_tools": 5,
+			"allow_junk": true,
 			"time_limit": 38.0,
 			"commission": _commission("Remzi", "🔥", "BÜYÜK FİNAL",
 				"Son gece. Süreye karşı her şeyi temizle — dans sonra!",
@@ -353,6 +398,8 @@ static func _all() -> Array[Dictionary]:
 				{"type": "tiny", "count": 3},
 				{"type": "hidden", "count": 2},
 				{"type": "boss_slime", "count": 1},
+				{"type": "painting", "count": 1},
+				{"type": "tv_repair", "count": 1},
 			],
 		},
 	]

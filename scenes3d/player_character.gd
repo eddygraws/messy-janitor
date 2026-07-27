@@ -7,6 +7,7 @@ signal move_started
 signal move_stopped
 signal interact_attempted
 signal tool_switched(tool_name: String)
+signal tools_unlocked_changed(count: int)
 signal carried_changed(holding: bool)
 signal item_disposed(prop_id: String)
 signal floor_scrubbed(world_pos: Vector3)
@@ -16,6 +17,8 @@ signal dance_changed(dancing: bool)
 signal fx_burst(kind: StringName, world_pos: Vector3, strength: float)
 signal forbidden_touched
 signal status_message(text: String)
+signal junk_eaten(world_pos: Vector3)
+signal wrong_tool_used(needed: String)
 
 @export var move_speed: float = 6.4
 @export var carry_speed_mult: float = 0.68 ## Tek kutu — bilinçli yavaşlatma
@@ -29,12 +32,15 @@ signal status_message(text: String)
 @export var close_magnet_range: float = 1.35 ## Bu mesafede bakış şart değil (360°)
 @export var soft_cone_range: float = 1.95 ## Bu mesafeye kadar yanlar da kabul
 @export var mop_swing_strength: float = 1.0
-@export var shovel_swing_strength: float = 1.45
+@export var brush_swing_strength: float = 1.45
 @export var mop_swing_cooldown: float = 0.2
-@export var shovel_swing_cooldown: float = 0.3
+@export var brush_swing_cooldown: float = 0.3
 @export var scrub_mash_cooldown: float = 0.09
 @export var drop_distance: float = 1.15
 @export var throw_speed: float = 9.8
+@export var bloat_decay_per_sec: float = 0.065
+@export var bloat_per_junk: float = 0.22
+@export var bloat_max_scale: float = 1.35
 
 @export_group("Paspas kiri")
 @export var mop_dirt_per_hit: float = 0.14
@@ -82,11 +88,16 @@ const HOLD_RIGHT := -0.30
 const HOLD_FORWARD := 0.52
 const HOLD_Y := -0.20
 
-enum ToolKind { MOP, SHOVEL }
+enum ToolKind { MOP, BROOM, BRUSH, SPRAY, TWEEZERS }
+
+const TOOL_NAMES: Array[String] = ["mop", "broom", "brush", "spray", "tweezers"]
+const TOOL_LABELS: Array[String] = ["Paspas", "Süpürge", "Fırça", "Sprey", "Cımbız"]
+const TOOL_ICONS: Array[String] = ["🧹", "🧺", "🪥", "🧴", "🔬"]
 
 @export var active_tool: ToolKind = ToolKind.MOP
 ## Seviye paspas kullanmıyorsa false (L1).
 var allow_mop: bool = true
+var unlocked_tool_count: int = 1
 
 var _camera_rig: IsometricCameraRig
 var _facing: Vector3 = Vector3(0.0, 0.0, -1.0)
@@ -127,6 +138,7 @@ var _flash_half_angle_deg: float = 48.0
 var _base_carry_speed_mult: float = -1.0
 var _base_stack_falloff: float = -1.0
 var _base_scrub_mash_cooldown: float = -1.0
+var _bloat: float = 0.0
 
 
 func set_floor_slip(amount: float) -> void:
@@ -373,6 +385,8 @@ func _physics_process(delta: float) -> void:
 			dance_changed.emit(false)
 	if _potion_silence_cd > 0.0:
 		_potion_silence_cd = maxf(0.0, _potion_silence_cd - delta)
+	if _bloat > 0.0:
+		_bloat = maxf(0.0, _bloat - bloat_decay_per_sec * delta)
 
 	_update_bucket_rinse(delta)
 	_update_potion_drunk(delta)
@@ -436,12 +450,21 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_released("interact"):
 		_rinsing = false
 		return
-	if event.is_action_pressed("tool_mop"):
-		if allow_mop:
-			_set_tool(ToolKind.MOP)
+	if event.is_action_pressed("tool_mop") or event.is_action_pressed("tool_1"):
+		_try_set_tool_index(0)
 		return
-	if event.is_action_pressed("tool_shovel"):
-		_set_tool(ToolKind.SHOVEL)
+	if event.is_action_pressed("tool_shovel") or event.is_action_pressed("tool_2"):
+		_try_set_tool_index(1)
+		return
+	if event.is_action_pressed("tool_3"):
+		_try_set_tool_index(2)
+		return
+	if event.is_action_pressed("tool_4"):
+		_try_set_tool_index(3)
+		return
+	if event.is_action_pressed("tool_5"):
+		_try_set_tool_index(4)
+		return
 
 
 func _toggle_dance() -> void:
@@ -740,11 +763,19 @@ func _update_comedy_visuals(delta: float) -> void:
 		if Engine.get_physics_frames() % 20 == 0 and w > 0.45:
 			fx_burst.emit(&"dance", global_position + Vector3(0, 0.4, 0), 0.45 * w)
 
-	# Janitor modelinde squash/tilt ışınlanma gibi kaydırır — kilitle
+	# Janitor modelinde squash/tilt ışınlanma gibi kaydırır — bloat hariç kilitle
+	var bloat_mul := lerpf(1.0, bloat_max_scale, _bloat)
+	var bloat_scale := Vector3(bloat_mul, lerpf(1.0, 1.12, _bloat), bloat_mul)
 	if has_model:
-		target_squash = Vector3.ONE
+		target_squash = bloat_scale
 		target_spin = 0.0
 		target_hop = 0.0
+	else:
+		target_squash = Vector3(
+			target_squash.x * bloat_scale.x,
+			target_squash.y * bloat_scale.y,
+			target_squash.z * bloat_scale.z
+		)
 
 	_squash = _squash.lerp(target_squash, clampf(10.0 * delta, 0.0, 1.0))
 	_visual_spin = lerpf(_visual_spin, target_spin, clampf(8.0 * delta, 0.0, 1.0))
@@ -788,35 +819,103 @@ func _snap_face(dir: Vector3) -> void:
 	rotation.y = atan2(dir.x, dir.z)
 
 
+func try_set_tool_index(idx: int) -> void:
+	_try_set_tool_index(idx)
+
+
+func _try_set_tool_index(idx: int) -> void:
+	if idx < 0 or idx >= unlocked_tool_count:
+		return
+	if idx == int(ToolKind.MOP) and not allow_mop:
+		return
+	_set_tool(idx as ToolKind)
+
+
+func get_tool_name() -> String:
+	var i := clampi(int(active_tool), 0, TOOL_NAMES.size() - 1)
+	return TOOL_NAMES[i]
+
+
+func get_unlocked_tool_count() -> int:
+	return unlocked_tool_count
+
+
+func get_bloat() -> float:
+	return _bloat
+
+
+func eat_junk() -> void:
+	_bloat = minf(1.0, _bloat + bloat_per_junk)
+	_squash = Vector3(1.4, 0.7, 1.4)
+	_hop_y = 0.25
+	_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.15)
+	fx_burst.emit(&"clean", global_position + Vector3(0, 0.8, 0), 1.1)
+	junk_eaten.emit(global_position)
+
+
 func _set_tool(tool: ToolKind) -> void:
+	var idx := int(tool)
+	if idx < 0 or idx >= unlocked_tool_count:
+		return
 	if tool == ToolKind.MOP and not allow_mop:
 		return
 	if active_tool == tool:
 		return
 	active_tool = tool
-	tool_switched.emit("mop" if tool == ToolKind.MOP else "shovel")
+	tool_switched.emit(get_tool_name())
 	_play_sfx(PrototypeSfx.Kind.SWITCH)
 
 
-func configure_for_level(mop_allowed: bool, dash_charges: int = 1, flashlight: bool = false) -> void:
+func configure_for_level(
+	mop_allowed: bool,
+	dash_charges: int = 1,
+	flashlight: bool = false,
+	unlocked_tools: int = 1,
+) -> void:
 	allow_mop = mop_allowed
+	unlocked_tool_count = clampi(unlocked_tools, 1, TOOL_NAMES.size())
+	if not allow_mop and unlocked_tool_count < 2:
+		# Tutorial: vuruş için fırça slotu yoksa broom/brush yerine en az 1 alet
+		unlocked_tool_count = maxi(1, unlocked_tool_count)
 	_fail_stun = 0.0
 	_potion_silence = 0.0
 	_potion_silence_cd = 0.0
 	_potion_drunk = 0.0
+	_bloat = 0.0
 	if _dancing:
 		_dancing = false
 		dance_changed.emit(false)
 	set_max_dash_charges(dash_charges)
 	set_flashlight_enabled(flashlight)
+	tools_unlocked_changed.emit(unlocked_tool_count)
 	if not allow_mop:
 		_mop_dirt = 0.0
 		mop_dirt_changed.emit(0.0)
-		_set_tool(ToolKind.SHOVEL)
-	elif active_tool == ToolKind.SHOVEL:
-		pass
+		# Tutorial: genel vuruş — unlock 1 iken mop kapalıysa brush yok; mop'u zorla açma
+		if unlocked_tool_count >= 3:
+			_set_tool(ToolKind.BRUSH)
+		elif unlocked_tool_count >= 2:
+			_set_tool(ToolKind.BROOM)
+		else:
+			# Tek alet ama mop yasak — mop'u yine de vuruş için kullan (L1 smash)
+			allow_mop = false
+			active_tool = ToolKind.MOP
+			tool_switched.emit("mop")
 	else:
-		_set_tool(ToolKind.MOP)
+		if int(active_tool) >= unlocked_tool_count:
+			_set_tool(ToolKind.MOP)
+		elif active_tool != ToolKind.MOP:
+			pass
+		else:
+			_set_tool(ToolKind.MOP)
+
+
+func _wrong_tool(needed: String) -> void:
+	wrong_tool_used.emit(needed)
+	status_message.emit("Yanlış alet! (%s)" % needed.capitalize())
+	_swing_cooldown = 0.18
+	_squash = Vector3(1.2, 0.85, 1.2)
+	_play_sfx(PrototypeSfx.Kind.TASK_FAIL, 0.85)
 
 
 ## Emir kaçırınca abartılı negatif juice.
@@ -848,7 +947,7 @@ func _try_interact() -> void:
 	interact_attempted.emit()
 
 	# Kovada durulama (paspas + kirli + boş el)
-	if _held == null and active_tool == ToolKind.MOP and _mop_dirt > 0.01:
+	if _held == null and active_tool == ToolKind.MOP and allow_mop and _mop_dirt > 0.01:
 		var bucket := _find_station(BUCKET_GROUP)
 		if bucket != null:
 			_rinsing = true
@@ -859,22 +958,48 @@ func _try_interact() -> void:
 	if _held != null:
 		if _try_dispose_held():
 			return
-		# Eldeki kutuyu yerdeki kutunun üstüne koy
 		var stack_target := _find_interact_target()
 		if stack_target != null and _try_stack_onto(stack_target):
 			return
 		_try_throw()
 		return
 
-	# Önce leke: sol tık / Space mash ovalama
-	# Ama ★ işaretli taşınabilir emir hedefi varsa onu öncelikle al
-	if _held == null and allow_mop:
+	# Junk food — önce ye
+	var junk := _find_junk_target()
+	if junk != null:
+		_eat_junk_prop(junk)
+		return
+
+	# ★ işaretli taşınabilir emir
+	if _held == null:
 		var marked_box := _find_marked_carry_target()
 		if marked_box != null:
+			if not _can_pick_prop(marked_box):
+				return
 			_pick_up(marked_box)
 			return
+
+	# Wet: önce sprey
+	var spray_tgt := _find_needs_spray_target()
+	if spray_tgt != null:
+		if active_tool != ToolKind.SPRAY:
+			_wrong_tool("spray")
+			return
+		spray_tgt.apply_spray()
+		_swing_cooldown = 0.2
+		_snap_face(spray_tgt.global_position - global_position)
+		_play_sfx(PrototypeSfx.Kind.RINSE, 1.1)
+		fx_burst.emit(&"scrub", spray_tgt.global_position + Vector3(0, 0.3, 0), 0.9)
+		status_message.emit("Sprey OK — şimdi paspas!")
+		return
+
+	# Scrub (mop)
+	if allow_mop:
 		var scrub := _find_scrub_target()
 		if scrub != null:
+			if not scrub.can_interact_with(get_tool_name()):
+				_wrong_tool(scrub.required_tool if not scrub.required_tool.is_empty() else "mop")
+				return
 			_mash_scrub(scrub)
 			return
 
@@ -882,37 +1007,145 @@ func _try_interact() -> void:
 	if prop == null:
 		return
 
+	# Tablo / TV tamir — herhangi alet (fırça L5+ önerilir)
+	if prop.is_repair_target():
+		var done := prop.apply_repair_tap()
+		_swing_cooldown = 0.12
+		_snap_face(prop.global_position - global_position)
+		_squash = Vector3(1.15, 0.88, 1.15)
+		_play_sfx(PrototypeSfx.Kind.HIT, 1.0)
+		fx_burst.emit(&"scrub", prop.global_position + Vector3(0, 0.5, 0), 0.7)
+		if done:
+			_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.15)
+			fx_burst.emit(&"clean", prop.global_position + Vector3(0, 0.55, 0), 1.25)
+			if prop.is_painting:
+				fx_burst.emit(&"dispose", prop.global_position + Vector3(0.15, 0.7, 0), 0.9)
+			item_disposed.emit(prop.prop_id)
+			status_message.emit("Tablo düzeldi!" if prop.is_painting else "TV tamir!")
+		return
+
 	if prop.can_carry and prop.is_carryable():
+		if not _can_pick_prop(prop):
+			return
 		_pick_up(prop)
 		return
 
 	if prop.is_scrub_target():
 		if allow_mop:
+			if not prop.can_interact_with(get_tool_name()):
+				_wrong_tool("mop")
+				return
 			_mash_scrub(prop)
 		return
 
+	# Hit
+	var tool_name := get_tool_name()
+	if not prop.can_interact_with(tool_name):
+		_wrong_tool(prop.required_tool if not prop.required_tool.is_empty() else "brush")
+		return
 	var hit_dir := prop.global_position - global_position
-	var strength := mop_swing_strength if active_tool == ToolKind.MOP else shovel_swing_strength
-	# Kirli paspas daha zayıf vurur
+	var strength := mop_swing_strength
+	var cd := mop_swing_cooldown
+	if active_tool == ToolKind.BRUSH or active_tool == ToolKind.TWEEZERS:
+		strength = brush_swing_strength
+		cd = brush_swing_cooldown
+	elif active_tool == ToolKind.BROOM:
+		strength = 1.1
+		cd = 0.25
+	elif active_tool == ToolKind.SPRAY:
+		strength = 0.85
+		cd = 0.22
 	if active_tool == ToolKind.MOP:
 		strength *= lerpf(1.0, 0.45, _mop_dirt)
-	var tool_name := "mop" if active_tool == ToolKind.MOP else "shovel"
+	# Tutorial mop yasak ama smash için: brush yoksa mop güçlü vursun
+	if not allow_mop and unlocked_tool_count <= 1:
+		strength = brush_swing_strength
+		cd = brush_swing_cooldown
+		tool_name = "brush"
 	prop.apply_hit(prop.global_position, hit_dir, strength, tool_name)
-	_swing_cooldown = mop_swing_cooldown if active_tool == ToolKind.MOP else shovel_swing_cooldown
+	_swing_cooldown = cd
 	_snap_face(hit_dir)
-	# hit anim = hasar tepkisi; araçla vurmada oynatma
 	_squash = Vector3(1.12, 0.88, 1.12)
 	_play_sfx(PrototypeSfx.Kind.HIT, 1.0 + strength * 0.08)
 	fx_burst.emit(&"hit", prop.global_position + Vector3(0, 0.7, 0), strength)
-	if active_tool == ToolKind.MOP:
+	if active_tool == ToolKind.MOP and allow_mop:
 		_add_mop_dirt(mop_dirt_per_hit)
+
+
+func _can_pick_prop(prop: ClutterProp) -> bool:
+	if prop == null:
+		return false
+	if prop.prop_id == "crumb" or prop.required_tool == "broom":
+		if active_tool != ToolKind.BROOM:
+			_wrong_tool("broom")
+			return false
+	if prop.prop_id == "tiny" or prop.required_tool == "tweezers":
+		if active_tool != ToolKind.TWEEZERS and not prop.can_carry:
+			pass
+		elif prop.required_tool == "tweezers" and active_tool != ToolKind.TWEEZERS:
+			# tiny carry: tweezers preferred; allow if no tool lock on carry-only
+			if not prop.required_tool.is_empty() and active_tool != ToolKind.TWEEZERS:
+				_wrong_tool("tweezers")
+				return false
+	return true
+
+
+func _find_junk_target() -> ClutterProp:
+	var best: ClutterProp = null
+	var best_d := 999.0
+	for node in get_tree().get_nodes_in_group(PROP_GROUP):
+		var p := node as ClutterProp
+		if p == null or not p.is_junk():
+			continue
+		var flat := p.global_position - global_position
+		flat.y = 0.0
+		var d := flat.length()
+		if d > swing_range * 0.85:
+			continue
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
+
+
+func _find_needs_spray_target() -> ClutterProp:
+	var best: ClutterProp = null
+	var best_d := 999.0
+	for node in get_tree().get_nodes_in_group(PROP_GROUP):
+		var p := node as ClutterProp
+		if p == null or not p.needs_spray():
+			continue
+		var flat := p.global_position - global_position
+		flat.y = 0.0
+		var d := flat.length()
+		if d > maxf(p.scrub_radius, swing_range * 0.7) + 0.4:
+			continue
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
+
+
+func _eat_junk_prop(prop: ClutterProp) -> void:
+	if prop == null or not prop.is_junk():
+		return
+	var pos := prop.global_position
+	prop.consume_junk()
+	eat_junk()
+	_swing_cooldown = 0.2
+	_snap_face(pos - global_position)
+	status_message.emit("Afiyet! (+puan, şişiyorsun)")
 
 
 func _mash_scrub(prop: ClutterProp) -> void:
 	if prop == null or not prop.is_scrub_target():
 		return
 	if active_tool != ToolKind.MOP:
-		_set_tool(ToolKind.MOP)
+		if unlocked_tool_count >= 1 and allow_mop:
+			_set_tool(ToolKind.MOP)
+		else:
+			_wrong_tool("mop")
+			return
 	var effectiveness := lerpf(1.0, 0.45, _mop_dirt)
 	var cleaned := prop.apply_scrub_tap(effectiveness)
 	_swing_cooldown = scrub_mash_cooldown
@@ -920,7 +1153,6 @@ func _mash_scrub(prop: ClutterProp) -> void:
 	_add_mop_dirt(mop_dirt_per_hit * 0.12)
 	_play_sfx(PrototypeSfx.Kind.HIT, 0.85 + prop.get_scrub_progress() * 0.4)
 	fx_burst.emit(&"scrub", prop.global_position + Vector3(0, 0.25, 0), 0.65 + prop.get_scrub_progress() * 0.55)
-	# Kısa squash — mash hissi
 	_squash = Vector3(1.18, 0.82, 1.18)
 	if cleaned:
 		_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.1)

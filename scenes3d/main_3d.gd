@@ -34,6 +34,7 @@ var _commission: CommissionDirector3D
 var _commission_card: CommissionCardUI
 var _commission_info: Label
 var _hazards: HazardDirector
+var _junk_rain: JunkRain3D
 var _curses: CurseDirector3D
 var _curse_label: Label
 var _hard_mode_btn: Button
@@ -43,6 +44,8 @@ var _score: ScoreTracker3D
 var _score_label: Label
 var _result_ui: RunResultUI
 var _fail_overlay: Control
+var _tool_bar: HBoxContainer
+var _tool_bar_buttons: Array[Button] = []
 var _daily_mode: bool = false
 var _pending_next_level: int = -1
 var _level_index: int = 0
@@ -81,6 +84,10 @@ func _ready() -> void:
 		_player.dance_changed.connect(_on_dance_changed)
 		_player.fx_burst.connect(_on_fx_burst)
 		_player.forbidden_touched.connect(_on_forbidden_touched)
+		_player.tool_switched.connect(_on_tool_switched)
+		_player.tools_unlocked_changed.connect(_on_tools_unlocked)
+		_player.junk_eaten.connect(_on_junk_eaten)
+		_player.wrong_tool_used.connect(_on_wrong_tool)
 		if _player.has_signal("status_message"):
 			_player.status_message.connect(_on_player_status_message)
 
@@ -177,6 +184,11 @@ func _setup_tempo_and_tasks() -> void:
 	_hazards.furniture_shifted.connect(_on_hazard_furniture)
 	if _player != null:
 		_player.floor_scrubbed.connect(_on_floor_scrubbed)
+
+	_junk_rain = JunkRain3D.new()
+	_junk_rain.name = "JunkRain3D"
+	add_child(_junk_rain)
+	_junk_rain.setup($World as Node3D, _tempo)
 
 	_curses = CurseDirector3D.new()
 	_curses.name = "CurseDirector3D"
@@ -285,6 +297,8 @@ func start_level(index: int, daily: bool = false) -> void:
 	if _room_timer != null:
 		_room_timer.stop()
 	_set_time_label_visible(false)
+	if _junk_rain != null:
+		_junk_rain.stop_session()
 	if _player != null:
 		_player.global_position = Vector3(0.0, 0.9, 2.0)
 		_player.velocity = Vector3.ZERO
@@ -312,6 +326,7 @@ func start_level(index: int, daily: bool = false) -> void:
 	_apply_theme(spec)
 	var mop_ok := bool(spec.get("allow_mop", true))
 	var dash_charges := 2 if _level_index >= 5 else 1
+	var unlocked_tools := LevelData3D.unlocked_tools_for(_level_index)
 	var want_flashlight := (
 		String(spec.get("id", "")) == "dark"
 		or int(spec.get("commission", {}).get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY
@@ -319,9 +334,10 @@ func start_level(index: int, daily: bool = false) -> void:
 	_stop_vignette_active = false
 	_apply_dark_room_lighting(want_flashlight)
 	if _player != null:
-		_player.configure_for_level(mop_ok, dash_charges, want_flashlight)
+		_player.configure_for_level(mop_ok, dash_charges, want_flashlight, unlocked_tools)
 	if _mop_label != null:
 		_mop_label.visible = mop_ok
+	_refresh_tool_bar()
 	if _level_label != null:
 		_level_label.text = String(spec.get("name", "Seviye"))
 	_refresh_hint()
@@ -374,6 +390,14 @@ func start_level(index: int, daily: bool = false) -> void:
 		if not no_hazards:
 			_hazards.setup(_player, _stress, _spawner, $World as Node3D, _tempo)
 			_hazards.start_session(_level_index, mop_ok)
+	if _junk_rain != null:
+		var no_junk := is_tutorial or bool(spec.get("disable_junk", false)) \
+			or not bool(spec.get("allow_junk", not is_tutorial))
+		if no_junk:
+			_junk_rain.stop_session()
+		else:
+			_junk_rain.setup($World as Node3D, _tempo)
+			_junk_rain.start_session()
 	# Günlük lanet — tutorial'da kapalı
 	if _curses != null:
 		var no_curses := is_tutorial or bool(spec.get("disable_curses", false))
@@ -518,6 +542,8 @@ func _on_room_time_expired() -> void:
 		_micro.stop_session()
 	if _hazards != null:
 		_hazards.stop_session()
+	if _junk_rain != null:
+		_junk_rain.stop_session()
 	if _spawner != null:
 		_spawner.stop_pressure()
 	if _music != null:
@@ -1124,6 +1150,8 @@ func _on_level_cleared() -> void:
 	if _room_timer != null:
 		_room_timer.stop()
 	_set_time_label_visible(false)
+	if _junk_rain != null:
+		_junk_rain.stop_session()
 	if _tempo != null:
 		_tempo.stop_room()
 	if _micro != null:
@@ -1329,6 +1357,30 @@ func _setup_hud() -> void:
 	_combo_label.modulate = Color(0.6, 0.65, 0.7)
 	ui.add_child(_combo_label)
 
+	_tool_bar = HBoxContainer.new()
+	_tool_bar.name = "ToolBar"
+	_tool_bar.offset_left = 24.0
+	_tool_bar.offset_top = 232.0
+	_tool_bar.offset_right = 420.0
+	_tool_bar.offset_bottom = 278.0
+	_tool_bar.add_theme_constant_override("separation", 6)
+	ui.add_child(_tool_bar)
+	_tool_bar_buttons.clear()
+	for i in 5:
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(52, 40)
+		b.focus_mode = Control.FOCUS_NONE
+		b.toggle_mode = true
+		var idx := i
+		b.pressed.connect(func() -> void:
+			if _player != null:
+				_player.try_set_tool_index(idx)
+			_refresh_tool_bar()
+		)
+		_tool_bar.add_child(b)
+		_tool_bar_buttons.append(b)
+	_refresh_tool_bar()
+
 	_time_label = Label.new()
 	_time_label.name = "RoomTimeLabel"
 	_time_label.anchor_left = 0.5
@@ -1482,6 +1534,8 @@ func _show_menu(open: bool) -> void:
 		if _room_timer != null:
 			_room_timer.stop()
 		_set_time_label_visible(false)
+		if _junk_rain != null:
+			_junk_rain.stop_session()
 		if _tempo != null:
 			_tempo.stop_room()
 		if _micro != null:
@@ -1638,6 +1692,58 @@ func _on_item_disposed(_prop_id: String) -> void:
 func _on_prop_cleared() -> void:
 	if _room_timer != null and _room_timer.is_active():
 		_room_timer.on_clean()
+
+
+func _on_tool_switched(_tool_name: String) -> void:
+	_refresh_tool_bar()
+
+
+func _on_tools_unlocked(_count: int) -> void:
+	_refresh_tool_bar()
+
+
+func _refresh_tool_bar() -> void:
+	if _tool_bar == null:
+		return
+	var unlocked := 1
+	var active := 0
+	if _player != null:
+		unlocked = _player.get_unlocked_tool_count()
+		active = int(_player.active_tool)
+	for i in _tool_bar_buttons.size():
+		var b := _tool_bar_buttons[i]
+		var open := i < unlocked
+		b.visible = open
+		b.disabled = not open
+		if open:
+			b.text = "%d %s" % [i + 1, PlayerCharacter3D.TOOL_ICONS[i]]
+			b.tooltip_text = PlayerCharacter3D.TOOL_LABELS[i]
+			b.button_pressed = (i == active)
+			b.modulate = Color(1.0, 0.95, 0.55) if i == active else Color(0.75, 0.78, 0.82)
+
+
+func _on_junk_eaten(world_pos: Vector3) -> void:
+	if _score != null:
+		_score.on_junk()
+	if _room_timer != null and _room_timer.is_active():
+		_room_timer.on_clean()
+	_spawn_pop("+80 🍔", Color(1.0, 0.75, 0.35), 72)
+	if _camera_rig != null:
+		_camera_rig.punch_fov(4.0)
+		_camera_rig.shake(0.45)
+	if _stress != null:
+		_stress.reduce_stress(6.0)
+		_stress.add_delayed_stress(14.0, 1.8)
+	if _particles != null:
+		_particles.burst(&"clean", world_pos + Vector3(0, 0.8, 0), 1.2)
+	if _hint != null:
+		_hint.text = "Afiyet! Şişiyorsun… birazdan sugar crash"
+
+
+func _on_wrong_tool(_needed: String) -> void:
+	if _stress != null:
+		_stress.add_stress(4.0)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.8)
 
 
 func _on_floor_scrubbed(world_pos: Vector3) -> void:

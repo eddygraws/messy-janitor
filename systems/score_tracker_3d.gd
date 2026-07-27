@@ -55,6 +55,12 @@ func on_dispose() -> void:
 	_add(40)
 
 
+func on_junk() -> void:
+	if not _active:
+		return
+	_add(80)
+
+
 func on_task_ok(combo: int) -> void:
 	if not _active:
 		return
