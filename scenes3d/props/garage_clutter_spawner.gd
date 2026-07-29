@@ -27,6 +27,7 @@ var _boss_mode: String = ""
 var _soft_pressure: bool = false
 var _sections: Array = []
 var _section_index: int = 0
+var _painting_spawn_i: int = 0
 
 
 func _ready() -> void:
@@ -127,6 +128,7 @@ func load_level(index: int) -> Dictionary:
 func populate_from_spec(spec: Dictionary) -> void:
 	_cleared = false
 	_level_spec = spec.duplicate(true)
+	_painting_spawn_i = 0
 	_clear_children()
 	_objective_total = 0
 	_sections = (spec.get("sections", []) as Array).duplicate(true)
@@ -347,7 +349,9 @@ func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
 		"tv_repair":
 			_add_repair_tv(pos, _rng.randf_range(-0.6, 0.6))
 		"painting":
-			_add_crooked_painting()
+			var wall := "back" if (_painting_spawn_i % 2) == 0 else "left"
+			_painting_spawn_i += 1
+			_add_crooked_painting(wall)
 		"mold":
 			_add_blob(pos, "mold", Color(0.35, 0.7, 0.3), 3, true, "", 1.0, false, "mop")
 		"crumb":
@@ -915,8 +919,15 @@ func _add_repair_tv(pos: Vector3, yaw: float) -> void:
 	pivot.add_child(tag)
 
 
-func _add_crooked_painting() -> void:
-	var on_back := _rng.randf() > 0.45
+func _add_crooked_painting(force_wall: String = "") -> void:
+	var on_back: bool
+	if force_wall == "back":
+		on_back = true
+	elif force_wall == "left":
+		on_back = false
+	else:
+		on_back = _rng.randf() > 0.45
+
 	var root := ClutterPropScript.new()
 	root.name = "Painting"
 	root.prop_id = "painting"
@@ -927,8 +938,8 @@ func _add_crooked_painting() -> void:
 	root.can_carry = false
 	root.repair_taps_needed = 4
 	root.required_tool = ""
-	root.max_hit_distance = 4.2
-	root.react_distance = 3.5
+	root.max_hit_distance = 5.5
+	root.react_distance = 4.5
 	root.set_meta("objective", true)
 
 	var pivot := Node3D.new()
@@ -942,45 +953,54 @@ func _add_crooked_painting() -> void:
 
 	var frame := MeshInstance3D.new()
 	var frame_mesh := BoxMesh.new()
-	frame_mesh.size = Vector3(1.15, 0.85, 0.08)
+	frame_mesh.size = Vector3(1.6, 1.15, 0.1)
 	frame.mesh = frame_mesh
-	frame.material_override = HitWobbleMaterial.create(Color(0.35, 0.22, 0.12), 0.95, Color.BLACK, 0.0, 0.04)
+	frame.material_override = HitWobbleMaterial.create(
+		Color(0.55, 0.32, 0.14), 0.9, Color(0.9, 0.55, 0.2), 0.35, 0.02, true, 0.025
+	)
 	pivot.add_child(frame)
 
 	var canvas := MeshInstance3D.new()
 	var canvas_mesh := BoxMesh.new()
-	canvas_mesh.size = Vector3(0.95, 0.68, 0.03)
+	canvas_mesh.size = Vector3(1.35, 0.95, 0.05)
 	canvas.mesh = canvas_mesh
 	var hues := [
-		Color(0.75, 0.45, 0.35), Color(0.4, 0.55, 0.75), Color(0.55, 0.7, 0.4), Color(0.7, 0.55, 0.75)
+		Color(0.95, 0.45, 0.35), Color(0.35, 0.7, 0.95), Color(0.55, 0.9, 0.4), Color(0.9, 0.55, 0.95)
 	]
+	var col: Color = hues[_rng.randi_range(0, hues.size() - 1)]
 	canvas.material_override = HitWobbleMaterial.create(
-		hues[_rng.randi_range(0, hues.size() - 1)], 0.9, Color.BLACK, 0.0, 0.03)
-	canvas.position = Vector3(0, 0, 0.04)
+		col, 0.85, col.lightened(0.2), 0.55, 0.02, true, 0.02
+	)
+	canvas.position = Vector3(0, 0, 0.08)
 	pivot.add_child(canvas)
 
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(1.15, 0.85, 0.2)
+	box.size = Vector3(1.6, 1.15, 0.35)
 	shape.shape = box
 	body.add_child(shape)
 
-	var tilt := deg_to_rad(_rng.randf_range(12.0, 25.0) * (1.0 if _rng.randf() > 0.5 else -1.0))
+	var tilt := deg_to_rad(_rng.randf_range(14.0, 28.0) * (1.0 if _rng.randf() > 0.5 else -1.0))
 	pivot.rotation.z = tilt
 
 	var tag := Label3D.new()
 	tag.text = "YAMUK"
-	tag.font_size = 42
-	tag.modulate = Color(1.0, 0.85, 0.4)
-	tag.position = Vector3(0.0, 0.65, 0.12)
+	tag.font_size = 72
+	tag.modulate = Color(1.0, 0.9, 0.25)
+	tag.outline_size = 10
+	tag.outline_modulate = Color(0, 0, 0, 0.95)
+	tag.position = Vector3(0.0, 0.85, 0.2)
 	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	tag.no_depth_test = true
 	pivot.add_child(tag)
 
+	# Odaya doğru yerleştir (duvarın iç yüzü)
 	if on_back:
-		root.position = Vector3(_rng.randf_range(-5.5, 5.5), 1.65, -6.45)
+		root.position = Vector3(_rng.randf_range(-4.5, 4.5), 1.85, -6.15)
+		root.rotation.y = 0.0
 	else:
-		root.position = Vector3(-8.75, 1.65, _rng.randf_range(-3.5, 3.5))
-		root.rotation.y = deg_to_rad(90.0)
+		root.position = Vector3(-8.35, 1.85, _rng.randf_range(-3.2, 3.2))
+		root.rotation.y = deg_to_rad(-90.0)
 
 	add_child(root)
 	root.call_deferred("_cache_painting_tilt")

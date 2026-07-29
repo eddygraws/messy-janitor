@@ -52,7 +52,7 @@ var _level_index: int = 0
 var _highest_unlocked: int = 1
 var _menu_open: bool = false
 var _level_failing: bool = false
-var _save_path := "user://messy3d_progress.cfg"
+var _save_path := "user://messy3d_progress_v2.cfg"
 var _arcade_void_mat: ShaderMaterial
 var _arcade_void: MeshInstance3D
 var _section_hint: String = ""
@@ -64,6 +64,12 @@ var _stop_vignette_active: bool = false
 
 
 func _ready() -> void:
+	# Eski 10'lu kampanya kaydı → yumuşak reset (yeni filler temposuna uyum)
+	if not FileAccess.file_exists(_save_path) and FileAccess.file_exists("user://messy3d_progress.cfg"):
+		var old := ConfigFile.new()
+		if old.load("user://messy3d_progress.cfg") == OK:
+			_highest_unlocked = clampi(int(old.get_value("progress", "unlocked", 1)), 1, 3)
+			_save_progress()
 	_load_progress()
 	if _camera_rig != null and _player != null:
 		_camera_rig.set_follow(_player)
@@ -325,7 +331,7 @@ func start_level(index: int, daily: bool = false) -> void:
 		spec = _spawner.load_level(_level_index)
 	_apply_theme(spec)
 	var mop_ok := bool(spec.get("allow_mop", true))
-	var dash_charges := 2 if _level_index >= 5 else 1
+	var dash_charges := LevelData3D.dash_charges_for(_level_index)
 	var unlocked_tools := LevelData3D.unlocked_tools_for(_level_index)
 	var want_flashlight := (
 		String(spec.get("id", "")) == "dark"
@@ -1500,9 +1506,9 @@ func _setup_menu() -> void:
 	_menu.add_child(scroll)
 
 	_level_grid = GridContainer.new()
-	_level_grid.columns = 2
-	_level_grid.add_theme_constant_override("h_separation", 14)
-	_level_grid.add_theme_constant_override("v_separation", 12)
+	_level_grid.columns = 3
+	_level_grid.add_theme_constant_override("h_separation", 10)
+	_level_grid.add_theme_constant_override("v_separation", 8)
 	scroll.add_child(_level_grid)
 	_rebuild_level_buttons()
 
@@ -1513,7 +1519,7 @@ func _rebuild_level_buttons() -> void:
 	for i in LevelData3D.level_count():
 		var info: Dictionary = LevelData3D.get_level(i)
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(400, 72)
+		btn.custom_minimum_size = Vector2(260, 64)
 		btn.focus_mode = Control.FOCUS_NONE
 		var unlocked := (i + 1) <= _highest_unlocked
 		btn.disabled = not unlocked
