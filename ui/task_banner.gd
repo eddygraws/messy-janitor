@@ -101,7 +101,8 @@ func _ready() -> void:
 	_timer_bar.custom_minimum_size = Vector2(_bar_width, 10)
 	_timer_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_timer_bar.visible = false
-	vbox.add_child(_timer_bar)
+	# Timer sağ altta (main_3d) — banner'da bar göstermiyoruz
+	# vbox.add_child(_timer_bar) — kasıtlı olarak eklenmedi
 
 	_timer_fill = ColorRect.new()
 	_timer_fill.name = "TimerBarFill"
@@ -138,13 +139,13 @@ func show_task(text: String, color: Color, subtitle: String = "", special: Strin
 	_label.add_theme_color_override("font_color", color)
 	_sub.text = subtitle
 	_sub.add_theme_color_override("font_color", Color(0.95, 0.95, 0.98))
-	_timer_bar.visible = true
+	_timer_bar.visible = false
 	_timer_fill.color = color
 	_timer_fill.size = Vector2(_bar_width, 10)
 	var style := _panel.get_theme_stylebox("panel") as StyleBoxFlat
 	if style != null:
 		style = style.duplicate() as StyleBoxFlat
-		if special == "stop":
+		if special == "stop" or special == "stop_warn":
 			style.bg_color = Color(0.55, 0.04, 0.08, 0.88)
 			_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.95))
 			_sub.add_theme_color_override("font_color", Color(1.0, 0.75, 0.75))
@@ -153,7 +154,8 @@ func show_task(text: String, color: Color, subtitle: String = "", special: Strin
 		_panel.add_theme_stylebox_override("panel", style)
 	_bar_width = 360.0
 	_panel.modulate = Color(1, 1, 1, 0)
-	_panel.scale = Vector2(1.12 if special == "stop" else 1.08, 1.12 if special == "stop" else 1.08)
+	var punch := special == "stop" or special == "stop_warn"
+	_panel.scale = Vector2(1.12 if punch else 1.08, 1.12 if punch else 1.08)
 	_panel.pivot_offset = Vector2(260, 66)
 	if _tween != null and _tween.is_valid():
 		_tween.kill()

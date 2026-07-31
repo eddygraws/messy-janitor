@@ -8,6 +8,7 @@ uniform sampler2D albedo_texture : source_color, hint_default_white, filter_line
 uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform bool use_normal_map = false;
 uniform vec2 uv_tiling = vec2(1.0, 1.0);
+uniform vec2 uv_offset = vec2(0.0, 0.0);
 
 uniform int shade_bands : hint_range(2, 6) = 3;
 uniform vec3 shadow_color : source_color = vec3(0.22, 0.20, 0.32);
@@ -27,7 +28,7 @@ uniform float ambient_boost : hint_range(0.0, 0.5) = 0.08;
 varying vec2 v_uv;
 
 void vertex() {
-	v_uv = UV * uv_tiling;
+	v_uv = UV * uv_tiling + uv_offset;
 }
 
 void fragment() {

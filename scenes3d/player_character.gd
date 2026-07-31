@@ -1157,8 +1157,10 @@ func _mash_scrub(prop: ClutterProp) -> void:
 	if cleaned:
 		_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.1)
 		fx_burst.emit(&"clean", prop.global_position + Vector3(0, 0.4, 0), 1.15)
+		# Mash bitişi → kaygan ıslak iz (hazard); sürükleme temizliği iz bırakmaz
 		floor_scrubbed.emit(prop.global_position)
 		item_disposed.emit(prop.prop_id)
+		status_message.emit("Hızlı silindi — zemin kaygan!")
 
 
 func _try_throw() -> void:
@@ -1288,7 +1290,7 @@ func _update_bucket_rinse(delta: float) -> void:
 		fx_burst.emit(&"rinse", global_position + Vector3(0, 0.5, 0), 1.0)
 
 
-## Paspasla sıvı ovalama: mash (tık) ana yol; basılı tut + hareket bonus.
+## Paspasla sıvı ovalama (Viscera): basılı tut + yürü = silme izi; Space mash = hızlı + kaygan iz.
 func _update_mop_scrub(delta: float) -> void:
 	if _held != null or not allow_mop or active_tool != ToolKind.MOP:
 		return
@@ -1304,16 +1306,23 @@ func _update_mop_scrub(delta: float) -> void:
 		motion = maxf(motion, dash_speed * delta * 0.85)
 	if motion < 0.008:
 		return
-	var effectiveness := lerpf(1.0, 0.4, _mop_dirt)
-	var cleaned := prop.apply_scrub(motion * 1.35, effectiveness)
-	_add_mop_dirt(mop_dirt_per_hit * 0.18 * clampf(motion * 4.0, 0.35, 1.2))
+	var effectiveness := lerpf(1.0, 0.5, _mop_dirt)
+	var cleaned := false
+	if prop.liquid_wipe:
+		# Alan kirle küçülmesin — kir sadece gücü düşürür
+		var stamp_r := clampf(0.55 + motion * 3.2, 0.5, 0.95)
+		var stamp_s := clampf(0.24 + motion * 3.6, 0.2, 0.52) * effectiveness
+		cleaned = prop.apply_scrub_stamp(global_position, stamp_r, stamp_s)
+	else:
+		cleaned = prop.apply_scrub(motion * 1.35, effectiveness)
+	_add_mop_dirt(mop_dirt_per_hit * 0.12 * clampf(motion * 3.5, 0.3, 1.0))
 	if Engine.get_physics_frames() % 8 == 0:
 		_play_sfx(PrototypeSfx.Kind.HIT, 0.75 + prop.get_scrub_progress() * 0.35)
 		fx_burst.emit(&"scrub", prop.global_position + Vector3(0, 0.25, 0), 0.55 + prop.get_scrub_progress() * 0.5)
 	if cleaned:
 		_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.1)
 		fx_burst.emit(&"clean", prop.global_position + Vector3(0, 0.4, 0), 1.15)
-		floor_scrubbed.emit(prop.global_position)
+		# Viscera sürükleme: temiz bitti, kayganlık yok
 		item_disposed.emit(prop.prop_id)
 
 
@@ -1329,7 +1338,7 @@ func _find_scrub_target() -> ClutterProp:
 		flat.y = 0.0
 		var dist := flat.length()
 		# Yakın leke: bakış gerekmez; biraz uzakta yan yaklaşma OK
-		var reach := prop.scrub_radius + 0.85
+		var reach := prop.scrub_radius + 1.35
 		if dist > reach:
 			continue
 		if dist > close_magnet_range:

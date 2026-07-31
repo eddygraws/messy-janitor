@@ -34,6 +34,8 @@ signal merged_into(host: ClutterProp)
 @export var is_junk_food: bool = false
 @export var is_painting: bool = false
 @export var needs_spray_first: bool = false ## wet: önce sprey, sonra paspas
+## Viscera silme izi — scrub mask stamp (smear yok)
+@export var liquid_wipe: bool = false
 
 ## Oda sınırı — duvardan biraz içeride (köşeye yığılmayı azaltır).
 const ROOM_HALF_X := 7.7
@@ -73,6 +75,8 @@ var _repair_taps: int = 0
 var _sprayed: bool = false
 var _tilt_rest: Vector3 = Vector3.ZERO
 var _repaired: bool = false
+var _wipe_mask: LiquidScrubMask3D
+var _wipe_half: float = 1.0
 
 
 func _ready() -> void:
@@ -333,6 +337,8 @@ func _strip_yamuk_labels(node: Node) -> void:
 
 
 func get_scrub_progress() -> float:
+	if liquid_wipe and _wipe_mask != null:
+		return _wipe_mask.get_wipe_ratio()
 	return _scrub_progress
 
 
@@ -343,14 +349,47 @@ func apply_scrub(motion_meters: float, effectiveness: float = 1.0) -> bool:
 		return false
 	if motion_meters < 0.004:
 		return false
+	if liquid_wipe:
+		return false  # stamp yolu: apply_scrub_stamp
 	var gain := motion_meters * clampf(effectiveness, 0.2, 1.5) / maxf(scrub_work_needed, 0.2)
 	return _add_scrub_progress(gain)
+
+
+## Silme izi: dünya noktasında maskeye damga. cleaned=true → leke bitti.
+func apply_scrub_stamp(world_pos: Vector3, radius_m: float, strength: float) -> bool:
+	if not is_scrub_target() or not liquid_wipe or _wipe_mask == null:
+		return false
+	var ratio := _wipe_mask.stamp_world(world_pos, radius_m, strength)
+	_scrub_progress = ratio
+	_update_scrub_ring()
+	if ratio >= 0.9:
+		_scrub_progress = 1.0
+		_destroy_from_hits()
+		return true
+	return false
+
+
+func setup_liquid_wipe(mesh: MeshInstance3D, albedo: Texture2D, half_extent: float, tint: Color = Color.WHITE) -> void:
+	liquid_wipe = true
+	_wipe_half = half_extent
+	_wipe_mask = LiquidScrubMask3D.new()
+	_wipe_mask.setup(mesh, albedo, half_extent, tint)
+	# Scale-dissolve kapalı — sadece maske
+	_scrub_base_scale = scale
 
 
 ## Sol tık / Space mash — her basışta ilerleme.
 func apply_scrub_tap(effectiveness: float = 1.0) -> bool:
 	if not is_scrub_target():
 		return false
+	if liquid_wipe and _wipe_mask != null:
+		# Mash: leke merkezine daha geniş damga (kaygan iz ayrı player tarafında)
+		var at := global_position
+		if _player != null:
+			at = _player.global_position
+		var r := clampf(_wipe_half * 0.42, 0.4, 0.95)
+		var s := clampf(0.34 * effectiveness, 0.2, 0.52)
+		return apply_scrub_stamp(at, r, s)
 	# scrub_work_needed ~2.8 → ~7 tık; boss ~7.5 → ~16 tık
 	var taps := clampf(scrub_work_needed / 0.42, 4.0, 20.0)
 	var gain := (1.0 / taps) * clampf(effectiveness, 0.25, 1.35)
@@ -358,6 +397,8 @@ func apply_scrub_tap(effectiveness: float = 1.0) -> bool:
 
 
 func _add_scrub_progress(gain: float) -> bool:
+	if liquid_wipe:
+		return false
 	_scrub_progress = minf(1.0, _scrub_progress + gain)
 	_update_scrub_visual()
 	if _scrub_progress >= 1.0:
@@ -367,6 +408,9 @@ func _add_scrub_progress(gain: float) -> bool:
 
 
 func _update_scrub_visual() -> void:
+	if liquid_wipe:
+		_update_scrub_ring()
+		return
 	var remain := 1.0 - _scrub_progress
 	scale = _scrub_base_scale * Vector3(
 		lerpf(0.35, 1.0, remain),

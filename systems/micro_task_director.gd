@@ -8,6 +8,8 @@ signal task_issued(task_type: String, duration: float, color: Color)
 signal task_succeeded(task_type: String)
 signal task_failed(task_type: String)
 signal task_cleared
+## DUR! verilmeden önce 3 → 2 → 1 (saniye kalan).
+signal stop_countdown_tick(seconds_left: int)
 
 const TASK_THROW := "throw"
 const TASK_SCRUB := "scrub"
@@ -56,6 +58,10 @@ var _timing_base_interval: float = 9.0
 var _timing_base_duration: float = 3.6
 var _timing_base_min: float = 2.6
 var _timing_base_max: float = 3.8
+var _stop_countdown: float = -1.0
+var _stop_countdown_shown: int = -1
+var _pending_stop_duration: float = 3.2
+const STOP_COUNTDOWN_SECONDS := 3.0
 
 
 func setup(tempo: TempoPhaseDirector, spawner: Node, player: Node = null) -> void:
@@ -157,6 +163,7 @@ func _bind_player() -> void:
 
 func start_session() -> void:
 	_clear_task(false)
+	_cancel_stop_countdown()
 	_running = true
 	_cooldown = first_task_delay
 	_last_types.clear()
@@ -165,7 +172,24 @@ func start_session() -> void:
 
 func stop_session() -> void:
 	_running = false
+	_cancel_stop_countdown()
 	_clear_task(false)
+
+
+func is_stop_countdown_active() -> bool:
+	return _stop_countdown >= 0.0
+
+
+func get_stop_countdown_left() -> float:
+	return maxf(0.0, _stop_countdown)
+
+
+func get_task_time_left() -> float:
+	return maxf(0.0, _task_time_left)
+
+
+func get_active_task_type() -> String:
+	return String(_active.get("type", ""))
 
 
 func _on_phase_changed(phase: int) -> void:
@@ -178,6 +202,9 @@ func _on_phase_changed(phase: int) -> void:
 
 func _process(delta: float) -> void:
 	if not enabled or not _running:
+		return
+	if _stop_countdown >= 0.0:
+		_update_stop_countdown(delta)
 		return
 	if not _active.is_empty():
 		_task_time_left -= delta
@@ -205,6 +232,30 @@ func _process(delta: float) -> void:
 		_try_issue_task()
 
 
+func _update_stop_countdown(delta: float) -> void:
+	_stop_countdown -= delta
+	var shown := maxi(1, int(ceil(_stop_countdown)))
+	if _stop_countdown <= 0.0:
+		_stop_countdown = -1.0
+		_stop_countdown_shown = -1
+		_begin_stop_task(_pending_stop_duration)
+		return
+	if shown != _stop_countdown_shown:
+		_stop_countdown_shown = shown
+		stop_countdown_tick.emit(shown)
+
+
+func _cancel_stop_countdown() -> void:
+	_stop_countdown = -1.0
+	_stop_countdown_shown = -1
+	_pending_stop_duration = 0.0
+
+
+func _begin_stop_task(duration: float) -> void:
+	_stop_grace = 0.45
+	_commit_active(TASK_STOP, duration)
+
+
 func _on_player_disposed(_prop_id: String) -> void:
 	if _active.is_empty():
 		return
@@ -220,6 +271,8 @@ func _on_player_interact() -> void:
 
 
 func get_time_ratio() -> float:
+	if _stop_countdown >= 0.0:
+		return clampf(_stop_countdown / STOP_COUNTDOWN_SECONDS, 0.0, 1.0)
 	if _active.is_empty():
 		return 0.0
 	var dur := float(_active.get("duration", task_duration))
@@ -227,7 +280,7 @@ func get_time_ratio() -> float:
 
 
 func has_active_task() -> bool:
-	return not _active.is_empty()
+	return not _active.is_empty() or _stop_countdown >= 0.0
 
 
 func _try_issue_task() -> void:
@@ -359,9 +412,11 @@ func _issue(task_type: String, duration: float) -> bool:
 			_commit_active(task_type, duration)
 			return true
 		TASK_STOP:
-			# Hedef yok — dokunmama
-			_stop_grace = 0.45
-			_commit_active(task_type, duration)
+			# 3-2-1 uyarı, sonra DUR! (hedef yok — dokunmama)
+			_pending_stop_duration = duration
+			_stop_countdown = STOP_COUNTDOWN_SECONDS
+			_stop_countdown_shown = 3
+			stop_countdown_tick.emit(3)
 			return true
 		TASK_ALL:
 			# Kısa sürede bitirilebilir hedef sayısı

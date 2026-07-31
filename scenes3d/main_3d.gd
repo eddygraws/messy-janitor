@@ -123,6 +123,7 @@ func _setup_tempo_and_tasks() -> void:
 	_micro.task_succeeded.connect(_on_task_succeeded)
 	_micro.task_failed.connect(_on_task_failed)
 	_micro.task_cleared.connect(_on_task_cleared)
+	_micro.stop_countdown_tick.connect(_on_stop_countdown_tick)
 
 	if _spawner != null:
 		_spawner.bind_tempo(_tempo)
@@ -244,6 +245,7 @@ func _process(_delta: float) -> void:
 		_banner.set_time_ratio(_micro.get_time_ratio())
 	elif _banner != null and _tutorial_banner_sticky:
 		_banner.set_time_ratio(1.0)
+	_update_corner_timer()
 	_update_phase_progress_hud()
 	if _music != null and _tempo != null and _tempo.is_running():
 		_music.set_intensity(_tempo.get_elapsed_ratio())
@@ -342,12 +344,14 @@ func start_level(index: int, daily: bool = false) -> void:
 	if _player != null:
 		_player.configure_for_level(mop_ok, dash_charges, want_flashlight, unlocked_tools)
 	if _mop_label != null:
-		_mop_label.visible = mop_ok
+		_mop_label.visible = false
 	_refresh_tool_bar()
 	if _level_label != null:
+		_level_label.visible = false
 		_level_label.text = String(spec.get("name", "Seviye"))
 	_refresh_hint()
 	if _hint != null:
+		_hint.visible = false
 		_hint.text = String(spec.get("tutorial", _hint.text))
 	_on_mop_dirt_changed(_player.get_mop_dirt() if _player != null else 0.0)
 
@@ -507,22 +511,71 @@ func _set_time_label_visible(vis: bool) -> void:
 
 
 func _on_room_time_changed(seconds_left: float) -> void:
+	# DUR geri sayımı / emir süresi köşe timer'ı eziyor
+	if _micro != null and (
+		_micro.is_stop_countdown_active()
+		or String(_micro.get_active_task_type()) == MicroTaskDirector.TASK_STOP
+	):
+		return
 	if _time_label == null:
 		return
 	if not _room_timer.is_active() and seconds_left <= 0.0 and not _room_timer.is_expired():
 		_time_label.visible = false
 		return
+	_show_corner_timer_clock(seconds_left)
+
+
+func _show_corner_timer_clock(seconds_left: float) -> void:
+	if _time_label == null:
+		return
 	_time_label.visible = true
+	_time_label.add_theme_font_size_override("font_size", 64)
 	var total := int(ceil(seconds_left))
 	var mins := total / 60
 	var secs := total % 60
-	_time_label.text = "⏱ %d:%02d" % [mins, secs]
+	_time_label.text = "%d:%02d" % [mins, secs]
 	if seconds_left <= 8.0:
 		_time_label.modulate = Color(1.0, 0.35, 0.3)
 	elif seconds_left <= 15.0:
 		_time_label.modulate = Color(1.0, 0.75, 0.35)
 	else:
 		_time_label.modulate = Color(0.95, 0.92, 0.55)
+
+
+func _update_corner_timer() -> void:
+	if _time_label == null or _micro == null:
+		return
+	if _micro.is_stop_countdown_active():
+		var n := maxi(1, int(ceil(_micro.get_stop_countdown_left())))
+		_show_corner_countdown(n)
+		return
+	if String(_micro.get_active_task_type()) == MicroTaskDirector.TASK_STOP:
+		_show_corner_countdown(maxi(0, int(ceil(_micro.get_task_time_left()))))
+		return
+	if _room_timer != null and _room_timer.is_active():
+		if not _time_label.visible:
+			_show_corner_timer_clock(_room_timer.get_seconds_left())
+
+
+func _show_corner_countdown(n: int) -> void:
+	if _time_label == null:
+		return
+	_time_label.visible = true
+	_time_label.add_theme_font_size_override("font_size", 120)
+	_time_label.text = str(n)
+	_time_label.modulate = Color(1.0, 0.25, 0.28) if n <= 1 else Color(1.0, 0.55, 0.35)
+
+
+func _on_stop_countdown_tick(seconds_left: int) -> void:
+	_show_corner_countdown(seconds_left)
+	if _banner != null:
+		_banner.show_task(
+			"HAZIR OL",
+			Color(1.0, 0.35, 0.4),
+			"DUR geliyor — %d" % seconds_left,
+			"stop_warn"
+		)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK, 0.75 + 0.08 * float(4 - seconds_left))
 
 
 func _on_room_time_delta(amount: float) -> void:
@@ -912,6 +965,9 @@ func _on_combo_milestone(combo: int) -> void:
 
 
 func _on_task_cleared() -> void:
+	# DUR bitti → oda süresine dön
+	if _room_timer != null and _room_timer.is_active():
+		_show_corner_timer_clock(_room_timer.get_seconds_left())
 	# Tutorial tempo bölümünde emir aralarında öğretici şeridi geri getir
 	if not LevelData3D.is_tutorial_level(_level_index):
 		return
@@ -941,11 +997,14 @@ func _apply_theme(spec: Dictionary) -> void:
 		_floor_mesh.material_override = RoomToonMaterial.make_floor(floor_c, dark_room)
 		_floor_mesh.set_surface_override_material(0, null)
 	_apply_arcade_void(floor_c, spec.get("accent", Color(0.7, 0.5, 0.3)) as Color)
+	var wall_style := RoomToonMaterial.wall_style_for_spec(spec)
+	var wall_i := 0
 	for wall_name in ["WallBack", "WallLeft"]:
 		var wall: MeshInstance3D = $World.get_node_or_null(wall_name) as MeshInstance3D
 		if wall == null:
 			continue
-		wall.material_override = RoomToonMaterial.make_wall(wall_c, dark_room)
+		wall.material_override = RoomToonMaterial.make_wall(wall_c, dark_room, wall_style, wall_i)
+		wall_i += 1
 
 func _apply_dark_room_lighting(on: bool) -> void:
 	var sun := get_node_or_null("Sun") as DirectionalLight3D
@@ -1276,14 +1335,17 @@ func _setup_hud() -> void:
 	_mop_label.offset_right = 480.0
 	_mop_label.offset_bottom = 82.0
 	_mop_label.add_theme_font_size_override("font_size", 18)
+	_mop_label.visible = false
 	ui.add_child(_mop_label)
 
 	_objective_label = Label.new()
 	_objective_label.offset_left = 24.0
-	_objective_label.offset_top = 84.0
+	_objective_label.offset_top = 24.0
 	_objective_label.offset_right = 520.0
-	_objective_label.offset_bottom = 114.0
-	_objective_label.add_theme_font_size_override("font_size", 20)
+	_objective_label.offset_bottom = 64.0
+	_objective_label.add_theme_font_size_override("font_size", 28)
+	_objective_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_objective_label.add_theme_constant_override("outline_size", 8)
 	ui.add_child(_objective_label)
 
 	_level_label = Label.new()
@@ -1296,6 +1358,7 @@ func _setup_hud() -> void:
 	_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_level_label.add_theme_font_size_override("font_size", 22)
 	_level_label.add_theme_color_override("font_color", Color(0.95, 0.88, 0.55))
+	_level_label.visible = false
 	ui.add_child(_level_label)
 
 	_phase_hud = Label.new()
@@ -1308,6 +1371,7 @@ func _setup_hud() -> void:
 	_phase_hud.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_phase_hud.add_theme_font_size_override("font_size", 18)
 	_phase_hud.text = "FAZ 1 · Isınma"
+	_phase_hud.visible = false
 	ui.add_child(_phase_hud)
 
 	_stress_label = Label.new()
@@ -1317,6 +1381,7 @@ func _setup_hud() -> void:
 	_stress_label.offset_bottom = 140.0
 	_stress_label.add_theme_font_size_override("font_size", 18)
 	_stress_label.text = "HEAT: 0%"
+	_stress_label.visible = false
 	ui.add_child(_stress_label)
 
 	_heat_bar = ProgressBar.new()
@@ -1328,6 +1393,7 @@ func _setup_hud() -> void:
 	_heat_bar.max_value = 100.0
 	_heat_bar.value = 0.0
 	_heat_bar.show_percentage = false
+	_heat_bar.visible = false
 	var bg := StyleBoxFlat.new()
 	bg.bg_color = Color(0.12, 0.1, 0.12, 0.85)
 	bg.set_corner_radius_all(4)
@@ -1346,14 +1412,15 @@ func _setup_hud() -> void:
 	_combo_label.add_theme_font_size_override("font_size", 18)
 	_combo_label.text = "COMBO x0"
 	_combo_label.modulate = Color(0.6, 0.65, 0.7)
+	_combo_label.visible = false
 	ui.add_child(_combo_label)
 
 	_tool_bar = HBoxContainer.new()
 	_tool_bar.name = "ToolBar"
 	_tool_bar.offset_left = 24.0
-	_tool_bar.offset_top = 232.0
+	_tool_bar.offset_top = 72.0
 	_tool_bar.offset_right = 420.0
-	_tool_bar.offset_bottom = 278.0
+	_tool_bar.offset_bottom = 118.0
 	_tool_bar.add_theme_constant_override("separation", 6)
 	ui.add_child(_tool_bar)
 	_tool_bar_buttons.clear()
@@ -1372,16 +1439,25 @@ func _setup_hud() -> void:
 		_tool_bar_buttons.append(b)
 	_refresh_tool_bar()
 
+	# Büyük köşe timer — sağ alt
 	_time_label = Label.new()
 	_time_label.name = "RoomTimeLabel"
-	_time_label.anchor_left = 0.5
-	_time_label.anchor_right = 0.5
-	_time_label.offset_left = -120.0
-	_time_label.offset_right = 120.0
-	_time_label.offset_top = 44.0
-	_time_label.offset_bottom = 88.0
-	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_time_label.add_theme_font_size_override("font_size", 32)
+	_time_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_time_label.anchor_left = 1.0
+	_time_label.anchor_right = 1.0
+	_time_label.anchor_top = 1.0
+	_time_label.anchor_bottom = 1.0
+	_time_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_time_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_time_label.offset_left = -280.0
+	_time_label.offset_right = -28.0
+	_time_label.offset_top = -160.0
+	_time_label.offset_bottom = -28.0
+	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_time_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	_time_label.add_theme_font_size_override("font_size", 64)
+	_time_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_time_label.add_theme_constant_override("outline_size", 14)
 	_time_label.modulate = Color(0.95, 0.92, 0.55)
 	_time_label.visible = false
 	ui.add_child(_time_label)
@@ -1394,6 +1470,7 @@ func _setup_hud() -> void:
 	_score_label.add_theme_font_size_override("font_size", 18)
 	_score_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	_score_label.text = "SKOR: 0"
+	_score_label.visible = false
 	ui.add_child(_score_label)
 
 

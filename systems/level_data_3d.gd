@@ -1,10 +1,10 @@
 class_name LevelData3D
 extends RefCounted
 
-## 3D kampanya: 1 tutorial + 9 bölüm × 5 kademe = 46 seviye.
+## 3D kampanya: 1 tutorial + 10 bölüm × 5 kademe = 51 seviye.
 ## Her bölüm: Intro → Filler → Filler+ → Challenge → Climax (kademeli unlock).
 
-const CHAPTERS_PER_CAMPAIGN := 9
+const CHAPTERS_PER_CAMPAIGN := 10
 const TIERS_PER_CHAPTER := 5
 const TIER_LABELS: Array[String] = ["Giriş", "Alıştırma", "Pratik", "Zorluk", "Doruk"]
 
@@ -157,10 +157,11 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				if rule == CommissionData.Rule.TIME_LIMIT:
 					rule_param = time_lim
 				commission_desc = String(ch.get("climax_desc", intro))
-				disable_hazards = false
-				disable_micro = false
-				disable_pressure = false
-				allow_junk = bool(ch.get("allow_junk", true))
+				# Bölüm eşiğini aşmadan hazard/micro zorla açma
+				disable_hazards = tier < int(ch.get("hazards_from_tier", 2)) or bool(ch.get("disable_hazards", false))
+				disable_micro = tier < int(ch.get("micro_from_tier", 1))
+				disable_pressure = tier < int(ch.get("pressure_from_tier", 2))
+				allow_junk = bool(ch.get("allow_junk", true)) and tier >= int(ch.get("junk_from_tier", 1))
 
 		var lvl := {
 			"id": "%s_t%d" % [id_base, tier],
@@ -171,6 +172,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 			"intro": intro,
 			"floor": ch.get("floor", Color(0.2, 0.2, 0.22)),
 			"wall": ch.get("wall", Color(0.28, 0.28, 0.3)),
+			"wall_style": String(ch.get("wall_style", "plaster")),
 			"accent": ch.get("accent", Color(0.8, 0.7, 0.4)),
 			"stations": ch.get("stations", ["trash", "bucket"]),
 			"tutorial": hint,
@@ -209,6 +211,50 @@ static func _all() -> Array[Dictionary]:
 static func _chapter_defs() -> Array[Dictionary]:
 	return [
 		{
+			"id": "liquids",
+			"title": "Paspas",
+			"npc": "Kuzen Marv",
+			"icon": "🧹",
+			"new_mechanic": "paspas ile sıvı ovalama",
+			"floor": Color(0.32, 0.34, 0.38),
+			"wall": Color(0.48, 0.5, 0.54),
+			"wall_style": "garage",
+			"accent": Color(0.45, 0.85, 1.0),
+			"stations": ["trash", "bucket"],
+			"unlocked_tools": 1,
+			"allow_mop": true,
+			"base_time": 55.0,
+			"junk_from_tier": 99,
+			"hazards_from_tier": 99,
+			"micro_from_tier": 99,
+			"pressure_from_tier": 99,
+			"disable_hazards": true,
+			"tutorial": "1=Paspas · Space basılı tut + yürü = ovala · Space tık = hızlı (kaygan iz)",
+			"hint_intro": "Sadece sıvı lekeler — paspası basılı tutup üzerinde yürü",
+			"hint_filler": "Daha çok leke · paspas kirlenirse kovada Space basılı tut",
+			"hint_mixed": "Sıvı + ilk kutular — önce paspasla sil, sonra koliyi çöpe",
+			"hint_challenge": "Tempo tut — sürükleyerek temizle (mash kaygan bırakır)",
+			"hint_climax": "Sıvı deniz + kutular · kova hazır tut",
+			"focus_props": [
+				{"type": "wet", "count": 2},
+				{"type": "slime", "count": 1},
+			],
+			"filler_props": [
+				{"type": "wet", "count": 1},
+				{"type": "slime", "count": 1},
+				{"type": "box", "count": 2},
+			],
+			"climax_props": [
+				{"type": "wet", "count": 2},
+				{"type": "slime", "count": 2},
+				{"type": "box", "count": 3},
+			],
+			"challenge_rule": CommissionData.Rule.TIME_LIMIT,
+			"challenge_intro": "Süre sıkı — sürükleyerek sil, mash'ten kaçın (kaygan).",
+			"climax_subtitle": "Islak sahne",
+			"climax_intro": "Paspas + kova + birkaç koli — Viscera günü!",
+		},
+		{
 			"id": "mold",
 			"title": "Küf",
 			"npc": "Gargoyle Grimble",
@@ -216,6 +262,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"new_mechanic": "paspas + küf",
 			"floor": Color(0.16, 0.24, 0.18),
 			"wall": Color(0.22, 0.32, 0.24),
+			"wall_style": "mold",
 			"accent": Color(0.45, 0.95, 0.40),
 			"stations": ["trash", "bucket"],
 			"unlocked_tools": 1,
@@ -255,6 +302,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"new_mechanic": "süpürge + kırıntı",
 			"floor": Color(0.28, 0.2, 0.14),
 			"wall": Color(0.36, 0.28, 0.2),
+			"wall_style": "peach",
 			"accent": Color(0.95, 0.72, 0.35),
 			"stations": ["trash", "bucket"],
 			"unlocked_tools": 2,
@@ -296,6 +344,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"new_mechanic": "paspas ovalama (slime)",
 			"floor": Color(0.14, 0.24, 0.22),
 			"wall": Color(0.18, 0.3, 0.28),
+			"wall_style": "cool",
 			"accent": Color(0.35, 1.0, 0.72),
 			"stations": ["trash", "bucket"],
 			"unlocked_tools": 2,
@@ -307,7 +356,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"tutorial": "Lekeye Space spam = ovala",
 			"hint_intro": "Yeşil balçık — Space ile ovala, bitene kadar",
 			"focus_props": [
-				{"type": "slime", "count": 3},
+				{"type": "slime", "count": 2},
 				{"type": "box", "count": 1},
 			],
 			"filler_props": [
@@ -315,7 +364,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 				{"type": "mold", "count": 1},
 			],
 			"climax_props": [
-				{"type": "slime", "count": 5},
+				{"type": "slime", "count": 2},
 				{"type": "crumb", "count": 3},
 				{"type": "box", "count": 2},
 			],
@@ -331,6 +380,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"new_mechanic": "fırça + kabuk + iksir",
 			"floor": Color(0.42, 0.28, 0.52),
 			"wall": Color(0.32, 0.18, 0.4),
+			"wall_style": "ritual",
 			"accent": Color(0.85, 0.4, 1.0),
 			"stations": ["trash", "bucket"],
 			"unlocked_tools": 3,
@@ -371,9 +421,10 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"title": "Sprey",
 			"npc": "Gargoyle Grimble",
 			"icon": "💧",
-			"new_mechanic": "sprey → paspas + çift dash",
+			"new_mechanic": "sprey → ıslatma (opsiyonel) + paspas",
 			"floor": Color(0.14, 0.2, 0.28),
 			"wall": Color(0.2, 0.28, 0.38),
+			"wall_style": "cool",
 			"accent": Color(0.4, 0.85, 1.0),
 			"stations": ["trash", "bucket", "drain"],
 			"unlocked_tools": 4,
@@ -384,10 +435,10 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"hazards_from_tier": 1,
 			"micro_from_tier": 1,
 			"pressure_from_tier": 2,
-			"tutorial": "4=Sprey → ıslak · sonra 1=Paspas · Shift×2",
-			"hint_intro": "Yeni: Sprey. Islak lekeleri önce spreyle, sonra paspasla.",
+			"tutorial": "4=Sprey (opsiyonel) · ıslak lekeler 1=Paspas · Shift×2",
+			"hint_intro": "Yeni: Sprey. Islak lekeleri paspasla sil — sprey opsiyonel.",
 			"focus_props": [
-				{"type": "wet", "count": 3},
+				{"type": "wet", "count": 2},
 				{"type": "box", "count": 1},
 			],
 			"filler_props": [
@@ -395,7 +446,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 				{"type": "painting", "count": 1},
 			],
 			"climax_props": [
-				{"type": "wet", "count": 5},
+				{"type": "wet", "count": 2},
 				{"type": "mold", "count": 3},
 				{"type": "crumb", "count": 3},
 				{"type": "box", "count": 2},
@@ -413,6 +464,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"new_mechanic": "cımbız + tiny",
 			"floor": Color(0.2, 0.2, 0.28),
 			"wall": Color(0.28, 0.28, 0.38),
+			"wall_style": "plaster",
 			"accent": Color(0.75, 0.85, 1.0),
 			"stations": ["trash", "bucket"],
 			"unlocked_tools": 5,
@@ -436,7 +488,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"climax_props": [
 				{"type": "tiny", "count": 8},
 				{"type": "crust", "count": 3},
-				{"type": "wet", "count": 2},
+				{"type": "wet", "count": 1},
 				{"type": "box", "count": 2},
 				{"type": "tv_repair", "count": 1},
 			],
@@ -453,6 +505,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"new_mechanic": "gizli kir + fener maskesi",
 			"floor": Color(0.07, 0.07, 0.1),
 			"wall": Color(0.12, 0.12, 0.16),
+			"wall_style": "cool",
 			"accent": Color(0.45, 0.85, 1.0),
 			"stations": ["trash", "bucket", "drain"],
 			"unlocked_tools": 5,
@@ -494,6 +547,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"new_mechanic": "yüksek risk karma",
 			"floor": Color(0.2, 0.1, 0.22),
 			"wall": Color(0.28, 0.12, 0.3),
+			"wall_style": "ritual",
 			"accent": Color(0.95, 0.4, 0.85),
 			"stations": ["trash", "bucket", "drain"],
 			"unlocked_tools": 5,
@@ -511,7 +565,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"hint_intro": "İksir + balçık — riskli ama puanlı",
 			"focus_props": [
 				{"type": "potion", "count": 1},
-				{"type": "slime", "count": 2},
+				{"type": "slime", "count": 1},
 				{"type": "crust", "count": 1},
 			],
 			"filler_props": [
@@ -520,7 +574,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			],
 			"climax_props": [
 				{"type": "potion", "count": 2},
-				{"type": "slime", "count": 3},
+				{"type": "slime", "count": 2},
 				{"type": "crust", "count": 2},
 				{"type": "hidden", "count": 2},
 				{"type": "boss_slime", "count": 1},
@@ -541,6 +595,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"new_mechanic": "her şey bir arada",
 			"floor": Color(0.3, 0.08, 0.1),
 			"wall": Color(0.38, 0.12, 0.14),
+			"wall_style": "garage",
 			"accent": Color(1.0, 0.35, 0.4),
 			"stations": ["trash", "bucket", "drain"],
 			"unlocked_tools": 5,
@@ -572,10 +627,10 @@ static func _chapter_defs() -> Array[Dictionary]:
 				{"type": "tv", "count": 2},
 				{"type": "mold", "count": 3},
 				{"type": "crumb", "count": 3},
-				{"type": "slime", "count": 3},
+				{"type": "slime", "count": 2},
 				{"type": "potion", "count": 2},
 				{"type": "crust", "count": 2},
-				{"type": "wet", "count": 2},
+				{"type": "wet", "count": 1},
 				{"type": "tiny", "count": 3},
 				{"type": "hidden", "count": 2},
 				{"type": "boss_slime", "count": 1},
@@ -600,6 +655,7 @@ static func _tutorial() -> Dictionary:
 		"intro": "Hoş geldin! Beş kısa bölüm: taşı, vur, yığ, karıştır, sonra tempo. Paspas ve tehlike yok.",
 		"floor": Color(0.34, 0.36, 0.38),
 		"wall": Color(0.52, 0.51, 0.50),
+		"wall_style": "garage",
 		"accent": Color(0.72, 0.58, 0.32),
 		"stations": ["trash"],
 		"allow_mop": false,

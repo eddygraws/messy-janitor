@@ -5,6 +5,8 @@ extends Node3D
 
 const ClutterPropScript := preload("res://scenes3d/props/clutter_prop.gd")
 const PROP_MASK := 4
+const PATH_WET := "res://textures/stains/wet_stain.png"
+const PATH_SLIME := "res://textures/stains/slime_stain.png"
 
 signal objective_changed(remaining: int, total: int)
 signal level_cleared
@@ -20,6 +22,7 @@ var _rng := RandomNumberGenerator.new()
 var _level_spec: Dictionary = {}
 var _level_index: int = 0
 var _placed: Array[Vector3] = []
+var _placed_clear: Array[float] = []
 var _reinforce_cd: float = 0.0
 var _tempo: TempoPhaseDirector
 var _pressure_active: bool = false
@@ -143,9 +146,7 @@ func populate_from_spec(spec: Dictionary) -> void:
 	if "drain" in stations:
 		_add_drain(Vector3(3.6, 0.0, 5.8))
 
-	_placed = [
-		Vector3(0, 0, 5.8), Vector3(-3.6, 0, 5.6), Vector3(3.6, 0, 5.8), Vector3(0, 0, 2.0)
-	]
+	_reset_placed_anchors()
 	var props: Array = _props_for_current_section()
 	_spawn_prop_entries(props)
 	call_deferred("_recount_objectives")
@@ -183,8 +184,9 @@ func _spawn_prop_entries(props: Array) -> void:
 		var count: int = int(entry.get("count", 1))
 		var fallen: bool = bool(entry.get("fallen", false))
 		for _i in count:
-			var pos: Vector3 = _free_pos(_placed)
-			_placed.append(pos)
+			var clear_r := _clearance_for(type)
+			var pos: Vector3 = _free_pos(clear_r)
+			_commit_placed(pos, clear_r)
 			_spawn_prop(type, pos, fallen)
 
 
@@ -200,8 +202,9 @@ func spawn_reinforcement(count: int = 1) -> int:
 		if get_remaining_objectives() >= 18:
 			break
 		var t: String = types[_rng.randi() % types.size()]
-		var pos := _free_pos(_placed)
-		_placed.append(pos)
+		var clear_r := _clearance_for(t)
+		var pos := _free_pos(clear_r)
+		_commit_placed(pos, clear_r)
 		_spawn_prop(t, pos, t == "box" and _rng.randf() > 0.7)
 		spawned += 1
 	if spawned > 0:
@@ -273,9 +276,7 @@ func _try_advance_section() -> bool:
 	_section_index += 1
 	# Eski takviye / props temiz; istasyonları koru
 	_clear_clutter_only()
-	_placed = [
-		Vector3(0, 0, 5.8), Vector3(-3.6, 0, 5.6), Vector3(3.6, 0, 5.8), Vector3(0, 0, 2.0)
-	]
+	_reset_placed_anchors()
 	_spawn_prop_entries(_props_for_current_section())
 	_recount_objectives()
 	section_advanced.emit(_section_index, _sections.size(), get_current_section())
@@ -324,17 +325,62 @@ func _clear_children() -> void:
 		c.queue_free()
 
 
-func _free_pos(placed: Array[Vector3]) -> Vector3:
-	for _try in 40:
-		var p := Vector3(_rng.randf_range(-7.2, 7.2), 0.0, _rng.randf_range(-4.8, 4.0))
+func _reset_placed_anchors() -> void:
+	_placed = [
+		Vector3(0, 0, 5.8), Vector3(-3.6, 0, 5.6), Vector3(3.6, 0, 5.8), Vector3(0, 0, 2.0)
+	]
+	_placed_clear = [1.45, 1.45, 1.45, 1.7]
+
+
+func _clearance_for(type: String) -> float:
+	match type:
+		"wet":
+			return 3.2
+		"slime":
+			return 3.35
+		"potion":
+			return 3.05
+		"boss_slime":
+			return 4.2
+		"box":
+			return 1.1
+		"tv", "tv_repair":
+			return 1.45
+		"painting":
+			return 0.85
+		"crumb", "tiny", "mold", "hidden", "crust":
+			return 0.75
+		_:
+			return 1.05
+
+
+func _commit_placed(pos: Vector3, clear_r: float) -> void:
+	_placed.append(pos)
+	_placed_clear.append(clear_r)
+
+
+func _free_pos(clear_r: float = 1.05) -> Vector3:
+	var best := Vector3.ZERO
+	var best_pen := INF
+	for _try in 90:
+		var p := Vector3(_rng.randf_range(-6.6, 6.6), 0.0, _rng.randf_range(-4.2, 3.4))
+		var pen := 0.0
 		var ok := true
-		for q in placed:
-			if Vector2(p.x, p.z).distance_to(Vector2(q.x, q.z)) < 1.35:
+		for i in _placed.size():
+			var need := clear_r + _placed_clear[i]
+			var d := Vector2(p.x, p.z).distance_to(Vector2(_placed[i].x, _placed[i].z))
+			if d < need:
 				ok = false
-				break
+				pen += need - d
 		if ok:
 			return p
-	return Vector3(_rng.randf_range(-5.0, 5.0), 0.0, _rng.randf_range(-3.0, 2.5))
+		if pen < best_pen:
+			best_pen = pen
+			best = p
+	# Sığmazsa en az çakışanı koy (nadiren)
+	if best_pen < INF:
+		return best
+	return Vector3(_rng.randf_range(-4.5, 4.5), 0.0, _rng.randf_range(-2.5, 2.0))
 
 
 func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
@@ -357,9 +403,9 @@ func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
 		"crumb":
 			_add_blob(pos, "crumb", Color(0.72, 0.58, 0.35), 0, true, "trash", 1.0, false, "broom")
 		"slime":
-			_add_scrub_puddle(pos, "slime", Color(0.35, 0.95, 0.55), 1.15, 2.4, 1.0)
+			_add_scrub_puddle(pos, "slime", Color(0.35, 0.95, 0.55), 2.45, 3.2, 1.28)
 		"potion":
-			_add_scrub_puddle(pos, "potion", Color(0.75, 0.35, 0.95), 1.05, 3.4, 0.95)
+			_add_scrub_puddle(pos, "potion", Color(0.75, 0.35, 0.95), 2.3, 4.0, 1.22)
 		"crust":
 			_add_blob(pos, "crust", Color(0.42, 0.32, 0.22), 7, false, "", 1.0, false, "brush")
 		"wet":
@@ -369,7 +415,7 @@ func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
 		"hidden":
 			_add_blob(pos, "hidden", Color(0.15, 0.15, 0.2), 3, true, "", 0.7, true, "mop")
 		"boss_slime":
-			_add_scrub_puddle(pos, "boss_slime", Color(0.25, 1.0, 0.45), 1.85, 5.5, 1.55)
+			_add_scrub_puddle(pos, "boss_slime", Color(0.25, 1.0, 0.45), 3.35, 7.0, 1.42)
 		_:
 			_add_box_stack(pos, 1, 0.0)
 
@@ -385,22 +431,21 @@ func _add_scrub_puddle(
 	var root := ClutterPropScript.new()
 	root.name = prop_id.capitalize()
 	root.prop_id = prop_id
-	root.idle_style = ClutterProp.IdleStyle.BUZZ
-	root.hit_wobble_enabled = true
+	root.idle_style = ClutterProp.IdleStyle.NONE
+	root.hit_wobble_enabled = false
 	root.hits_to_destroy = 0
 	root.can_carry = false
 	root.requires_scrub = true
-	root.scrub_radius = radius * scale_mul
+	root.required_tool = "mop"
+	root.liquid_wipe = true
+	root.scrub_radius = radius * scale_mul + 1.15
 	root.scrub_work_needed = work
-	root.max_hit_distance = radius * scale_mul + 1.0
-	root.react_distance = radius * scale_mul + 1.15
-	root.scrub_radius = maxf(root.scrub_radius, radius * scale_mul + 0.55)
+	root.max_hit_distance = radius * scale_mul + 1.6
+	root.react_distance = radius * scale_mul + 1.7
 	root.position = pos
 	root.scale = Vector3.ONE * scale_mul
 	root.set_meta("objective", true)
 	root.set_meta("deliver_to", "")
-	root.required_tool = "mop"
-	# Mor iksir: üzerindeyken sarhoş dans
 	if prop_id == "potion":
 		root.set_meta("causes_drunk", true)
 	add_child(root)
@@ -409,39 +454,47 @@ func _add_scrub_puddle(
 	pivot.name = "Pivot"
 	root.add_child(pivot)
 
-	# Sıvı lekeler fiziksel engel değil — oyuncu içinden geçer; kayganlık HazardDirector'da.
 	var body := StaticBody3D.new()
 	body.collision_layer = 0
 	body.collision_mask = 0
 	pivot.add_child(body)
 
-	# Yerde yayılmış sıvı leke
+	var half := radius * 1.05
 	var puddle := MeshInstance3D.new()
-	var disc := CylinderMesh.new()
-	disc.top_radius = radius
-	disc.bottom_radius = radius
-	disc.height = 0.06
-	puddle.mesh = disc
-	puddle.material_override = HitWobbleMaterial.create(
-		color, 0.55, color.lightened(0.25), 0.35, 0.14, true, 0.018
-	)
-	puddle.position = Vector3(0.0, 0.04, 0.0)
+	puddle.name = "WipePuddle"
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(half * 2.0, half * 2.0)
+	puddle.mesh = plane
+	puddle.position = Vector3(0.0, 0.035, 0.0)
 	pivot.add_child(puddle)
-	root.register_wobble_mesh(puddle)
 
-	var blob := MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = radius * 0.38
-	sphere.height = radius * 0.55
-	blob.mesh = sphere
-	blob.material_override = HitWobbleMaterial.create(
-		color.lightened(0.1), 0.4, color, 0.45, 0.18, true, 0.022
-	)
-	blob.position = Vector3(0.0, 0.12, 0.0)
-	pivot.add_child(blob)
-	root.register_wobble_mesh(blob)
+	var tex: Texture2D = _load_stain_tex(PATH_SLIME)
+	var tint := Color(1, 1, 1, 1)
+	match prop_id:
+		"wet":
+			tex = _load_stain_tex(PATH_WET)
+			tint = Color(0.85, 0.95, 1.0, 1.0)
+		"slime", "boss_slime":
+			tex = _load_stain_tex(PATH_SLIME)
+			tint = Color(0.9, 1.0, 0.85, 1.0)
+		"potion":
+			tex = _load_stain_tex(PATH_SLIME)
+			tint = Color(0.95, 0.55, 1.0, 1.0)
+		_:
+			tex = _load_stain_tex(PATH_WET)
+			tint = color
+	if tex == null:
+		# Geçici düz renk fallback — import bitmeden parse kırılmasın
+		var mat := StandardMaterial3D.new()
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color = Color(color.r, color.g, color.b, 0.75)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		puddle.material_override = mat
+		root.liquid_wipe = false
+		root.requires_scrub = true
+	else:
+		root.setup_liquid_wipe(puddle, tex, half, tint)
 
-	# Şekil sadece referans / gelecek raycast için; layer=0 → player'a çarpmaz
 	var shape := CollisionShape3D.new()
 	var cyl := CylinderShape3D.new()
 	cyl.radius = radius * 0.62
@@ -536,6 +589,12 @@ func _add_blob(
 			if is_instance_valid(mesh_inst):
 				mesh_inst.transparency = 0.0
 		)
+
+
+func _load_stain_tex(path: String) -> Texture2D:
+	if path.is_empty() or not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
 
 
 func _add_box_stack(pos: Vector3, count: int, yaw: float, scale: Vector3 = Vector3.ONE) -> void:
@@ -809,53 +868,7 @@ func _station_mesh(
 
 
 func _add_wet_stain(pos: Vector3) -> void:
-	var root := ClutterPropScript.new()
-	root.name = "Wet"
-	root.prop_id = "wet"
-	root.idle_style = ClutterProp.IdleStyle.BUZZ
-	root.hit_wobble_enabled = true
-	root.hits_to_destroy = 0
-	root.can_carry = false
-	root.requires_scrub = false
-	root.needs_spray_first = true
-	root.required_tool = "spray"
-	root.scrub_radius = 1.2
-	root.scrub_work_needed = 2.2
-	root.max_hit_distance = 3.0
-	root.react_distance = 2.8
-	root.position = pos
-	root.set_meta("objective", true)
-	add_child(root)
-
-	var pivot := Node3D.new()
-	pivot.name = "Pivot"
-	root.add_child(pivot)
-
-	var body := StaticBody3D.new()
-	body.collision_layer = 0
-	body.collision_mask = 0
-	pivot.add_child(body)
-
-	var puddle := MeshInstance3D.new()
-	var disc := CylinderMesh.new()
-	disc.top_radius = 0.85
-	disc.bottom_radius = 0.85
-	disc.height = 0.05
-	puddle.mesh = disc
-	puddle.material_override = HitWobbleMaterial.create(
-		Color(0.4, 0.7, 0.95), 0.5, Color(0.55, 0.85, 1.0), 0.3, 0.12, true, 0.018
-	)
-	puddle.position = Vector3(0.0, 0.03, 0.0)
-	pivot.add_child(puddle)
-	root.register_wobble_mesh(puddle)
-
-	var tag := Label3D.new()
-	tag.text = "SPREY"
-	tag.font_size = 40
-	tag.modulate = Color(0.55, 0.85, 1.0)
-	tag.position = Vector3(0.0, 0.55, 0.0)
-	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	pivot.add_child(tag)
+	_add_scrub_puddle(pos, "wet", Color(0.4, 0.7, 0.95), 2.4, 3.3, 1.28)
 
 
 func _add_repair_tv(pos: Vector3, yaw: float) -> void:
