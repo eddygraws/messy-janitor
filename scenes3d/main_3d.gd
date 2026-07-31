@@ -938,29 +938,14 @@ func _apply_theme(spec: Dictionary) -> void:
 		or int(spec.get("commission", {}).get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY
 	)
 	if _floor_mesh != null:
-		var floor_mat := HitWobbleMaterial.create_flat(floor_c, 0.94, 0.08)
-		if dark_room:
-			# Emission fill feneri boğmasın
-			floor_mat.set_shader_parameter("ambient_boost", 0.04)
-			floor_mat.set_shader_parameter("rim_strength", 0.04)
-			floor_mat.set_shader_parameter("shadow_strength", 0.85)
-		_floor_mesh.material_override = floor_mat
+		_floor_mesh.material_override = RoomToonMaterial.make_floor(floor_c, dark_room)
 		_floor_mesh.set_surface_override_material(0, null)
 	_apply_arcade_void(floor_c, spec.get("accent", Color(0.7, 0.5, 0.3)) as Color)
 	for wall_name in ["WallBack", "WallLeft"]:
 		var wall: MeshInstance3D = $World.get_node_or_null(wall_name) as MeshInstance3D
 		if wall == null:
 			continue
-		# Duvar: ince outline — oda silueti
-		var wall_mat := HitWobbleMaterial.create(
-			wall_c, 0.9, Color.BLACK, 0.0, 0.0, true, 0.02
-		)
-		if dark_room:
-			wall_mat.set_shader_parameter("ambient_boost", 0.05)
-			wall_mat.set_shader_parameter("rim_strength", 0.06)
-			wall_mat.set_shader_parameter("shadow_strength", 0.8)
-		wall.material_override = wall_mat
-
+		wall.material_override = RoomToonMaterial.make_wall(wall_c, dark_room)
 
 func _apply_dark_room_lighting(on: bool) -> void:
 	var sun := get_node_or_null("Sun") as DirectionalLight3D

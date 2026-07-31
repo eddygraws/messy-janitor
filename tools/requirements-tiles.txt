@@ -1,0 +1,3 @@
+# Optional deps for tools/generate_tile_texture.py
+numpy>=1.24
+Pillow>=10.0
