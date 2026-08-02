@@ -348,7 +348,7 @@ func _clearance_for(type: String) -> float:
 			return 1.45
 		"painting":
 			return 0.85
-		"crumb", "tiny", "mold", "hidden", "crust":
+		"crumb", "tiny", "mold", "hidden", "crust", "dust":
 			return 0.75
 		_:
 			return 1.05
@@ -399,9 +399,12 @@ func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
 			_painting_spawn_i += 1
 			_add_crooked_painting(wall)
 		"mold":
-			_add_blob(pos, "mold", Color(0.35, 0.7, 0.3), 3, true, "", 1.0, false, "mop")
+			# Küf: paspasla vur VEYA süpürgeyle em (broom chapter)
+			_add_blob(pos, "mold", Color(0.35, 0.7, 0.3), 3, true, "", 1.0, false, "mop", true, 1.15)
 		"crumb":
-			_add_blob(pos, "crumb", Color(0.72, 0.58, 0.35), 0, true, "trash", 1.0, false, "broom")
+			_add_vacuum_debris(pos, "crumb", Color(0.72, 0.58, 0.35), 0.9, 0.85)
+		"dust":
+			_add_vacuum_debris(pos, "dust", Color(0.62, 0.58, 0.5), 0.75, 0.7)
 		"slime":
 			_add_scrub_puddle(pos, "slime", Color(0.35, 0.95, 0.55), 2.45, 3.2, 1.28)
 		"potion":
@@ -523,6 +526,8 @@ func _add_blob(
 	scale_mul: float = 1.0,
 	hidden: bool = false,
 	req_tool: String = "",
+	vacuumable: bool = false,
+	vacuum_resist: float = 1.0,
 ) -> void:
 	var root := ClutterPropScript.new()
 	root.name = prop_id.capitalize()
@@ -534,6 +539,8 @@ func _add_blob(
 	root.max_hit_distance = 3.2
 	root.react_distance = 2.9 if not hidden else 2.0
 	root.required_tool = req_tool
+	root.vacuumable = vacuumable
+	root.vacuum_resist = vacuum_resist
 	root.position = pos
 	root.scale = Vector3.ONE * scale_mul
 	root.set_meta("objective", true)
@@ -551,12 +558,12 @@ func _add_blob(
 	pivot.add_child(body)
 
 	var mesh_inst := MeshInstance3D.new()
-	var use_sphere := prop_id.find("slime") >= 0 or prop_id == "mold" or prop_id == "wet"
+	var use_sphere := prop_id.find("slime") >= 0 or prop_id == "mold" or prop_id == "wet" or prop_id == "dust"
 	var mesh: Mesh
 	if use_sphere:
 		var sphere := SphereMesh.new()
-		sphere.radius = 0.32
-		sphere.height = 0.55
+		sphere.radius = 0.32 if prop_id != "dust" else 0.26
+		sphere.height = 0.55 if prop_id != "dust" else 0.42
 		mesh = sphere
 	else:
 		var box_mesh := BoxMesh.new()
@@ -589,6 +596,27 @@ func _add_blob(
 			if is_instance_valid(mesh_inst):
 				mesh_inst.transparency = 0.0
 		)
+
+	if vacuumable:
+		var tag := Label3D.new()
+		tag.text = "EM"
+		tag.font_size = 36
+		tag.modulate = Color(0.55, 0.9, 1.0)
+		tag.position = Vector3(0.0, 0.62, 0.0)
+		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		pivot.add_child(tag)
+
+
+## Kırıntı / toz — sadece süpürge ile Luigi tarzı emme.
+func _add_vacuum_debris(
+	pos: Vector3,
+	prop_id: String,
+	color: Color,
+	scale_mul: float = 0.85,
+	resist: float = 0.85,
+) -> void:
+	_add_blob(pos, prop_id, color, 0, false, "", scale_mul, false, "broom", true, resist)
+	# Küçük kutu / top görseli crumb için box — dust sphere zaten use_sphere
 
 
 func _load_stain_tex(path: String) -> Texture2D:

@@ -4,8 +4,8 @@
 [ext_resource type="Script" uid="uid://bkwxg2ugpt3id" path="res://scenes3d/isometric_camera_rig.gd" id="2_cam"]
 [ext_resource type="Script" uid="uid://dlv2b5nx8t6pv" path="res://scenes3d/player_character.gd" id="3_player"]
 [ext_resource type="Script" uid="uid://j0t6sxyvg480" path="res://scenes3d/props/garage_clutter_spawner.gd" id="4_clutter"]
-[ext_resource type="Material" path="res://materials/floor_toon_mat.tres" id="5_floor_toon"]
-[ext_resource type="Material" path="res://materials/walls/wall_brick_garage.tres" id="6_wall_toon"]
+[ext_resource type="Material" uid="uid://cqf51byvxdg8i" path="res://materials/floor_toon_mat.tres" id="5_floor_toon"]
+[ext_resource type="Material" uid="uid://thbka63nb2ae" path="res://materials/walls/wall_brick_garage.tres" id="6_wall_toon"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_floor"]
 size = Vector3(18, 0.2, 13)

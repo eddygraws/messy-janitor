@@ -11,6 +11,8 @@ const ARCADE_VOID_SHADER := preload("res://shaders/arcade_tile_void_3d.gdshader"
 @onready var _floor_mesh: MeshInstance3D = $World/GarageFloor/Mesh
 
 var _mop_label: Label
+var _vacuum_label: Label
+var _vacuum_bar: ProgressBar
 var _objective_label: Label
 var _level_label: Label
 var _phase_hud: Label
@@ -52,6 +54,9 @@ var _level_index: int = 0
 var _highest_unlocked: int = 1
 var _menu_open: bool = false
 var _level_failing: bool = false
+var _game_paused: bool = false
+var _pause_overlay: Control
+var _paused_room_timer: bool = false
 var _save_path := "user://messy3d_progress_v2.cfg"
 var _arcade_void_mat: ShaderMaterial
 var _arcade_void: MeshInstance3D
@@ -59,6 +64,7 @@ var _section_hint: String = ""
 var _tutorial_banner_sticky: bool = false
 var _tutorial_section_busy: bool = false
 var _stop_vignette_active: bool = false
+var _vac_was_full: bool = false
 @export var task_fail_stress: float = 14.0
 @export var task_success_relief: float = 6.0
 
@@ -78,6 +84,7 @@ func _ready() -> void:
 	_setup_tempo_and_tasks()
 	_setup_hud()
 	_setup_menu()
+	_ensure_pause_overlay()
 	_particles = ComedyParticles.new()
 	_particles.name = "ComedyParticles"
 	$World.add_child(_particles)
@@ -85,6 +92,8 @@ func _ready() -> void:
 	if _player != null:
 		_player.item_disposed.connect(_on_item_disposed)
 		_player.mop_dirt_changed.connect(_on_mop_dirt_changed)
+		if _player.has_signal("vacuum_bag_changed"):
+			_player.vacuum_bag_changed.connect(_on_vacuum_bag_changed)
 		_player.rinsed.connect(_on_rinsed)
 		_player.carried_changed.connect(func(_h: bool) -> void: _refresh_hint())
 		_player.dance_changed.connect(_on_dance_changed)
@@ -106,6 +115,17 @@ func _ready() -> void:
 		_spawner.prop_cleared.connect(_on_prop_cleared)
 
 	_show_menu(true)
+	_configure_pause_modes()
+
+
+func _configure_pause_modes() -> void:
+	## Esc pause: Main3D + UI çalışır, dünya / tempo / oyuncu durur.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	for c in get_children():
+		if c.name == "UI":
+			c.process_mode = Node.PROCESS_MODE_ALWAYS
+		else:
+			c.process_mode = Node.PROCESS_MODE_PAUSABLE
 
 
 func _setup_tempo_and_tasks() -> void:
@@ -239,7 +259,7 @@ func _setup_tempo_and_tasks() -> void:
 
 
 func _process(_delta: float) -> void:
-	if _menu_open:
+	if _menu_open or _game_paused:
 		return
 	if _banner != null and _micro != null and _micro.has_active_task():
 		_banner.set_time_ratio(_micro.get_time_ratio())
@@ -281,8 +301,8 @@ func _on_fx_burst(kind: StringName, world_pos: Vector3, strength: float) -> void
 	if _particles != null:
 		_particles.burst(kind, world_pos, strength)
 	# Başarı micro-shake (fail ~2.4 ile karışmasın)
-	if _camera_rig != null and (kind == &"dispose" or kind == &"clean"):
-		_camera_rig.shake(clampf(0.35 + strength * 0.22, 0.35, 0.7))
+	if _camera_rig != null and (kind == &"dispose" or kind == &"clean" or kind == &"suck"):
+		_camera_rig.shake(clampf(0.28 + strength * 0.18, 0.25, 0.55) if kind == &"suck" else clampf(0.35 + strength * 0.22, 0.35, 0.7))
 
 
 func _spawn_pop(text: String, color: Color = Color(1.0, 0.92, 0.45), font_px: int = 64) -> void:
@@ -293,6 +313,7 @@ func _spawn_pop(text: String, color: Color = Color(1.0, 0.92, 0.45), font_px: in
 
 
 func start_level(index: int, daily: bool = false) -> void:
+	_set_game_paused(false)
 	_daily_mode = daily
 	_pending_next_level = -1
 	_level_index = clampi(index, 0, LevelData3D.level_count() - 1)
@@ -343,8 +364,15 @@ func start_level(index: int, daily: bool = false) -> void:
 	_apply_dark_room_lighting(want_flashlight)
 	if _player != null:
 		_player.configure_for_level(mop_ok, dash_charges, want_flashlight, unlocked_tools)
+		var start_tool := String(spec.get("start_tool", ""))
+		if start_tool == "broom" and unlocked_tools >= 2:
+			_player.try_set_tool_index(1)
 	if _mop_label != null:
 		_mop_label.visible = false
+	if _vacuum_label != null:
+		_vacuum_label.visible = unlocked_tools >= 2
+	if _vacuum_bar != null:
+		_vacuum_bar.visible = unlocked_tools >= 2
 	_refresh_tool_bar()
 	if _level_label != null:
 		_level_label.visible = false
@@ -354,6 +382,9 @@ func start_level(index: int, daily: bool = false) -> void:
 		_hint.visible = false
 		_hint.text = String(spec.get("tutorial", _hint.text))
 	_on_mop_dirt_changed(_player.get_mop_dirt() if _player != null else 0.0)
+	if _player != null and _player.has_method("get_vacuum_bag_count"):
+		_vac_was_full = false
+		_on_vacuum_bag_changed(_player.get_vacuum_bag_count(), _player.vacuum_bag_capacity)
 
 	# Komisyon kartı — oyun başlamadan önce
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 0.95)
@@ -1338,6 +1369,43 @@ func _setup_hud() -> void:
 	_mop_label.visible = false
 	ui.add_child(_mop_label)
 
+	_vacuum_label = Label.new()
+	_vacuum_label.offset_left = 24.0
+	_vacuum_label.offset_top = 52.0
+	_vacuum_label.offset_right = 420.0
+	_vacuum_label.offset_bottom = 82.0
+	_vacuum_label.add_theme_font_size_override("font_size", 18)
+	_vacuum_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	_vacuum_label.add_theme_constant_override("outline_size", 6)
+	_vacuum_label.visible = false
+	ui.add_child(_vacuum_label)
+
+	_vacuum_bar = ProgressBar.new()
+	_vacuum_bar.offset_left = 24.0
+	_vacuum_bar.offset_top = 84.0
+	_vacuum_bar.offset_right = 260.0
+	_vacuum_bar.offset_bottom = 104.0
+	_vacuum_bar.min_value = 0.0
+	_vacuum_bar.max_value = 3.0
+	_vacuum_bar.value = 0.0
+	_vacuum_bar.show_percentage = false
+	_vacuum_bar.visible = false
+	var vac_bg := StyleBoxFlat.new()
+	vac_bg.bg_color = Color(0.12, 0.14, 0.18, 0.85)
+	vac_bg.corner_radius_top_left = 4
+	vac_bg.corner_radius_top_right = 4
+	vac_bg.corner_radius_bottom_left = 4
+	vac_bg.corner_radius_bottom_right = 4
+	var vac_fill := StyleBoxFlat.new()
+	vac_fill.bg_color = Color(0.35, 0.75, 1.0)
+	vac_fill.corner_radius_top_left = 4
+	vac_fill.corner_radius_top_right = 4
+	vac_fill.corner_radius_bottom_left = 4
+	vac_fill.corner_radius_bottom_right = 4
+	_vacuum_bar.add_theme_stylebox_override("background", vac_bg)
+	_vacuum_bar.add_theme_stylebox_override("fill", vac_fill)
+	ui.add_child(_vacuum_bar)
+
 	_objective_label = Label.new()
 	_objective_label.offset_left = 24.0
 	_objective_label.offset_top = 24.0
@@ -1595,6 +1663,7 @@ func _rebuild_level_buttons() -> void:
 
 
 func _show_menu(open: bool) -> void:
+	_set_game_paused(false)
 	_menu_open = open
 	if open:
 		_level_failing = false
@@ -1623,6 +1692,8 @@ func _show_menu(open: bool) -> void:
 			_banner.set_vignette_heat(0.0)
 		if _camera_rig != null:
 			_camera_rig.set_finale_zoom(false)
+		if _player != null and _player.has_method("_release_vacuum"):
+			_player.call("_release_vacuum")
 	if _menu != null:
 		_menu.visible = open
 		if open:
@@ -1657,6 +1728,51 @@ func _on_mop_dirt_changed(ratio: float) -> void:
 	var pct := int(ratio * 100.0)
 	_mop_label.text = "Paspas kiri: %d%%  %s" % [pct, "→ kovada basılı tut" if pct > 0 else ""]
 	_mop_label.modulate = Color(1.0, lerpf(1.0, 0.55, ratio), lerpf(1.0, 0.4, ratio))
+
+
+func _on_vacuum_bag_changed(count: int, capacity: int) -> void:
+	if _vacuum_label == null:
+		return
+	var show_hud := _player != null and _player.get_unlocked_tool_count() >= 2 and not _menu_open
+	_vacuum_label.visible = show_hud
+	if _vacuum_bar != null:
+		_vacuum_bar.visible = show_hud
+	if not show_hud:
+		_vac_was_full = false
+		return
+	var cap := maxi(capacity, 1)
+	var full := count >= cap
+	if _vacuum_bar != null:
+		_vacuum_bar.max_value = float(cap)
+		_vacuum_bar.value = float(count)
+		var fill_style := StyleBoxFlat.new()
+		fill_style.bg_color = Color(1.0, 0.35, 0.22) if full else Color(0.35, 0.75, 1.0).lerp(Color(1.0, 0.7, 0.3), float(count) / float(cap))
+		fill_style.corner_radius_top_left = 4
+		fill_style.corner_radius_top_right = 4
+		fill_style.corner_radius_bottom_left = 4
+		fill_style.corner_radius_bottom_right = 4
+		_vacuum_bar.add_theme_stylebox_override("fill", fill_style)
+	if full:
+		_vacuum_label.text = "TORBA DOLU %d/%d  →  ÇÖPE BOŞALT!" % [count, cap]
+		_vacuum_label.modulate = Color(1.0, 0.45, 0.3)
+		if not _vac_was_full:
+			if _hint != null:
+				_hint.visible = true
+				_hint.text = "⚠️ Torba dolu — yeşil ÇÖP'ün yanında Space"
+			_spawn_pop("TORBA DOLU!", Color(1.0, 0.45, 0.3), 72)
+			if _camera_rig != null:
+				_camera_rig.shake(0.55)
+			if _banner != null and not _tutorial_banner_sticky:
+				_banner.show_task("TORBA DOLU", Color(1.0, 0.4, 0.28), "Çöpün yanında Space ile boşalt", "")
+	elif count <= 0:
+		_vacuum_label.text = "Süpürge torbası: boş"
+		_vacuum_label.modulate = Color(0.7, 0.9, 1.0)
+		if _vac_was_full and _hint != null and _hint.text.find("Torba dolu") >= 0:
+			_hint.text = "Torba boş — devam et"
+	else:
+		_vacuum_label.text = "Süpürge torbası: %d / %d" % [count, cap]
+		_vacuum_label.modulate = Color(0.85, 0.95, 1.0).lerp(Color(1.0, 0.75, 0.4), float(count) / float(cap))
+	_vac_was_full = full
 
 
 func _on_rinsed() -> void:
@@ -1856,16 +1972,122 @@ func _on_hazard_fall_impact(hit_player: bool, world_pos: Vector3) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
-		_show_menu(not _menu_open)
-		get_viewport().set_input_as_handled()
+	if not event.is_action_pressed("ui_cancel"):
+		return
+	get_viewport().set_input_as_handled()
+	# Seviye seçim menüsü / fail / sonuç / kart — Esc ile ölü sahneye dönme
+	if _menu_open:
+		return
+	if _level_failing:
+		return
+	if _result_ui != null and _result_ui.visible:
+		return
+	if _commission_card != null and _commission_card.visible:
+		return
+	_toggle_game_pause()
+
+
+func _ensure_pause_overlay() -> void:
+	if _pause_overlay != null:
+		return
+	var ui := get_node_or_null("UI") as CanvasLayer
+	if ui == null:
+		return
+	_pause_overlay = Control.new()
+	_pause_overlay.name = "PauseOverlay"
+	_pause_overlay.visible = false
+	_pause_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	_pause_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	ui.add_child(_pause_overlay)
+
+	var dim := ColorRect.new()
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.05, 0.07, 0.1, 0.72)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_pause_overlay.add_child(dim)
+
+	var title := Label.new()
+	title.text = "DURAKLATILDI"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.anchor_right = 1.0
+	title.offset_top = 220.0
+	title.offset_bottom = 280.0
+	title.add_theme_font_size_override("font_size", 48)
+	title.add_theme_color_override("font_color", Color(0.95, 0.9, 0.55))
+	_pause_overlay.add_child(title)
+
+	var sub := Label.new()
+	sub.text = "Esc · devam"
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.anchor_right = 1.0
+	sub.offset_top = 290.0
+	sub.offset_bottom = 330.0
+	sub.add_theme_font_size_override("font_size", 22)
+	sub.add_theme_color_override("font_color", Color(0.75, 0.85, 0.95))
+	_pause_overlay.add_child(sub)
+
+	var resume := Button.new()
+	resume.text = "Devam"
+	resume.focus_mode = Control.FOCUS_NONE
+	resume.anchor_left = 0.5
+	resume.anchor_right = 0.5
+	resume.offset_left = -140.0
+	resume.offset_right = 140.0
+	resume.offset_top = 360.0
+	resume.offset_bottom = 410.0
+	resume.pressed.connect(func() -> void: _set_game_paused(false))
+	_pause_overlay.add_child(resume)
+
+	var to_menu := Button.new()
+	to_menu.text = "Ana Menü"
+	to_menu.focus_mode = Control.FOCUS_NONE
+	to_menu.anchor_left = 0.5
+	to_menu.anchor_right = 0.5
+	to_menu.offset_left = -140.0
+	to_menu.offset_right = 140.0
+	to_menu.offset_top = 424.0
+	to_menu.offset_bottom = 470.0
+	to_menu.pressed.connect(_pause_quit_to_menu)
+	_pause_overlay.add_child(to_menu)
+
+
+func _toggle_game_pause() -> void:
+	_set_game_paused(not _game_paused)
+
+
+func _set_game_paused(on: bool) -> void:
+	if on and (_menu_open or _level_failing):
+		return
+	_game_paused = on
+	_ensure_pause_overlay()
+	if _pause_overlay != null:
+		_pause_overlay.visible = on
+	if on:
+		if _player != null and _player.has_method("_release_vacuum"):
+			_player.call("_release_vacuum")
+		_paused_room_timer = false
+		if _room_timer != null and _room_timer.is_active():
+			_room_timer.pause()
+			_paused_room_timer = true
+		get_tree().paused = true
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		if _paused_room_timer and _room_timer != null:
+			_room_timer.resume()
+		_paused_room_timer = false
+		get_tree().paused = false
+
+
+func _pause_quit_to_menu() -> void:
+	_set_game_paused(false)
+	_show_menu(true)
 
 
 func _load_progress() -> void:
-	var cfg := ConfigFile.new()
-	if cfg.load(_save_path) == OK:
-		_highest_unlocked = int(cfg.get_value("progress", "unlocked", 1))
-	_highest_unlocked = clampi(_highest_unlocked, 1, LevelData3D.level_count())
+	# Tüm seviyeler açık (dev / test)
+	_highest_unlocked = LevelData3D.level_count()
+	_save_progress()
 
 
 func _save_progress() -> void:

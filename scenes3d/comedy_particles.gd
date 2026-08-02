@@ -35,6 +35,17 @@ func burst(kind: StringName, world_pos: Vector3, strength: float = 1.0) -> void:
 			_configure(p, Color(0.4, 0.75, 1.0), 20, 3.5, 0.5)
 		&"throw":
 			_configure(p, Color(1.0, 0.7, 0.35), 16, 5.5, 0.35)
+		&"suck":
+			# Luigi emme akışı — nozule doğru çekilen toz
+			_configure(p, Color(0.75, 0.9, 1.0), 22, 3.2 * strength, 0.28)
+			p.direction = Vector3(0, 0.35, -1)
+			p.spread = 28.0
+			p.gravity = Vector3(0, 1.5, 0)
+			p.initial_velocity_min = 1.5 * strength
+			p.initial_velocity_max = 4.0 * strength
+			p.scale_amount_min = 0.04
+			p.scale_amount_max = 0.11
+			_burst_extra(world_pos, Color(0.95, 0.85, 0.35), 8, 2.5 * strength, 0.22)
 		_:
 			_configure(p, Color(1, 1, 1), 12, 3.0, 0.3)
 	p.restart()

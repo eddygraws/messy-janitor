@@ -195,6 +195,32 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 			lvl["is_boss_room"] = true
 			lvl["boss_mode"] = String(ch.get("boss_mode", ""))
 			lvl["boss_title"] = String(ch.get("boss_title", "SET-PIECE"))
+		# İlk karşılaşma: bölümlemeli mekanik tutorial
+		var intro_sections: Array = ch.get("intro_sections", []) as Array
+		if tier == 0 and not intro_sections.is_empty():
+			lvl["tutorial_level"] = true
+			lvl["sections"] = intro_sections.duplicate(true)
+			lvl["props"] = []
+			lvl["name"] = "%d · %s · Tutorial" % [display_n, chapter_title]
+			lvl["subtitle"] = "Yeni alet öğren"
+			lvl["disable_hazards"] = true
+			lvl["disable_micro"] = true
+			lvl["disable_pressure"] = true
+			lvl["disable_curses"] = true
+			lvl["disable_junk"] = true
+			lvl["allow_junk"] = false
+			lvl["time_limit"] = 0.0
+			lvl["tutorial"] = String(ch.get("tutorial", hint))
+			if id_base == "broom":
+				lvl["start_tool"] = "broom"
+			lvl["commission"] = _commission(
+				npc,
+				icon,
+				"%s · Tutorial" % chapter_title,
+				String(ch.get("intro_sections_desc", intro)),
+				CommissionData.Rule.NONE,
+				0.0
+			)
 		out.append(lvl)
 	return out
 
@@ -299,7 +325,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"title": "Süpürge",
 			"npc": "Hayalet Ev Sahibi",
 			"icon": "👻",
-			"new_mechanic": "süpürge + kırıntı",
+			"new_mechanic": "süpürge emme (Luigi)",
 			"floor": Color(0.28, 0.2, 0.14),
 			"wall": Color(0.36, 0.28, 0.2),
 			"wall_style": "peach",
@@ -311,30 +337,80 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"hazards_from_tier": 2,
 			"micro_from_tier": 1,
 			"pressure_from_tier": 2,
-			"tutorial": "2=Süpürge · kırıntıyı taşı → çöp",
-			"hint_intro": "Yeni alet: Süpürge — kırıntı sadece onunla",
-			"hint_filler": "Kırıntı + küf · alet değiştir (1/2)",
-			"hint_mixed": "TV tamir + kırıntı",
+			"tutorial": "2=Süpürge · basılı tut em · torba dolunca çöpe boşalt",
+			"hint_intro": "Süpürge: doğrult, basılı tut, em! Torba 3/3 → çöp",
+			"hint_filler": "Toz + küf em · alet değiştir (1/2)",
+			"hint_mixed": "TV tamir + süpürge emme",
+			"intro_sections_desc": "Üç kısa ders: em → torba doldur/boşalt → karışık toz.",
+			"intro_sections": [
+				{
+					"id": "vac_suck",
+					"title": "Bölüm 1 · Em",
+					"banner": "SÜPÜRGEYLE EM",
+					"subtitle": "2 = Süpürge · Space basılı tut",
+					"hint": "2 tuşu · toza doğrult · Space BASILI TUT → em",
+					"card_desc": "Süpürgeyi seç (2). Toza / kırıntıya bakıp Space'e basılı tut — Luigi gibi emer.",
+					"banner_color": Color(0.45, 0.85, 1.0),
+					"enable_micro": false,
+					"enable_pressure": false,
+					"props": [
+						{"type": "dust", "count": 2},
+						{"type": "crumb", "count": 1},
+					],
+				},
+				{
+					"id": "vac_bag",
+					"title": "Bölüm 2 · Torba",
+					"banner": "TORBA DOLUNCA ÇÖP",
+					"subtitle": "3 emme = dolu · çöpte Space = boşalt",
+					"hint": "Torba 3/3 dolunca emme durur · ÇÖP yanında Space",
+					"card_desc": "Torba en fazla 3 emer. Dördüncü toz için önce çöpün yanında Space ile boşalt!",
+					"banner_color": Color(1.0, 0.55, 0.35),
+					"enable_micro": false,
+					"enable_pressure": false,
+					"props": [
+						{"type": "dust", "count": 2},
+						{"type": "crumb", "count": 2},
+					],
+				},
+				{
+					"id": "vac_mix",
+					"title": "Bölüm 3 · Karışık",
+					"banner": "TOZ + KÜF + KOLI",
+					"subtitle": "Em · torba boşalt · koliyi çöpe taşı",
+					"hint": "Küf/toz = süpürge em · koli = tut → çöp",
+					"card_desc": "Toz ve küfü em. Torba dolarsa çöpe boşalt. Koliyi elle çöpe taşı.",
+					"banner_color": Color(0.95, 0.78, 0.45),
+					"enable_micro": false,
+					"enable_pressure": false,
+					"props": [
+						{"type": "dust", "count": 2},
+						{"type": "mold", "count": 1},
+						{"type": "box", "count": 1},
+					],
+				},
+			],
 			"focus_props": [
-				{"type": "crumb", "count": 5},
-				{"type": "box", "count": 1},
+				{"type": "crumb", "count": 4},
+				{"type": "dust", "count": 3},
 			],
 			"filler_props": [
+				{"type": "dust", "count": 2},
 				{"type": "mold", "count": 2},
-				{"type": "painting", "count": 1},
+				{"type": "box", "count": 1},
 			],
 			"climax_props": [
-				{"type": "crumb", "count": 6},
-				{"type": "box", "count": 2},
+				{"type": "crumb", "count": 5},
+				{"type": "dust", "count": 4},
 				{"type": "mold", "count": 2},
-				{"type": "painting", "count": 1},
+				{"type": "box", "count": 2},
 				{"type": "tv_repair", "count": 1},
 			],
 			"challenge_rule": CommissionData.Rule.FORBIDDEN,
 			"challenge_desc": "✕ işaretli koliye dokunma — gerisini temizle.",
 			"climax_rule": CommissionData.Rule.FORBIDDEN,
 			"climax_subtitle": "Kutsal koli",
-			"climax_intro": "Kırıntıları süpür, TV'yi tamir et — yasak koliye el sürme!",
+			"climax_intro": "Tozları em, TV'yi tamir et — yasak koliye el sürme!",
 		},
 		{
 			"id": "slime",

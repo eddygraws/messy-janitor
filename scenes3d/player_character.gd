@@ -12,6 +12,7 @@ signal carried_changed(holding: bool)
 signal item_disposed(prop_id: String)
 signal floor_scrubbed(world_pos: Vector3)
 signal mop_dirt_changed(ratio: float)
+signal vacuum_bag_changed(count: int, capacity: int)
 signal rinsed
 signal dance_changed(dancing: bool)
 signal fx_burst(kind: StringName, world_pos: Vector3, strength: float)
@@ -45,6 +46,12 @@ signal wrong_tool_used(needed: String)
 @export_group("Paspas kiri")
 @export var mop_dirt_per_hit: float = 0.14
 @export var rinse_per_second: float = 1.15
+
+@export_group("Süpürge emme")
+@export var vacuum_range: float = 3.9
+@export var vacuum_cone_dot: float = 0.28
+@export var vacuum_pull_speed: float = 5.4
+@export var vacuum_bag_capacity: int = 3
 
 @export_group("Dash")
 @export var dash_speed: float = 14.0
@@ -139,6 +146,15 @@ var _base_carry_speed_mult: float = -1.0
 var _base_stack_falloff: float = -1.0
 var _base_scrub_mash_cooldown: float = -1.0
 var _bloat: float = 0.0
+var _vacuum_target: ClutterProp
+var _vacuum_rig: Node3D
+var _vacuum_nozzle: Node3D
+var _vacuum_beam: MeshInstance3D
+var _vacuum_beam_mat: StandardMaterial3D
+var _vacuum_tank_mesh: MeshInstance3D
+var _vacuum_active: bool = false
+var _vacuum_hum_cd: float = 0.0
+var _vacuum_bag: int = 0
 
 
 func set_floor_slip(amount: float) -> void:
@@ -413,6 +429,7 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		_process_bumps(false)
 		_update_mop_scrub(delta)
+		_update_broom_vacuum(delta)
 		_update_motion_signals()
 		return
 
@@ -426,11 +443,13 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		_process_bumps(true)
 		_update_mop_scrub(delta)
+		_update_broom_vacuum(delta)
 		_update_motion_signals()
 		return
 
 	_apply_overcooked_movement()
 	_update_mop_scrub(delta)
+	_update_broom_vacuum(delta)
 	_update_motion_signals()
 
 
@@ -449,6 +468,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_released("interact"):
 		_rinsing = false
+		_release_vacuum()
 		return
 	if event.is_action_pressed("tool_mop") or event.is_action_pressed("tool_1"):
 		_try_set_tool_index(0)
@@ -638,6 +658,9 @@ func _update_flashlight_aim() -> void:
 func _process_bumps(from_dash: bool) -> void:
 	if _bump_cd > 0.0:
 		return
+	# Süpürge emerken tozlar nozula yapışır — hit animi / geri sekme yok
+	if _vacuum_active:
+		return
 	var count := get_slide_collision_count()
 	if count <= 0:
 		return
@@ -654,6 +677,9 @@ func _process_bumps(from_dash: bool) -> void:
 		if collider_obj is Node:
 			var prop: ClutterProp = _find_prop_from(collider_obj as Node)
 			if prop != null:
+				# Emilmekte / emilebilir toza çarpma = hit animi oynatma
+				if prop.is_vacuumable() and prop.get_vacuum_progress() > 0.01:
+					continue
 				hit_prop = prop
 	if impact.length_squared() < 0.001:
 		return
@@ -816,7 +842,24 @@ func _get_movement_axes() -> Dictionary:
 func _snap_face(dir: Vector3) -> void:
 	if dir.length_squared() < 0.0001:
 		return
+	dir.y = 0.0
+	if dir.length_squared() < 0.0001:
+		return
+	dir = dir.normalized()
+	_facing = dir
 	rotation.y = atan2(dir.x, dir.z)
+
+
+## Yumuşak bakış — her karede sert snap 360° spin yapmasın.
+func _soft_face_toward(dir: Vector3, max_rad_per_frame: float = 0.1) -> void:
+	dir.y = 0.0
+	if dir.length_squared() < 0.12:
+		return
+	dir = dir.normalized()
+	_facing = _facing.lerp(dir, 0.35).normalized()
+	var target_yaw := atan2(dir.x, dir.z)
+	var diff := wrapf(target_yaw - rotation.y, -PI, PI)
+	rotation.y += clampf(diff, -max_rad_per_frame, max_rad_per_frame)
 
 
 func try_set_tool_index(idx: int) -> void:
@@ -864,6 +907,9 @@ func _set_tool(tool: ToolKind) -> void:
 	active_tool = tool
 	tool_switched.emit(get_tool_name())
 	_play_sfx(PrototypeSfx.Kind.SWITCH)
+	_refresh_vacuum_tool_visual()
+	if tool != ToolKind.BROOM:
+		_release_vacuum()
 
 
 func configure_for_level(
@@ -888,6 +934,9 @@ func configure_for_level(
 	set_max_dash_charges(dash_charges)
 	set_flashlight_enabled(flashlight)
 	tools_unlocked_changed.emit(unlocked_tool_count)
+	_vacuum_bag = 0
+	_refresh_vacuum_bag_visual()
+	vacuum_bag_changed.emit(0, vacuum_bag_capacity)
 	if not allow_mop:
 		_mop_dirt = 0.0
 		mop_dirt_changed.emit(0.0)
@@ -908,6 +957,7 @@ func configure_for_level(
 			pass
 		else:
 			_set_tool(ToolKind.MOP)
+	_refresh_vacuum_tool_visual()
 
 
 func _wrong_tool(needed: String) -> void:
@@ -953,6 +1003,13 @@ func _try_interact() -> void:
 			_rinsing = true
 			_swing_cooldown = 0.05
 			_play_sfx(PrototypeSfx.Kind.RINSE, 0.9)
+			return
+
+	# Süpürge torbasını çöpe boşalt
+	if _held == null and active_tool == ToolKind.BROOM and _vacuum_bag > 0:
+		var trash := _find_station(TRASH_GROUP)
+		if trash != null:
+			_empty_vacuum_bag(trash)
 			return
 
 	if _held != null:
@@ -1005,6 +1062,10 @@ func _try_interact() -> void:
 
 	var prop := _find_interact_target()
 	if prop == null:
+		# Boş alanda broom tap → emme ipucu
+		if active_tool == ToolKind.BROOM and unlocked_tool_count >= 2:
+			status_message.emit("Süpürgeyi toza doğrultup basılı tut")
+			_swing_cooldown = 0.12
 		return
 
 	# Tablo / TV tamir — herhangi alet (fırça L5+ önerilir)
@@ -1024,7 +1085,19 @@ func _try_interact() -> void:
 			status_message.emit("Tablo düzeldi!" if prop.is_painting else "TV tamir!")
 		return
 
+	# Luigi emme hedefleri — tap değil, basılı tut
+	if prop.is_vacuum_target_for(get_tool_name()):
+		status_message.emit("Basılı tut — em!")
+		_swing_cooldown = 0.08
+		_snap_face(prop.global_position - global_position)
+		return
+
 	if prop.can_carry and prop.is_carryable():
+		# Süpürgeyle emilebilirleri taşıma — basılı tut
+		if prop.is_vacuum_target_for("broom") and active_tool == ToolKind.BROOM:
+			status_message.emit("Basılı tut — em!")
+			_swing_cooldown = 0.08
+			return
 		if not _can_pick_prop(prop):
 			return
 		_pick_up(prop)
@@ -1324,6 +1397,315 @@ func _update_mop_scrub(delta: float) -> void:
 		fx_burst.emit(&"clean", prop.global_position + Vector3(0, 0.4, 0), 1.15)
 		# Viscera sürükleme: temiz bitti, kayganlık yok
 		item_disposed.emit(prop.prop_id)
+
+
+## Luigi's Mansion tarzı süpürge: basılı tut → koni içinde toz/kırıntı/küfü em.
+func _update_broom_vacuum(delta: float) -> void:
+	_refresh_vacuum_tool_visual()
+	if _held != null or active_tool != ToolKind.BROOM or unlocked_tool_count < 2:
+		_release_vacuum()
+		return
+	if not Input.is_action_pressed("interact"):
+		_release_vacuum()
+		return
+	# Torba doluysa emme yok — çöpe yönlendir
+	if _vacuum_bag >= vacuum_bag_capacity:
+		_vacuum_active = true
+		_ensure_vacuum_visuals()
+		_aim_vacuum_beam(null)
+		if Engine.get_physics_frames() % 45 == 0:
+			status_message.emit("Torba dolu! Çöpe boşalt (%d/%d)" % [_vacuum_bag, vacuum_bag_capacity])
+		if _vacuum_target != null and is_instance_valid(_vacuum_target):
+			_vacuum_target.cancel_vacuum_pull(delta, true)
+		_vacuum_target = null
+		return
+	var prop := _find_vacuum_target()
+	_vacuum_active = true
+	_ensure_vacuum_visuals()
+	_aim_vacuum_beam(prop)
+	_vacuum_hum_cd -= delta
+	if _vacuum_hum_cd <= 0.0:
+		_vacuum_hum_cd = 0.14
+		_play_sfx(PrototypeSfx.Kind.RINSE, 1.35 + randf_range(-0.08, 0.12))
+	if prop == null:
+		if _vacuum_target != null and is_instance_valid(_vacuum_target):
+			_vacuum_target.cancel_vacuum_pull(delta)
+		_vacuum_target = null
+		return
+	if _vacuum_target != null and _vacuum_target != prop and is_instance_valid(_vacuum_target):
+		_vacuum_target.cancel_vacuum_pull(delta)
+	_vacuum_target = prop
+	# Yakındayken bakış kilitleme — spin bug'ını önler
+	var to_prop := prop.global_position - global_position
+	to_prop.y = 0.0
+	if to_prop.length() > 1.15:
+		_soft_face_toward(to_prop, 0.09)
+	var nozzle := _get_vacuum_nozzle_pos()
+	if Engine.get_physics_frames() % 3 == 0:
+		fx_burst.emit(&"suck", prop.global_position.lerp(nozzle, 0.35) + Vector3(0, 0.2, 0), 0.7 + prop.get_vacuum_progress() * 0.5)
+	var captured := prop.apply_vacuum_suck(delta, nozzle, vacuum_pull_speed)
+	if captured:
+		_add_vacuum_bag(1)
+		_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.25)
+		fx_burst.emit(&"clean", nozzle, 1.2)
+		fx_burst.emit(&"dispose", nozzle + Vector3(0, 0.2, 0), 0.95)
+		item_disposed.emit(prop.prop_id)
+		if not is_vacuum_bag_full():
+			status_message.emit("Emildi · torba %d/%d" % [_vacuum_bag, vacuum_bag_capacity])
+		_vacuum_target = null
+		_squash = Vector3(1.14, 0.88, 1.14)
+		_hop_y = 0.12
+
+
+func _add_vacuum_bag(amount: int = 1) -> void:
+	var before := _vacuum_bag
+	_vacuum_bag = clampi(_vacuum_bag + amount, 0, vacuum_bag_capacity)
+	_refresh_vacuum_bag_visual()
+	if _vacuum_bag != before:
+		vacuum_bag_changed.emit(_vacuum_bag, vacuum_bag_capacity)
+	if before < vacuum_bag_capacity and _vacuum_bag >= vacuum_bag_capacity:
+		_play_sfx(PrototypeSfx.Kind.TASK_FAIL, 0.75)
+		fx_burst.emit(&"bump", global_position + Vector3(0, 1.0, 0), 1.1)
+		_squash = Vector3(1.22, 0.82, 1.22)
+		_hop_y = 0.18
+		status_message.emit("⚠️ TORBA DOLU — çöpe boşalt!")
+
+
+func _empty_vacuum_bag(zone: Node3D) -> void:
+	if _vacuum_bag <= 0:
+		return
+	var dumped := _vacuum_bag
+	_vacuum_bag = 0
+	_refresh_vacuum_bag_visual()
+	vacuum_bag_changed.emit(_vacuum_bag, vacuum_bag_capacity)
+	_swing_cooldown = 0.2
+	_play_sfx(PrototypeSfx.Kind.DISPOSE, 0.95)
+	var at := global_position + Vector3(0, 0.8, 0)
+	if zone != null:
+		at = zone.global_position + Vector3(0, 0.8, 0)
+	fx_burst.emit(&"dispose", at, 1.15)
+	fx_burst.emit(&"clean", at + Vector3(0.2, 0.1, 0), 0.9)
+	status_message.emit("Torba boşaltıldı (−%d)" % dumped)
+	_squash = Vector3(1.1, 0.9, 1.1)
+
+
+func get_vacuum_bag_fill() -> float:
+	return float(_vacuum_bag) / float(maxi(vacuum_bag_capacity, 1))
+
+
+func get_vacuum_bag_count() -> int:
+	return _vacuum_bag
+
+
+func is_vacuum_bag_full() -> bool:
+	return _vacuum_bag >= vacuum_bag_capacity
+
+
+func _release_vacuum() -> void:
+	_vacuum_active = false
+	if _vacuum_target != null and is_instance_valid(_vacuum_target):
+		_vacuum_target.cancel_vacuum_pull(0.08, true)
+	_vacuum_target = null
+	if _vacuum_beam != null:
+		_vacuum_beam.visible = false
+
+
+func _find_vacuum_target() -> ClutterProp:
+	var best: ClutterProp = null
+	var best_score := -999.0
+	var facing := _aim_direction()
+	var tool := get_tool_name()
+	for node in get_tree().get_nodes_in_group(PROP_GROUP):
+		var prop := node as ClutterProp
+		if prop == null or not prop.is_vacuum_target_for(tool):
+			continue
+		var flat := prop.global_position - global_position
+		flat.y = 0.0
+		var dist := flat.length()
+		if dist > vacuum_range:
+			continue
+		var dir := flat / maxf(dist, 0.001)
+		var dot := facing.dot(dir)
+		if dist > close_magnet_range * 1.1:
+			var need := lerpf(vacuum_cone_dot, interact_cone_dot, clampf(dist / vacuum_range, 0.0, 1.0))
+			if dot < need:
+				continue
+		# Yakın + bakışta olanı tercih et; kısmen emilmiş öncelikli
+		var score := (1.0 - dist / vacuum_range) * 2.0 + maxf(dot, 0.0) + prop.get_vacuum_progress() * 1.5
+		if score > best_score:
+			best_score = score
+			best = prop
+	return best
+
+
+func _get_vacuum_nozzle_pos() -> Vector3:
+	if _vacuum_nozzle != null and is_instance_valid(_vacuum_nozzle):
+		return _vacuum_nozzle.global_position
+	var fwd := _aim_direction()
+	return global_position + fwd * 0.85 + Vector3(0, 0.75, 0)
+
+
+func _ensure_vacuum_visuals() -> void:
+	if _vacuum_rig != null and is_instance_valid(_vacuum_rig):
+		_layout_vacuum_backpack()
+		return
+	if _visual == null:
+		return
+	_vacuum_rig = Node3D.new()
+	_vacuum_rig.name = "VacuumRig"
+	_visual.add_child(_vacuum_rig)
+
+	# Sırt tankı — sırt çantası gibi omuzların arkasında
+	_vacuum_tank_mesh = MeshInstance3D.new()
+	var tank_mesh := CapsuleMesh.new()
+	tank_mesh.radius = 0.2
+	tank_mesh.height = 0.62
+	_vacuum_tank_mesh.mesh = tank_mesh
+	_vacuum_tank_mesh.material_override = _vac_mat(Color(0.25, 0.55, 0.95), Color(0.45, 0.85, 1.0))
+	_vacuum_rig.add_child(_vacuum_tank_mesh)
+
+	# Omuz askısı (görsel)
+	for side in [-1.0, 1.0]:
+		var strap := MeshInstance3D.new()
+		strap.name = "Strap%s" % ("L" if side < 0.0 else "R")
+		var strap_mesh := BoxMesh.new()
+		strap_mesh.size = Vector3(0.06, 0.42, 0.04)
+		strap.mesh = strap_mesh
+		strap.position = Vector3(side * 0.16, 0.28, -0.06)
+		strap.rotation_degrees = Vector3(-18.0, 0.0, side * -12.0)
+		strap.material_override = _vac_mat(Color(0.2, 0.22, 0.28), Color(0.35, 0.4, 0.5))
+		_vacuum_rig.add_child(strap)
+
+	# Hortum: sırt → omuz → öne
+	var hose := MeshInstance3D.new()
+	hose.name = "Hose"
+	var hose_mesh := CylinderMesh.new()
+	hose_mesh.top_radius = 0.04
+	hose_mesh.bottom_radius = 0.05
+	hose_mesh.height = 0.85
+	hose.mesh = hose_mesh
+	hose.material_override = _vac_mat(Color(0.15, 0.15, 0.18), Color(0.3, 0.35, 0.4))
+	_vacuum_rig.add_child(hose)
+
+	# Nozul — elde / önde
+	_vacuum_nozzle = Node3D.new()
+	_vacuum_nozzle.name = "Nozzle"
+	_vacuum_rig.add_child(_vacuum_nozzle)
+
+	var nozzle_mesh := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.12
+	cone.bottom_radius = 0.04
+	cone.height = 0.28
+	nozzle_mesh.mesh = cone
+	nozzle_mesh.rotation_degrees = Vector3(90, 0, 0)
+	nozzle_mesh.material_override = _vac_mat(Color(0.85, 0.75, 0.25), Color(1.0, 0.95, 0.4))
+	_vacuum_nozzle.add_child(nozzle_mesh)
+
+	_layout_vacuum_backpack()
+
+	# Emme ışını
+	_vacuum_beam = MeshInstance3D.new()
+	_vacuum_beam.name = "VacuumBeam"
+	var beam_mesh := CylinderMesh.new()
+	beam_mesh.top_radius = 0.08
+	beam_mesh.bottom_radius = 0.22
+	beam_mesh.height = 1.0
+	_vacuum_beam.mesh = beam_mesh
+	_vacuum_beam_mat = StandardMaterial3D.new()
+	_vacuum_beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_vacuum_beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_vacuum_beam_mat.albedo_color = Color(0.45, 0.9, 1.0, 0.35)
+	_vacuum_beam_mat.emission_enabled = true
+	_vacuum_beam_mat.emission = Color(0.4, 0.85, 1.0)
+	_vacuum_beam_mat.emission_energy_multiplier = 2.4
+	_vacuum_beam.material_override = _vacuum_beam_mat
+	_vacuum_beam.visible = false
+	add_child(_vacuum_beam)  # dünya uzayında hizalanacak
+
+
+## Torba sırtta (lokal -Z), hortum/nozul önde (lokal +Z).
+func _layout_vacuum_backpack() -> void:
+	if _vacuum_rig == null:
+		return
+	# Sırt: -Z, karaktere yakın
+	_vacuum_rig.position = Vector3(0.0, 1.02, -0.28)
+	if _vacuum_tank_mesh != null:
+		_vacuum_tank_mesh.position = Vector3(0.0, 0.06, -0.08)
+		_vacuum_tank_mesh.rotation_degrees = Vector3(-8.0, 0.0, 0.0)
+	var hose := _vacuum_rig.get_node_or_null("Hose") as MeshInstance3D
+	if hose != null:
+		hose.position = Vector3(0.26, 0.18, 0.08)
+		hose.rotation_degrees = Vector3(-52.0, 38.0, -8.0)
+	if _vacuum_nozzle != null:
+		_vacuum_nozzle.position = Vector3(0.4, -0.05, 0.58)
+	for c in _vacuum_rig.get_children():
+		if c is MeshInstance3D and String(c.name).begins_with("Strap"):
+			var s := c as MeshInstance3D
+			s.position.z = -0.02
+			s.rotation_degrees.x = -14.0
+
+
+func _vac_mat(albedo: Color, emission: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = albedo
+	mat.emission_enabled = true
+	mat.emission = emission
+	mat.emission_energy_multiplier = 1.4
+	mat.roughness = 0.55
+	return mat
+
+
+func _refresh_vacuum_tool_visual() -> void:
+	_ensure_vacuum_visuals()
+	if _vacuum_rig == null:
+		return
+	var show := active_tool == ToolKind.BROOM and unlocked_tool_count >= 2
+	_vacuum_rig.visible = show
+	if show:
+		var pulse := 1.0 + (0.03 if _vacuum_active else 0.0) * sin(Time.get_ticks_msec() * 0.035)
+		_vacuum_rig.scale = Vector3.ONE * pulse
+		_refresh_vacuum_bag_visual()
+
+
+func _refresh_vacuum_bag_visual() -> void:
+	if _vacuum_tank_mesh == null:
+		return
+	var fill := get_vacuum_bag_fill()
+	var empty_c := Color(0.25, 0.55, 0.95)
+	var full_c := Color(0.95, 0.45, 0.2)
+	var c := empty_c.lerp(full_c, fill)
+	_vacuum_tank_mesh.material_override = _vac_mat(c, c.lightened(0.25))
+	# Doluluk: tank biraz şişsin
+	_vacuum_tank_mesh.scale = Vector3.ONE * lerpf(1.0, 1.28, fill)
+
+
+func _aim_vacuum_beam(target: ClutterProp) -> void:
+	if _vacuum_beam == null:
+		return
+	var nozzle := _get_vacuum_nozzle_pos()
+	var tip := nozzle + _aim_direction() * 1.6
+	if target != null and is_instance_valid(target):
+		tip = target.global_position + Vector3(0, 0.25, 0)
+	var mid := (nozzle + tip) * 0.5
+	var span := tip - nozzle
+	var length := maxf(span.length(), 0.2)
+	_vacuum_beam.visible = true
+	_vacuum_beam.global_position = mid
+	# Silindiri Y ekseni span'e hizala
+	if span.length_squared() > 0.0001:
+		_vacuum_beam.look_at(tip, Vector3.UP)
+		_vacuum_beam.rotate_object_local(Vector3(1, 0, 0), PI * 0.5)
+	var mesh := _vacuum_beam.mesh as CylinderMesh
+	if mesh != null:
+		mesh.height = length
+		var widen := 0.16 if target != null else 0.1
+		mesh.top_radius = 0.05
+		mesh.bottom_radius = widen + (0.08 if _vacuum_active else 0.0)
+	if _vacuum_beam_mat != null:
+		var a := 0.45 if target != null else 0.22
+		_vacuum_beam_mat.albedo_color = Color(0.45, 0.92, 1.0, a)
+		_vacuum_beam_mat.emission_energy_multiplier = 2.8 if target != null else 1.6
 
 
 func _find_scrub_target() -> ClutterProp:

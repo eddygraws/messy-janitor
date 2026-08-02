@@ -36,6 +36,9 @@ signal merged_into(host: ClutterProp)
 @export var needs_spray_first: bool = false ## wet: önce sprey, sonra paspas
 ## Viscera silme izi — scrub mask stamp (smear yok)
 @export var liquid_wipe: bool = false
+## Luigi tarzı süpürge emme (kırıntı / toz / küf)
+@export var vacuumable: bool = false
+@export var vacuum_resist: float = 1.0 ## yüksek = daha yavaş emilir
 
 ## Oda sınırı — duvardan biraz içeride (köşeye yığılmayı azaltır).
 const ROOM_HALF_X := 7.7
@@ -77,6 +80,9 @@ var _tilt_rest: Vector3 = Vector3.ZERO
 var _repaired: bool = false
 var _wipe_mask: LiquidScrubMask3D
 var _wipe_half: float = 1.0
+var _vacuuming: bool = false
+var _vacuum_progress: float = 0.0
+var _vacuum_spin: float = 0.0
 
 
 func _ready() -> void:
@@ -210,6 +216,101 @@ func is_scrub_target() -> bool:
 	if needs_spray_first and not _sprayed:
 		return false
 	return requires_scrub and not _destroying and not _carried and not _throwing
+
+
+func is_vacuumable() -> bool:
+	return (
+		vacuumable
+		and not _destroying
+		and not _carried
+		and not _throwing
+	)
+
+
+func get_vacuum_progress() -> float:
+	return _vacuum_progress
+
+
+## Emme hedefi — broom ile crumb/dust/mold.
+func is_vacuum_target_for(tool_name: String) -> bool:
+	if not is_vacuumable():
+		return false
+	if tool_name != "broom":
+		return false
+	if prop_id in ["crumb", "dust", "mold"]:
+		return true
+	return required_tool.is_empty() or required_tool == "broom"
+
+
+## Luigi emme: nozzle'a çek, küçült, yeterince yakın+ilerlemede yakala.
+## true = emildi / yok edildi.
+func apply_vacuum_suck(delta: float, nozzle_world: Vector3, pull_speed: float = 5.2) -> bool:
+	if not is_vacuumable():
+		return false
+	if not _vacuuming:
+		_vacuuming = true
+		_kill_idle()
+		_disable_collisions()  # karaktere çarpıp hit animi tetiklemesin
+	var flat := nozzle_world - global_position
+	flat.y = 0.0
+	var dist := flat.length()
+	var resist := maxf(vacuum_resist, 0.35)
+	var pull := pull_speed * (0.65 + _vacuum_progress * 1.1) / resist
+	if dist > 0.12:
+		global_position += flat.normalized() * pull * delta
+	# Hafif yükselt + sallan
+	var lift := lerpf(0.05, 0.55, _vacuum_progress)
+	global_position.y = lerpf(global_position.y, lift, clampf(6.0 * delta, 0.0, 1.0))
+	var gain := delta * (1.55 if dist < 1.35 else 0.7) / resist
+	_vacuum_progress = clampf(_vacuum_progress + gain, 0.0, 1.0)
+	_vacuum_spin += delta * (6.0 + _vacuum_progress * 14.0)
+	if _anim_root != null:
+		_anim_root.rotation.y = _base_rot.y + _vacuum_spin
+		_anim_root.rotation.x = _base_rot.x + sin(_vacuum_spin * 2.2) * 0.25 * _vacuum_progress
+		_anim_root.rotation.z = _base_rot.z + cos(_vacuum_spin * 1.7) * 0.2 * _vacuum_progress
+	var s := lerpf(1.0, 0.18, _vacuum_progress * _vacuum_progress)
+	scale = _scrub_base_scale * s
+	# Yakın + neredeyse doldu → içeri çek
+	if dist < 0.7 and _vacuum_progress >= 0.88:
+		_capture_by_vacuum()
+		return true
+	return false
+
+
+func cancel_vacuum_pull(delta: float = 0.05, snap_down: bool = false) -> void:
+	if _destroying:
+		return
+	if not _vacuuming and _vacuum_progress <= 0.0:
+		return
+	_vacuuming = false
+	if snap_down:
+		_vacuum_progress = 0.0
+		scale = _scrub_base_scale
+		global_position.y = 0.0
+		if _anim_root != null:
+			_anim_root.rotation = _base_rot
+		_restore_collisions()
+		_start_idle()
+		return
+	_vacuum_progress = maxf(0.0, _vacuum_progress - delta * 2.5)
+	if _vacuum_progress <= 0.02:
+		_vacuum_progress = 0.0
+		scale = _scrub_base_scale
+		global_position.y = 0.0
+		if _anim_root != null:
+			_anim_root.rotation = _base_rot
+		_restore_collisions()
+		_start_idle()
+	else:
+		scale = _scrub_base_scale * lerpf(1.0, 0.45, _vacuum_progress)
+		global_position.y = lerpf(global_position.y, 0.0, 0.35)
+
+
+func _capture_by_vacuum() -> void:
+	if _destroying:
+		return
+	_vacuuming = false
+	_destroy_from_hits()
 
 
 func is_repair_target() -> bool:
@@ -907,6 +1008,14 @@ func _destroy_from_hits() -> void:
 func _disable_collisions() -> void:
 	for body in _find_static_bodies(self):
 		body.collision_layer = 0
+		body.collision_mask = 0
+
+
+func _restore_collisions() -> void:
+	if _destroying or _carried:
+		return
+	for body in _find_static_bodies(self):
+		body.collision_layer = 4  # GarageClutterSpawner.PROP_MASK
 		body.collision_mask = 0
 
 
