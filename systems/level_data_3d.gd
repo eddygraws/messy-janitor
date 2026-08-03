@@ -1,16 +1,17 @@
 class_name LevelData3D
 extends RefCounted
 
-## 3D kampanya: 1 tutorial + 10 bölüm × 5 kademe = 51 seviye.
+## 3D kampanya: 2 tutorial + 10 bölüm × 5 kademe.
 ## Her bölüm: Intro → Filler → Filler+ → Challenge → Climax (kademeli unlock).
 
 const CHAPTERS_PER_CAMPAIGN := 10
 const TIERS_PER_CHAPTER := 5
+const INTRO_LEVELS := 2
 const TIER_LABELS: Array[String] = ["Giriş", "Alıştırma", "Pratik", "Zorluk", "Doruk"]
 
 
 static func level_count() -> int:
-	return 1 + CHAPTERS_PER_CAMPAIGN * TIERS_PER_CHAPTER
+	return _all().size()
 
 
 static func get_level(index: int) -> Dictionary:
@@ -22,7 +23,7 @@ static func get_level(index: int) -> Dictionary:
 
 static func is_tutorial_level(index: int) -> bool:
 	var info := get_level(index)
-	return bool(info.get("tutorial_level", false)) or index == 0
+	return bool(info.get("tutorial_level", false))
 
 
 static func unlocked_tools_for(index: int) -> int:
@@ -36,15 +37,20 @@ static func dash_charges_for(index: int) -> int:
 
 
 static func chapter_index_for(level_index: int) -> int:
-	if level_index <= 0:
+	var info := get_level(level_index)
+	if bool(info.get("tutorial_level", false)):
 		return -1
-	return int((level_index - 1) / TIERS_PER_CHAPTER)
+	var ch := int(info.get("chapter", 0))
+	if ch <= 0:
+		return -1
+	return ch - 1
 
 
 static func tier_in_chapter(level_index: int) -> int:
-	if level_index <= 0:
+	var info := get_level(level_index)
+	if bool(info.get("tutorial_level", false)):
 		return 0
-	return (level_index - 1) % TIERS_PER_CHAPTER
+	return int(info.get("tier", 0))
 
 
 static func _commission(npc: String, icon: String, title: String, desc: String, rule: int, param: float) -> Dictionary:
@@ -91,8 +97,8 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 	var id_base := String(ch.get("id", "ch"))
 
 	for tier in TIERS_PER_CHAPTER:
-		# Global display number: tutorial=1, then 2..46
-		var display_n := 1 + (chapter_num - 1) * TIERS_PER_CHAPTER + tier + 1
+		# Global display number: intro'lar + bölüm kademeleri
+		var display_n := INTRO_LEVELS + (chapter_num - 1) * TIERS_PER_CHAPTER + tier + 1
 
 		var props: Array
 		var time_lim: float
@@ -228,6 +234,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 static func _all() -> Array[Dictionary]:
 	var levels: Array[Dictionary] = []
 	levels.append(_tutorial())
+	levels.append(_junk_tutorial())
 	var chapters: Array[Dictionary] = _chapter_defs()
 	for i in chapters.size():
 		levels.append_array(_expand_chapter(chapters[i], i + 1))
@@ -479,10 +486,11 @@ static func _chapter_defs() -> Array[Dictionary]:
 				{"type": "box", "count": 1},
 			],
 			"climax_props": [
-				{"type": "potion", "count": 1},
-				{"type": "crust", "count": 1},
-				{"type": "slime", "count": 1},
+				{"type": "potion", "count": 3},
+				{"type": "crust", "count": 3},
+				{"type": "slime", "count": 2},
 				{"type": "boss_slime", "count": 1},
+				{"type": "wet", "count": 2},
 			],
 			"challenge_rule": CommissionData.Rule.HIGH_RISK,
 			"challenge_param": 1.4,
@@ -699,7 +707,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 				{"type": "painting", "count": 1},
 			],
 			"climax_props": [
-				{"type": "box", "count": 5},
+				{"type": "box", "count": 10},
 				{"type": "tv", "count": 2},
 				{"type": "mold", "count": 3},
 				{"type": "crumb", "count": 3},
@@ -719,6 +727,47 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"climax_intro": "Son gece — her kir tipi + kutu yağmuru!",
 		},
 	]
+
+
+static func _junk_tutorial() -> Dictionary:
+	return {
+		"id": "junk_powerup",
+		"name": "2 · Tutorial · Abur Cubur",
+		"subtitle": "Ye · şiş · power-up",
+		"npc": "Kuzen Marv",
+		"icon": "🍔",
+		"intro": "Gökten hamburger düşer! Space ile ye — 3. lokmada rastgele güç: HIZ veya tüm sahneyi süpür.",
+		"floor": Color(0.34, 0.32, 0.28),
+		"wall": Color(0.48, 0.42, 0.36),
+		"wall_style": "garage",
+		"accent": Color(1.0, 0.7, 0.3),
+		"stations": ["trash", "bucket"],
+		"allow_mop": true,
+		"unlocked_tools": 1,
+		"allow_junk": true,
+		"disable_junk": false,
+		"junk_starter_burst": 3,
+		"junk_interval_min": 5.5,
+		"junk_interval_max": 8.5,
+		"junk_max_concurrent": 2,
+		"tutorial_level": true,
+		"disable_hazards": true,
+		"disable_micro": true,
+		"disable_pressure": true,
+		"disable_curses": true,
+		"time_limit": 70.0,
+		"chapter": 0,
+		"tier": 0,
+		"tutorial": "Space = abur cubur ye · 3 yemek = ⚡Hız veya 🌪️Süpür",
+		"commission": _commission("Kuzen Marv", "🍔", "Abur Cubur Dersi",
+			"3 abur cubur ye — rastgele power-up gelir. Sonra kalan kirleri bitir!",
+			CommissionData.Rule.NONE, 0.0),
+		"props": [
+			{"type": "box", "count": 3},
+			{"type": "wet", "count": 2},
+			{"type": "tv", "count": 1},
+		],
+	}
 
 
 static func _tutorial() -> Dictionary:
@@ -812,11 +861,10 @@ static func _tutorial() -> Dictionary:
 				"card_desc": "Son tur: süre başlar! ★ hedefe koş — combo ile süre uzar.",
 				"banner_color": Color(1.0, 0.45, 0.55),
 				"enable_micro": true,
-				"enable_pressure": true,
-				"soft_pressure": true,
+				"enable_pressure": false,
 				"time_limit": 45.0,
 				"props": [
-					{"type": "box", "count": 3},
+					{"type": "box", "count": 4},
 					{"type": "tv", "count": 1},
 					{"type": "box", "count": 1, "fallen": true},
 				],

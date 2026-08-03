@@ -23,10 +23,13 @@ signal furniture_shifted
 @export var furniture_warn_min: float = 0.85 ## En az bu kadar uyarı göster (erken tetik yok)
 @export var furniture_slide_time: float = 0.48 ## Kayma süresi
 @export var furniture_shove_power: float = 7.5
-@export var furniture_touch_pad: float = 0.55 ## Çizgiye basma yarıçapı
+@export var furniture_touch_pad: float = -1.0 ## <0 → çizgi yarıçapı + oyuncu kapsülü
 @export var furniture_line_width: float = 0.32
+@export var furniture_shove_skin: float = 0.1 ## Mobilya OBB'ye ek deri (görsel = fizik)
 @export var furniture_travel: float = 3.2 ## Max kayma mesafesi
 @export var furniture_min_sep: float = 3.2
+## Oyuncu XZ yarıçapı — scene kapsülü ile uyumlu varsayılan
+@export var player_foot_radius: float = 0.28
 
 var _player: PlayerCharacter3D
 var _stress: StressComponent
@@ -102,21 +105,21 @@ func start_session(level_index: int, allow_mop: bool = true) -> void:
 		_furn_phase = FurnPhase.IDLE
 		return
 	# İlk düşme / mobilya biraz geciksin
-	_fall_cd = fall_base_interval * randf_range(0.55, 0.9)
-	_furn_cd = _eff_furn_interval * randf_range(0.55, 0.85)
+	_fall_cd = fall_base_interval * _hazard_mercy_mult() * randf_range(0.55, 0.9)
+	_furn_cd = _furn_next_cd(0.7)
 	_furn_phase = FurnPhase.IDLE
 	_spawn_furniture()
 
 
-## Level 0→9: raf/dolap + düşen kutu hızlanır (interval/warn/slide kısalır).
+## Level 0→son: raf/dolap + düşen kutu hızlanır — yumuşak eğri (eski /9 max'ı çok erken).
 func _apply_level_pace() -> void:
-	var t := clampf(float(_level_index) / 9.0, 0.0, 1.0)
-	_eff_fall_warn = lerpf(fall_warn_time, fall_warn_time * 0.48, t)
-	_eff_fall_drop = lerpf(0.18, 0.07, t)
-	_eff_furn_interval = lerpf(furniture_interval, furniture_interval * 0.48, t)
-	_eff_furn_warn = lerpf(furniture_warn_time, furniture_warn_time * 0.45, t)
-	_eff_furn_warn_min = lerpf(furniture_warn_min, furniture_warn_min * 0.55, t)
-	_eff_furn_slide = lerpf(furniture_slide_time, furniture_slide_time * 0.42, t)
+	var t := clampf(float(_level_index) / 45.0, 0.0, 1.0)
+	_eff_fall_warn = lerpf(fall_warn_time, fall_warn_time * 0.62, t)
+	_eff_fall_drop = lerpf(0.18, 0.1, t)
+	_eff_furn_interval = lerpf(furniture_interval, furniture_interval * 0.62, t)
+	_eff_furn_warn = lerpf(furniture_warn_time, furniture_warn_time * 0.58, t)
+	_eff_furn_warn_min = lerpf(furniture_warn_min, furniture_warn_min * 0.7, t)
+	_eff_furn_slide = lerpf(furniture_slide_time, furniture_slide_time * 0.55, t)
 
 
 func stop_session() -> void:
@@ -171,16 +174,40 @@ func _process(delta: float) -> void:
 func _physics_process(_delta: float) -> void:
 	pass
 
+func _player_r() -> float:
+	return player_foot_radius
+
+
+func _player_xz() -> Vector3:
+	if _player == null:
+		return Vector3.ZERO
+	var p := _player.global_position
+	p.y = 0.0
+	return p
+
+
+## disk_r görsel yarıçap. include_body=true → kapsül kenarı disk'e değince sayılır.
+func _xz_in_disk(center: Vector3, disk_r: float, include_body: bool = false) -> bool:
+	var flat := _player_xz() - Vector3(center.x, 0.0, center.z)
+	var pad := _player_r() if include_body else 0.0
+	return flat.length() <= disk_r + pad
+
+
+func _furn_touch_radius() -> float:
+	if furniture_touch_pad > 0.0:
+		return furniture_touch_pad
+	# Glow genişliği (line_width) + oyuncu yarıçapı — gördüğün çizgi = tetik
+	return furniture_line_width * 0.5 + _player_r()
+
+
 func _apply_slip_to_player() -> void:
 	if _player == null:
 		return
 	var best := 0.0
-	var p := _player.global_position
 	for z in _slip_zones:
 		var c: Vector3 = z["center"]
 		var r: float = z["radius"]
-		var flat := Vector3(p.x - c.x, 0.0, p.z - c.z)
-		if flat.length() <= r:
+		if _xz_in_disk(c, r, true):
 			best = maxf(best, slippery_strength)
 	# Temizlenmemiş paspas sıvıları — hitbox yok ama üzerinde kay
 	if _allow_mop:
@@ -188,8 +215,7 @@ func _apply_slip_to_player() -> void:
 			var prop := n as ClutterProp
 			if prop == null or not prop.is_scrub_target():
 				continue
-			var flat_p := Vector3(p.x - prop.global_position.x, 0.0, p.z - prop.global_position.z)
-			if flat_p.length() <= prop.scrub_radius + 0.2:
+			if _xz_in_disk(prop.global_position, prop.scrub_radius, true):
 				best = maxf(best, slippery_strength)
 	_player.set_floor_slip(best)
 
@@ -289,10 +315,34 @@ func _tick_falling(delta: float) -> void:
 	var mult := 1.0
 	if _tempo != null and _tempo.is_running():
 		mult = _tempo.get_spawn_rate_mult()
-	# Seviye ilerledikçe daha sık düşer
-	var level_scale := lerpf(1.0, 0.52, clampf(float(_level_index) / 9.0, 0.0, 1.0))
-	_fall_cd = (fall_base_interval * level_scale / maxf(0.75, mult)) * randf_range(0.85, 1.2)
+	var level_scale := lerpf(1.0, 0.7, clampf(float(_level_index) / 45.0, 0.0, 1.0))
+	var mercy := _hazard_mercy_mult()
+	_fall_cd = (fall_base_interval * level_scale / maxf(0.9, mult)) * mercy * randf_range(0.9, 1.2)
 	_begin_fall_warn()
+
+
+## Yüksek stres / geride kalınca engeller biraz yavaşlar — ölüm spirali önleme.
+func _hazard_mercy_mult() -> float:
+	var m := 1.0
+	if _stress != null:
+		var r := _stress.get_stress_ratio()
+		if r > 0.5:
+			m *= lerpf(1.0, 1.4, clampf((r - 0.5) / 0.5, 0.0, 1.0))
+	if _spawner != null and _spawner.has_method("get_remaining_objectives"):
+		var rem := int(_spawner.call("get_remaining_objectives"))
+		if rem >= 12:
+			m *= 1.35
+		elif rem >= 8:
+			m *= 1.18
+	return m
+
+
+func _furn_next_cd(scale: float = 1.0) -> float:
+	var tempo_m := 1.0
+	if _tempo != null and _tempo.is_running():
+		# Faz hızı mobilyayı hafif etkiler (eski kadar sert değil)
+		tempo_m = 1.0 / sqrt(maxf(1.0, _tempo.get_spawn_rate_mult()))
+	return _eff_furn_interval * _hazard_mercy_mult() * tempo_m * scale * _rng.randf_range(0.9, 1.15)
 
 
 func _begin_fall_warn() -> void:
@@ -360,16 +410,10 @@ func _begin_fall_warn() -> void:
 
 
 func _resolve_fall() -> void:
-	var hit := false
-	if _player != null:
-		var flat := _player.global_position - _fall_center
-		flat.y = 0.0
-		hit = flat.length() <= fall_radius + 0.2
-	if hit and _stress != null:
-		_stress.add_stress(fall_stress)
-	# Düşen kutu görseli — kısa squash sonra yok (veya spawner'a bırak)
+	# Hasar kutunun yere iniş anında — uyarı bitince değil (erken / rastgele his yok)
+	var impact: Node3D = null
 	if _fall_warn != null and is_instance_valid(_fall_warn):
-		var impact := _fall_warn
+		impact = _fall_warn
 		_fall_warn = null
 		for c in impact.get_children():
 			if c is Label3D or (c is MeshInstance3D and c.position.y < 0.5):
@@ -384,16 +428,27 @@ func _resolve_fall() -> void:
 			land.tween_property(falling, "position:y", 0.35, _eff_fall_drop)\
 				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 			land.tween_callback(func() -> void:
+				_apply_fall_hit()
 				if is_instance_valid(impact):
 					impact.queue_free()
 			)
-		else:
-			impact.queue_free()
+			_fall_timer = -1.0
+			return
+		impact.queue_free()
 	else:
 		_clear_fall_warn()
-	fall_impact.emit(hit, _fall_center)
+	_apply_fall_hit()
 	_fall_timer = -1.0
 
+
+func _apply_fall_hit() -> void:
+	if not _active:
+		return
+	# Turuncu halka = hasar diski (merkeze göre, ekstra padding yok)
+	var hit := _player != null and _xz_in_disk(_fall_center, fall_radius, false)
+	if hit and _stress != null:
+		_stress.add_stress(fall_stress)
+	fall_impact.emit(hit, _fall_center)
 
 func _clear_fall_warn() -> void:
 	if _fall_warn != null and is_instance_valid(_fall_warn):
@@ -418,7 +473,7 @@ func _tick_furniture(delta: float) -> void:
 func _furn_begin_warn() -> void:
 	_furn_reset(false)
 	if _player == null or _furniture.is_empty():
-		_furn_cd = _eff_furn_interval
+		_furn_cd = _furn_next_cd()
 		return
 	# Geçerli parça seç
 	var candidates: Array[Node3D] = []
@@ -426,7 +481,7 @@ func _furn_begin_warn() -> void:
 		if f != null and is_instance_valid(f):
 			candidates.append(f)
 	if candidates.is_empty():
-		_furn_cd = _eff_furn_interval
+		_furn_cd = _furn_next_cd()
 		return
 	_furn_piece = candidates[_rng.randi_range(0, candidates.size() - 1)]
 	var origin := _furn_piece.global_position
@@ -505,7 +560,7 @@ func _furn_clamp_target(desired: Vector3, self_piece: Node3D, y: float) -> Vecto
 func _furn_tick_warn(delta: float) -> void:
 	if _furn_piece == null or not is_instance_valid(_furn_piece):
 		_furn_reset(true)
-		_furn_cd = _eff_furn_interval * 0.5
+		_furn_cd = _furn_next_cd(0.7)
 		_furn_phase = FurnPhase.IDLE
 		return
 	if _furn_warn == null or not is_instance_valid(_furn_warn):
@@ -530,27 +585,34 @@ func _furn_pulse_line() -> void:
 	if _furn_warn == null or not is_instance_valid(_furn_warn):
 		return
 	var line := _furn_warn.get_node_or_null("Line") as MeshInstance3D
+	var glow := _furn_warn.get_node_or_null("Glow") as MeshInstance3D
 	if line == null:
 		return
 	var urgency := 1.0 - clampf(_furn_timer / maxf(_eff_furn_warn, 0.1), 0.0, 1.0)
-	var s := 1.0 + 0.1 * sin(_furn_pulse * (6.0 + urgency * 8.0))
-	line.scale = Vector3(s, 1.0, 1.0)
+	# Ölçek pulse hitbox'ı bozmasın — sadece parlaklık / alpha
+	var pulse := 0.55 + 0.45 * absf(sin(_furn_pulse * (5.0 + urgency * 7.0)))
+	if line.material_override is StandardMaterial3D:
+		var mat := line.material_override as StandardMaterial3D
+		mat.emission_energy_multiplier = lerpf(3.2, 6.5, urgency) * (0.85 + pulse * 0.3)
+		mat.albedo_color.a = lerpf(0.75, 0.98, pulse)
+	if glow != null and glow.material_override is StandardMaterial3D:
+		var gmat := glow.material_override as StandardMaterial3D
+		gmat.albedo_color.a = lerpf(0.18, 0.42, pulse)
 
 
 func _furn_player_on_line() -> bool:
 	if _player == null:
 		return false
-	var p := _player.global_position
-	p.y = 0.0
+	var p := _player_xz()
 	var closest := _closest_point_on_segment(p, _furn_from, _furn_to)
-	return p.distance_to(closest) <= furniture_touch_pad
+	return p.distance_to(closest) <= _furn_touch_radius()
 
 
 func _furn_start_slide() -> void:
 	if _furn_piece == null or not is_instance_valid(_furn_piece):
 		_furn_reset(true)
 		_furn_phase = FurnPhase.IDLE
-		_furn_cd = _eff_furn_interval
+		_furn_cd = _furn_next_cd()
 		return
 	# Belirteçi kaldır, kaymaya başla
 	if _furn_warn != null and is_instance_valid(_furn_warn):
@@ -577,7 +639,7 @@ func _furn_tick_slide(delta: float) -> void:
 	if _furn_piece == null or not is_instance_valid(_furn_piece):
 		_furn_reset(true)
 		_furn_phase = FurnPhase.IDLE
-		_furn_cd = _eff_furn_interval
+		_furn_cd = _furn_next_cd()
 		return
 	_furn_timer += delta
 	var t := clampf(_furn_timer / maxf(_eff_furn_slide, 0.05), 0.0, 1.0)
@@ -589,9 +651,18 @@ func _furn_tick_slide(delta: float) -> void:
 	if t >= 1.0:
 		_furn_piece.global_position = _furn_target
 		_furn_reset(false)
-		_furn_cd = _eff_furn_interval * _rng.randf_range(0.85, 1.15)
+		_furn_cd = _furn_next_cd()
 		_furn_phase = FurnPhase.IDLE
 		furniture_shifted.emit()
+
+
+func _furn_player_in_piece_obb() -> bool:
+	if _player == null or _furn_piece == null or not is_instance_valid(_furn_piece):
+		return false
+	var half: Vector3 = _furn_piece.get_meta("half_size", Vector3(0.55, 0.55, 0.35))
+	var pad := _player_r() + furniture_shove_skin
+	var local := _furn_piece.global_transform.affine_inverse() * _player.global_position
+	return absf(local.x) <= half.x + pad and absf(local.z) <= half.z + pad
 
 
 func _furn_try_shove(delta: float) -> void:
@@ -602,12 +673,9 @@ func _furn_try_shove(delta: float) -> void:
 	var move_dir := cur - _furn_last
 	move_dir.y = 0.0
 	_furn_last = cur
-	var half: Vector3 = _furn_piece.get_meta("half_size", Vector3(0.55, 0.55, 0.35))
-	var reach := maxf(half.x, half.z) + 0.65
-	var to_player := _player.global_position - cur
-	to_player.y = 0.0
-	if to_player.length() > reach or _furn_shove_cd > 0.0:
+	if not _furn_player_in_piece_obb() or _furn_shove_cd > 0.0:
 		return
+	var to_player := _player_xz() - Vector3(cur.x, 0.0, cur.z)
 	var shove: Vector3
 	if move_dir.length_squared() > 0.00008:
 		shove = move_dir.normalized()
@@ -823,9 +891,12 @@ func _random_floor_point(prefer_near_player: bool) -> Vector3:
 	var x := _rng.randf_range(-room_half_extents.x, room_half_extents.x)
 	var z := _rng.randf_range(-room_half_extents.y, room_half_extents.y)
 	if prefer_near_player and _player != null:
-		if _rng.randf() < 0.55:
-			x = _player.global_position.x + _rng.randf_range(-2.4, 2.4)
-			z = _player.global_position.z + _rng.randf_range(-2.0, 2.0)
+		# Halka spawn — oyuncunun üstüne binmesin, ama kaçılabilir menzilde kalsın
+		if _rng.randf() < 0.62:
+			var ang := _rng.randf() * TAU
+			var dist := _rng.randf_range(fall_radius + 1.1, fall_radius + 2.8)
+			x = _player.global_position.x + cos(ang) * dist
+			z = _player.global_position.z + sin(ang) * dist
 			x = clampf(x, -room_half_extents.x, room_half_extents.x)
 			z = clampf(z, -room_half_extents.y, room_half_extents.y)
 	return Vector3(x, 0.0, z)

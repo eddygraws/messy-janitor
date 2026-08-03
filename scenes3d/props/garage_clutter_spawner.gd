@@ -23,11 +23,7 @@ var _level_spec: Dictionary = {}
 var _level_index: int = 0
 var _placed: Array[Vector3] = []
 var _placed_clear: Array[float] = []
-var _reinforce_cd: float = 0.0
 var _tempo: TempoPhaseDirector
-var _pressure_active: bool = false
-var _boss_mode: String = ""
-var _soft_pressure: bool = false
 var _sections: Array = []
 var _section_index: int = 0
 var _painting_spawn_i: int = 0
@@ -40,85 +36,21 @@ func _ready() -> void:
 
 
 func bind_tempo(tempo: TempoPhaseDirector) -> void:
+	# Tempo nabız (emir/hazard hızı) için bağlı kalır; ekstra kutu spawn yok.
 	_tempo = tempo
-	if _tempo != null and not _tempo.tempo_phase_changed.is_connected(_on_tempo_phase):
-		_tempo.tempo_phase_changed.connect(_on_tempo_phase)
 
 
-func start_pressure(boss_mode: String = "", soft: bool = false) -> void:
-	_boss_mode = boss_mode
-	_soft_pressure = soft
-	_pressure_active = true
-	if soft:
-		_reinforce_cd = 12.0
-		return
-	if _boss_mode.is_empty():
-		_reinforce_cd = 8.0
-	elif _boss_mode == "mega_scrub":
-		# L5: daha yavaş takviye
-		_reinforce_cd = 5.5
-		spawn_reinforcement(1)
-	else:
-		_reinforce_cd = 2.2
-		spawn_reinforcement(2 if _boss_mode == "box_rain" else 1)
+## Endless takviye kapalı — sadece level/section props listesi spawn olur.
+func start_pressure(_boss_mode: String = "", _soft: bool = false) -> void:
+	pass
 
 
 func stop_pressure() -> void:
-	_pressure_active = false
-	_reinforce_cd = 0.0
-	_boss_mode = ""
-	_soft_pressure = false
+	pass
 
 
-func _process(delta: float) -> void:
-	if not _pressure_active or _cleared or _tempo == null:
-		return
-	var phase := _tempo.get_phase()
-	# Soft tutorial: ısınma fazında da yavaş takviye
-	if _soft_pressure:
-		_reinforce_cd -= delta
-		if _reinforce_cd > 0.0:
-			return
-		_reinforce_cd = randf_range(11.0, 15.0)
-		if get_remaining_objectives() < 10:
-			spawn_reinforcement(1)
-		return
-	# Boss: faz beklemeden takviye
-	if _boss_mode.is_empty() and phase < TempoPhaseDirector.PHASE_RAMP:
-		return
-	_reinforce_cd -= delta
-	if _reinforce_cd > 0.0:
-		return
-	var mult := _tempo.get_spawn_rate_mult()
-	if not _boss_mode.is_empty():
-		mult *= 1.15 if _boss_mode == "mega_scrub" else 1.35
-	# Seviye ilerledikçe takviye / kutu yağmuru hızlanır
-	var level_pace := lerpf(1.0, 0.52, clampf(float(_level_index) / 9.0, 0.0, 1.0))
-	_reinforce_cd = (10.0 / mult) * randf_range(0.75, 1.05) * level_pace
-	if _boss_mode == "box_rain":
-		_reinforce_cd = maxf(1.35, _reinforce_cd * 0.48)
-	elif _boss_mode == "mega_scrub":
-		_reinforce_cd = maxf(6.0, _reinforce_cd * 1.25)
-	var n := 1
-	if phase >= TempoPhaseDirector.PHASE_FINALE or not _boss_mode.is_empty():
-		n = 2
-	if _boss_mode == "mega_scrub":
-		n = 1
-	if _boss_mode == "box_rain":
-		n = 3 + (1 if _level_index >= 7 else 0)
-	spawn_reinforcement(n)
-
-
-func _on_tempo_phase(phase: int) -> void:
-	if not _pressure_active or _cleared:
-		return
-	match phase:
-		TempoPhaseDirector.PHASE_RAMP:
-			spawn_reinforcement(1 if _boss_mode == "mega_scrub" else 2)
-			_reinforce_cd = 7.0 if _boss_mode == "mega_scrub" else 5.5
-		TempoPhaseDirector.PHASE_FINALE:
-			spawn_reinforcement(1 if _boss_mode == "mega_scrub" else 3)
-			_reinforce_cd = 5.0 if _boss_mode == "mega_scrub" else 3.5
+func _process(_delta: float) -> void:
+	pass
 
 
 func load_level(index: int) -> Dictionary:
@@ -190,56 +122,9 @@ func _spawn_prop_entries(props: Array) -> void:
 			_spawn_prop(type, pos, fallen)
 
 
-## Faz baskısı: ekstra kir/koli düşürür (2D MoldSpawner hızlanmasının 3D karşılığı).
-func spawn_reinforcement(count: int = 1) -> int:
-	if _cleared or _level_spec.is_empty():
-		return 0
-	var types := _reinforcement_types()
-	if types.is_empty():
-		return 0
-	var spawned := 0
-	for _i in count:
-		if get_remaining_objectives() >= 18:
-			break
-		var t: String = types[_rng.randi() % types.size()]
-		var clear_r := _clearance_for(t)
-		var pos := _free_pos(clear_r)
-		_commit_placed(pos, clear_r)
-		_spawn_prop(t, pos, t == "box" and _rng.randf() > 0.7)
-		spawned += 1
-	if spawned > 0:
-		for c in get_children():
-			if c is ClutterProp:
-				var prop := c as ClutterProp
-				if not prop.destroyed.is_connected(_on_prop_destroyed):
-					prop.destroyed.connect(_on_prop_destroyed)
-		_objective_total += spawned
-		objective_changed.emit(get_remaining_objectives(), _objective_total)
-		reinforcement_spawned.emit(spawned)
-	return spawned
-
-
-func _reinforcement_types() -> Array[String]:
-	if _boss_mode == "box_rain":
-		return ["box", "box", "box", "crumb", "box"]
-	if _boss_mode == "mega_scrub":
-		return ["crumb", "slime", "potion"]
-	if _soft_pressure:
-		return ["box", "box"]
-	var out: Array[String] = []
-	var props: Array = _props_for_current_section()
-	if props.is_empty():
-		props = _level_spec.get("props", []) as Array
-	for entry_variant in props:
-		var entry: Dictionary = entry_variant as Dictionary
-		var t := String(entry.get("type", "box"))
-		# TV/boss gibi ağır objeleri sürekli çoğaltma
-		if t in ["tv", "tv_repair", "painting", "boss_slime", "hidden", "crust"]:
-			continue
-		out.append(t)
-	if out.is_empty():
-		out.append("box")
-	return out
+## Endless takviye kaldırıldı — API uyumu için no-op.
+func spawn_reinforcement(_count: int = 1) -> int:
+	return 0
 
 
 func _recount_objectives() -> void:
@@ -318,6 +203,34 @@ func get_remaining_objectives() -> int:
 		if bool(prop.get_meta("objective", true)):
 			left += prop.get_stack_units()
 	return left
+
+
+## Abur cubur power-up: sahnedeki tüm hedefleri süpür (elde taşınanlar hariç).
+func sweep_all_objectives() -> int:
+	var cleared := 0
+	var batch: Array[ClutterProp] = []
+	for c in get_children():
+		if c is ClutterProp:
+			var prop := c as ClutterProp
+			if prop.is_junk() or prop.is_destroying() or prop.is_being_carried():
+				continue
+			if bool(prop.get_meta("objective", true)):
+				batch.append(prop)
+	for i in batch.size():
+		var prop := batch[i]
+		if not is_instance_valid(prop):
+			continue
+		# Hafif kademeli — görsel fırtına hissi
+		if i == 0:
+			prop.force_powerup_clear()
+		else:
+			var delay := 0.04 * float(i)
+			get_tree().create_timer(delay).timeout.connect(func() -> void:
+				if is_instance_valid(prop):
+					prop.force_powerup_clear()
+			)
+		cleared += 1
+	return cleared
 
 
 func _clear_children() -> void:
@@ -581,12 +494,12 @@ func _add_blob(
 	var shape := CollisionShape3D.new()
 	if use_sphere:
 		var sph := SphereShape3D.new()
-		sph.radius = 0.22
+		sph.radius = 0.30 if prop_id != "dust" else 0.24
 		shape.shape = sph
 	else:
 		var box := BoxShape3D.new()
 		var mesh_size: Vector3 = (mesh as BoxMesh).size
-		box.size = mesh_size * 0.68
+		box.size = mesh_size * 0.9
 		shape.shape = box
 	shape.position = mesh_inst.position
 	body.add_child(shape)
@@ -672,10 +585,10 @@ func _add_box_stack(pos: Vector3, count: int, yaw: float, scale: Vector3 = Vecto
 		pivot.add_child(mesh_inst)
 		root.register_wobble_mesh(mesh_inst)
 
-	# Tek dar ayak izi — üst üste kutu collider kaosunu önler
+	# Tek ayak izi — mesh tabanına yakın (görsel ↔ bump)
 	var shape := CollisionShape3D.new()
 	var cyl := CylinderShape3D.new()
-	cyl.radius = 0.28
+	cyl.radius = 0.34
 	cyl.height = maxf(0.45, box_h * float(count) * 0.85)
 	shape.shape = cyl
 	shape.position = Vector3(0.0, cyl.height * 0.5, 0.0)
@@ -722,7 +635,7 @@ func _add_single_box(pos: Vector3, rot: Vector3, fallen: bool = false) -> void:
 
 	var shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
-	box_shape.size = mesh.size * 0.62
+	box_shape.size = mesh.size * 0.9
 	shape.shape = box_shape
 	shape.position = mesh_inst.position
 	body.add_child(shape)
@@ -784,7 +697,7 @@ func _add_broken_tv(pos: Vector3, yaw: float, on_side: bool = false) -> void:
 
 	var shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
-	box_shape.size = cab_mesh.size * Vector3(0.72, 0.85, 0.72)
+	box_shape.size = cab_mesh.size * Vector3(0.92, 0.92, 0.92)
 	shape.shape = box_shape
 	shape.position = cabinet.position
 	body.add_child(shape)

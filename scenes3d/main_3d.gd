@@ -102,6 +102,8 @@ func _ready() -> void:
 		_player.tool_switched.connect(_on_tool_switched)
 		_player.tools_unlocked_changed.connect(_on_tools_unlocked)
 		_player.junk_eaten.connect(_on_junk_eaten)
+		if _player.has_signal("junk_powerup"):
+			_player.junk_powerup.connect(_on_junk_powerup)
 		_player.wrong_tool_used.connect(_on_wrong_tool)
 		if _player.has_signal("status_message"):
 			_player.status_message.connect(_on_player_status_message)
@@ -381,6 +383,8 @@ func start_level(index: int, daily: bool = false) -> void:
 	if _hint != null:
 		_hint.visible = false
 		_hint.text = String(spec.get("tutorial", _hint.text))
+	if bool(spec.get("allow_junk", false)) and bool(spec.get("tutorial_level", false)):
+		_section_hint = String(spec.get("tutorial", "Space ile abur cubur ye · 3 = power-up"))
 	_on_mop_dirt_changed(_player.get_mop_dirt() if _player != null else 0.0)
 	if _player != null and _player.has_method("get_vacuum_bag_count"):
 		_vac_was_full = false
@@ -432,13 +436,20 @@ func start_level(index: int, daily: bool = false) -> void:
 			_hazards.setup(_player, _stress, _spawner, $World as Node3D, _tempo)
 			_hazards.start_session(_level_index, mop_ok)
 	if _junk_rain != null:
-		var no_junk := is_tutorial or bool(spec.get("disable_junk", false)) \
+		# Tutorial da allow_junk=true ise yağmur açık (abur cubur tutorial)
+		var no_junk := bool(spec.get("disable_junk", false)) \
 			or not bool(spec.get("allow_junk", not is_tutorial))
 		if no_junk:
 			_junk_rain.stop_session()
 		else:
 			_junk_rain.setup($World as Node3D, _tempo)
+			_junk_rain.spawn_interval_min = float(spec.get("junk_interval_min", 9.5))
+			_junk_rain.spawn_interval_max = float(spec.get("junk_interval_max", 15.0))
+			_junk_rain.max_concurrent = int(spec.get("junk_max_concurrent", 1))
 			_junk_rain.start_session()
+			var burst := int(spec.get("junk_starter_burst", 0))
+			if burst > 0:
+				_junk_rain.spawn_guaranteed(burst)
 	# Günlük lanet — tutorial'da kapalı
 	if _curses != null:
 		var no_curses := is_tutorial or bool(spec.get("disable_curses", false))
@@ -472,6 +483,8 @@ func start_level(index: int, daily: bool = false) -> void:
 		if is_tutorial:
 			if _spawner != null and _spawner.has_sections():
 				_phase_hud.text = "TUTORIAL · Bölüm 1/%d" % _spawner.get_section_count()
+			elif bool(spec.get("allow_junk", false)):
+				_phase_hud.text = "TUTORIAL · Abur Cubur"
 			else:
 				_phase_hud.text = "TUTORIAL · Sakin öğren"
 			_phase_hud.modulate = Color(0.65, 0.95, 0.75)
@@ -493,7 +506,7 @@ func start_level(index: int, daily: bool = false) -> void:
 	# Tutorial bölüm 1 UI (komisyon kartından sonra, ikinci kart yok)
 	if is_tutorial and _spawner != null and _spawner.has_sections():
 		await _apply_tutorial_section(_spawner.get_current_section(), 0, _spawner.get_section_count(), false)
-	elif not is_tutorial:
+	else:
 		var limit := float(spec.get("time_limit", 0.0))
 		if limit > 0.0:
 			_start_room_timer(limit)
@@ -771,9 +784,9 @@ func _on_phase_flash(phase: int) -> void:
 		_particles.burst(&"bump", _player.global_position, 1.2)
 	if _hint != null:
 		if phase == 2:
-			_hint.text = "⚡ HIZLAN — ekstra kir geliyor!"
+			_hint.text = "⚡ HIZLAN — tempo yükseliyor!"
 		elif phase == 3:
-			_hint.text = "🔥 SON PATLAMA — baskı maksimum!"
+			_hint.text = "🔥 SON PATLAMA — emirler sıklaşıyor!"
 
 
 func _on_reinforcement_spawned(count: int) -> void:
@@ -1920,8 +1933,42 @@ func _on_junk_eaten(world_pos: Vector3) -> void:
 		_stress.add_delayed_stress(14.0, 1.8)
 	if _particles != null:
 		_particles.burst(&"clean", world_pos + Vector3(0, 0.8, 0), 1.2)
-	if _hint != null:
-		_hint.text = "Afiyet! Şişiyorsun… birazdan sugar crash"
+	if _hint != null and _player != null:
+		var prog := _player.get_junk_powerup_progress()
+		if prog == 0:
+			_hint.text = "Afiyet! Şişiyorsun… (3. yemede power-up)"
+		else:
+			_hint.text = "Afiyet! Şişiyorsun… power-up'a %d abur cubur" % (_player.junk_powerup_every - prog)
+
+
+func _on_junk_powerup(kind: StringName) -> void:
+	if kind == &"speed_rush":
+		_spawn_pop("⚡ HIZ!", Color(0.45, 0.95, 1.0), 88)
+		if _camera_rig != null:
+			_camera_rig.punch_fov(7.0)
+			_camera_rig.shake(0.35)
+		if _banner != null and not _tutorial_banner_sticky:
+			_banner.show_task("HIZ PATLAMASI", Color(0.4, 0.9, 1.0), "Koş + taşı hızlandı!", "")
+		if _hint != null:
+			_hint.text = "⚡ Hız + taşıma boost — ~9 sn"
+		if _room_timer != null and _room_timer.is_active():
+			_room_timer.add_time(2.0)
+		return
+	if kind == &"scene_sweep":
+		_spawn_pop("🌪️ SÜPÜR!", Color(0.95, 0.85, 0.35), 92)
+		if _camera_rig != null:
+			_camera_rig.punch_fov(10.0)
+			_camera_rig.shake(0.85)
+		if _banner != null:
+			_banner.show_task("SÜPÜRGE FIRTINASI", Color(1.0, 0.75, 0.3), "Tüm sahne temizleniyor!", "")
+		if _hint != null:
+			_hint.text = "🌪️ Tek seferde silip süpürdü!"
+		if _particles != null and _player != null:
+			_particles.burst(&"clean", _player.global_position + Vector3(0, 1.0, 0), 2.4)
+		if _spawner != null:
+			_spawner.sweep_all_objectives()
+		if _stress != null:
+			_stress.reduce_stress(20.0)
 
 
 func _on_wrong_tool(_needed: String) -> void:

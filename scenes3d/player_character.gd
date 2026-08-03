@@ -19,6 +19,7 @@ signal fx_burst(kind: StringName, world_pos: Vector3, strength: float)
 signal forbidden_touched
 signal status_message(text: String)
 signal junk_eaten(world_pos: Vector3)
+signal junk_powerup(kind: StringName) ## &"speed_rush" | &"scene_sweep"
 signal wrong_tool_used(needed: String)
 
 @export var move_speed: float = 6.4
@@ -39,9 +40,13 @@ signal wrong_tool_used(needed: String)
 @export var scrub_mash_cooldown: float = 0.09
 @export var drop_distance: float = 1.15
 @export var throw_speed: float = 9.8
-@export var bloat_decay_per_sec: float = 0.065
-@export var bloat_per_junk: float = 0.22
-@export var bloat_max_scale: float = 1.35
+@export var bloat_decay_per_sec: float = 0.045
+@export var bloat_per_junk: float = 0.42
+@export var bloat_max_scale: float = 2.05
+@export var junk_powerup_every: int = 3
+@export var speed_rush_duration: float = 9.5
+@export var speed_rush_move_mult: float = 1.48
+@export var speed_rush_carry_mult: float = 1.6
 
 @export_group("Paspas kiri")
 @export var mop_dirt_per_hit: float = 0.14
@@ -146,6 +151,8 @@ var _base_carry_speed_mult: float = -1.0
 var _base_stack_falloff: float = -1.0
 var _base_scrub_mash_cooldown: float = -1.0
 var _bloat: float = 0.0
+var _junk_toward_powerup: int = 0
+var _speed_rush_t: float = 0.0
 var _vacuum_target: ClutterProp
 var _vacuum_rig: Node3D
 var _vacuum_nozzle: Node3D
@@ -403,6 +410,8 @@ func _physics_process(delta: float) -> void:
 		_potion_silence_cd = maxf(0.0, _potion_silence_cd - delta)
 	if _bloat > 0.0:
 		_bloat = maxf(0.0, _bloat - bloat_decay_per_sec * delta)
+	if _speed_rush_t > 0.0:
+		_speed_rush_t = maxf(0.0, _speed_rush_t - delta)
 
 	_update_bucket_rinse(delta)
 	_update_potion_drunk(delta)
@@ -539,7 +548,10 @@ func _carry_move_mult() -> float:
 	var units := maxi(1, _held.get_stack_units())
 	# 1 kutu: carry_speed_mult; her ekstra kutu stack_speed_falloff ile çarpılır
 	var stack_mult := pow(stack_speed_falloff, float(units - 1))
-	return maxf(stack_speed_floor, carry_speed_mult * stack_mult)
+	var m := maxf(stack_speed_floor, carry_speed_mult * stack_mult)
+	if _speed_rush_t > 0.0:
+		m = minf(1.15, m * speed_rush_carry_mult)
+	return m
 
 
 func _apply_overcooked_movement() -> void:
@@ -557,6 +569,10 @@ func _apply_overcooked_movement() -> void:
 	var wish: Vector3 = right * input.x + forward * (-input.y)
 	wish.y = 0.0
 	var speed := move_speed * _carry_move_mult()
+	if _speed_rush_t > 0.0 and _held == null:
+		speed *= speed_rush_move_mult
+	elif _speed_rush_t > 0.0:
+		speed *= lerpf(1.0, speed_rush_move_mult, 0.55)
 	if _dancing:
 		speed *= 0.55
 	if _potion_drunk > 0.1:
@@ -791,7 +807,10 @@ func _update_comedy_visuals(delta: float) -> void:
 
 	# Janitor modelinde squash/tilt ışınlanma gibi kaydırır — bloat hariç kilitle
 	var bloat_mul := lerpf(1.0, bloat_max_scale, _bloat)
-	var bloat_scale := Vector3(bloat_mul, lerpf(1.0, 1.12, _bloat), bloat_mul)
+	var bloat_scale := Vector3(bloat_mul, lerpf(1.0, 1.22, _bloat), bloat_mul)
+	if _speed_rush_t > 0.0:
+		var pulse := 1.0 + 0.04 * sin(Time.get_ticks_msec() * 0.02)
+		bloat_scale *= pulse
 	if has_model:
 		target_squash = bloat_scale
 		target_spin = 0.0
@@ -887,13 +906,47 @@ func get_bloat() -> float:
 	return _bloat
 
 
+func get_junk_powerup_progress() -> int:
+	return _junk_toward_powerup
+
+
+func is_speed_rush_active() -> bool:
+	return _speed_rush_t > 0.0
+
+
 func eat_junk() -> void:
 	_bloat = minf(1.0, _bloat + bloat_per_junk)
-	_squash = Vector3(1.4, 0.7, 1.4)
-	_hop_y = 0.25
-	_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.15)
-	fx_burst.emit(&"clean", global_position + Vector3(0, 0.8, 0), 1.1)
+	# Belirgin şişme pop — her lokmada daha “balon”
+	var pop := 1.35 + _bloat * 0.55
+	_squash = Vector3(pop, maxf(0.42, 0.85 - _bloat * 0.28), pop)
+	_hop_y = 0.28 + _bloat * 0.22
+	_play_sfx(PrototypeSfx.Kind.DISPOSE, 1.05 + _bloat * 0.2)
+	fx_burst.emit(&"clean", global_position + Vector3(0, 0.8, 0), 1.15 + _bloat * 0.4)
+	_junk_toward_powerup += 1
+	var triggered := false
+	if _junk_toward_powerup >= junk_powerup_every:
+		_junk_toward_powerup = 0
+		triggered = true
 	junk_eaten.emit(global_position)
+	if triggered:
+		_roll_junk_powerup()
+
+
+func _roll_junk_powerup() -> void:
+	# İki güçten biri
+	if randf() < 0.5:
+		_speed_rush_t = speed_rush_duration
+		_squash = Vector3(1.25, 1.15, 1.25)
+		_hop_y = 0.4
+		_play_sfx(PrototypeSfx.Kind.PHASE, 1.2)
+		fx_burst.emit(&"dash", global_position, 1.6)
+		status_message.emit("⚡ HIZ PATLAMASI! Koş + taşı hızlandı")
+		junk_powerup.emit(&"speed_rush")
+	else:
+		_play_sfx(PrototypeSfx.Kind.PHASE, 0.85)
+		fx_burst.emit(&"clean", global_position + Vector3(0, 1.0, 0), 2.0)
+		status_message.emit("🌪️ SÜPÜRGE FIRTINASI! Sahne temizleniyor")
+		junk_powerup.emit(&"scene_sweep")
 
 
 func _set_tool(tool: ToolKind) -> void:
@@ -928,6 +981,8 @@ func configure_for_level(
 	_potion_silence_cd = 0.0
 	_potion_drunk = 0.0
 	_bloat = 0.0
+	_junk_toward_powerup = 0
+	_speed_rush_t = 0.0
 	if _dancing:
 		_dancing = false
 		dance_changed.emit(false)
@@ -1207,7 +1262,6 @@ func _eat_junk_prop(prop: ClutterProp) -> void:
 	eat_junk()
 	_swing_cooldown = 0.2
 	_snap_face(pos - global_position)
-	status_message.emit("Afiyet! (+puan, şişiyorsun)")
 
 
 func _mash_scrub(prop: ClutterProp) -> void:

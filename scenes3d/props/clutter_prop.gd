@@ -130,7 +130,11 @@ func _physics_process(delta: float) -> void:
 		return
 	if react_once and _reacted:
 		return
-	var in_range := global_position.distance_to(_player.global_position) <= react_distance
+	var in_range := false
+	if _player != null:
+		var flat := global_position - _player.global_position
+		flat.y = 0.0
+		in_range = flat.length() <= react_distance
 	# Sadece menzile girince tetikle (her kare spam yok).
 	if in_range and not _in_react_range and _react_cooldown <= 0.0:
 		_play_react()
@@ -172,9 +176,15 @@ func set_micro_task_highlight(on: bool, style: String = "correct") -> void:
 		col = Color(1.0, 0.35, 0.35)
 		mark.modulate = col
 	else:
-		mark.text = "★"
+		var units := get_stack_units()
+		if units >= 3:
+			mark.text = "★★★"
+		elif units >= 2:
+			mark.text = "★★"
+		else:
+			mark.text = "★"
 		mark.modulate = col
-	mark.font_size = 96
+	mark.font_size = 72 if get_stack_units() >= 2 else 96
 	mark.outline_modulate = Color(0, 0, 0, 0.95)
 	mark.outline_size = 14
 	# Kutunun hemen üstü — kamerada net, erişim hissi doğru
@@ -933,11 +943,11 @@ func apply_hit(hit_pos: Vector3, hit_dir: Vector3, strength: float = 1.0, tool: 
 	if not required_tool.is_empty() and tool != required_tool:
 		_play_react()
 		return
-	# Yatay mesafe — yükseklik farkı vuruşu bozmasın; biraz cömert tolerans
+	# Yatay mesafe — yükseklik farkı vuruşu bozmasın; görsel menzile sıkı
 	if _player != null:
 		var flat := global_position - _player.global_position
 		flat.y = 0.0
-		if flat.length() > max_hit_distance + 0.35:
+		if flat.length() > max_hit_distance:
 			return
 	# Kutular paspasla temizlenemez (sadece taşı/çöp).
 	if tool == "mop" and bool(get_meta("immune_mop", false)):
@@ -987,6 +997,33 @@ func _register_hit(strength: float) -> void:
 	_hit_count += damage
 	if _hit_count >= hits_to_destroy:
 		_destroy_from_hits()
+
+
+## Power-up: tüm kir/hedefleri anında temizle (abur cubur hariç).
+func force_powerup_clear() -> void:
+	if _destroying or is_junk_food:
+		return
+	if _carried or _throwing:
+		return
+	if is_painting and not _repaired:
+		_finish_repair()
+		return
+	if repair_taps_needed > 0 and not _repaired:
+		_finish_repair()
+		return
+	_destroying = true
+	_kill_idle()
+	if _hit_shake_tween != null and _hit_shake_tween.is_valid():
+		_hit_shake_tween.kill()
+	_disable_collisions()
+	set_meta("objective", false)
+	destroyed.emit()
+	var tw := create_tween().set_parallel(true)
+	var root := _anim_root if _anim_root != null else self
+	tw.tween_property(root, "scale", Vector3(0.02, 0.02, 0.02), 0.22)\
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tw.tween_property(root, "position:y", root.position.y + 1.2, 0.22)
+	tw.chain().tween_callback(queue_free)
 
 
 func _destroy_from_hits() -> void:

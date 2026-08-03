@@ -76,14 +76,14 @@ func setup(tempo: TempoPhaseDirector, spawner: Node, player: Node = null) -> voi
 ## Adventure seviye eğrisi: tempo aynı; emirler her seviyede faz havuzuna uyar.
 func configure_for_level(level_index: int) -> void:
 	_level_index = maxi(0, level_index)
-	_chaos = clampf(float(_level_index) / 9.0, 0.0, 1.0)
+	_chaos = clampf(float(_level_index) / 45.0, 0.0, 1.0)
 	_boss_mode = ""
-	first_task_delay = lerpf(3.6, 2.0, _chaos)
-	_timing_base_interval = lerpf(9.0, 5.5, _chaos)
-	_timing_base_duration = lerpf(3.6, 3.0, _chaos)
+	first_task_delay = lerpf(3.6, 2.4, _chaos)
+	_timing_base_interval = lerpf(9.5, 6.5, _chaos)
+	_timing_base_duration = lerpf(3.6, 3.1, _chaos)
 	_timing_base_min = 2.6
 	_timing_base_max = 3.8
-	gather_count = 2 if _level_index < 5 else 3
+	gather_count = 2 if _level_index < 12 else 3
 	_reapply_curse_to_timing()
 
 
@@ -440,7 +440,7 @@ func _issue(task_type: String, duration: float) -> bool:
 
 
 func _commit_active(task_type: String, duration: float) -> void:
-	duration = _cap_dur(duration)
+	duration = _boost_duration_for_targets(duration, _targets)
 	_active = {
 		"type": task_type,
 		"duration": duration,
@@ -452,6 +452,18 @@ func _commit_active(task_type: String, duration: float) -> void:
 	while _last_types.size() > 2:
 		_last_types.pop_back()
 	task_issued.emit(task_type, duration, _color_for(task_type))
+
+
+## Yıldız sayısıyla doğru orantılı süre: ★ → 1x, ★★ → 2x, ★★★ → 3x (hedeflerin toplam yıldızı).
+func _boost_duration_for_targets(base: float, targets: Array) -> float:
+	var star_sum := 0
+	for t in targets:
+		var prop := t as ClutterProp
+		if prop == null or not is_instance_valid(prop):
+			continue
+		star_sum += prop.get_stack_units()
+	star_sum = maxi(1, star_sum)
+	return maxf(min_task_duration, base * float(star_sum))
 
 
 func _label_for(task_type: String) -> String:
@@ -633,7 +645,15 @@ func _schedule_next() -> void:
 	var mult := 1.0
 	if _tempo != null:
 		mult = _tempo.get_task_interval_mult()
-	_cooldown = base_interval * mult * randf_range(0.85, 1.15)
+	# Gerideyken emirler biraz daha seyrek — toparlanma fırsatı
+	var mercy := 1.0
+	if _spawner != null and _spawner.has_method("get_remaining_objectives"):
+		var rem := int(_spawner.call("get_remaining_objectives"))
+		if rem >= 12:
+			mercy = 1.35
+		elif rem >= 8:
+			mercy = 1.18
+	_cooldown = base_interval * mult * mercy * randf_range(0.9, 1.15)
 
 
 func _clear_task(_unmark_fail: bool) -> void:

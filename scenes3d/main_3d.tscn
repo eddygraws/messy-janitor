@@ -18,8 +18,8 @@ radius = 0.32
 height = 1.5
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
-radius = 0.2
-height = 1.15
+radius = 0.28
+height = 1.28
 
 [node name="Main3D" type="Node3D" unique_id=107054358]
 script = ExtResource("1_main")

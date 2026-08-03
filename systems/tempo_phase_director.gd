@@ -79,21 +79,22 @@ func get_phase() -> int:
 
 
 func get_spawn_rate_mult() -> float:
+	## Eskiden 1.15 / 1.7 / 2.25 — momentum kaybında ölüm spiraline giriyordu.
 	match _phase:
 		PHASE_RAMP:
-			return 1.7
+			return 1.32
 		PHASE_FINALE:
-			return 2.25
+			return 1.55
 		_:
-			return 1.15
+			return 1.0
 
 
 func get_task_interval_mult() -> float:
-	## Emir sıklığı: yüksek fazda daha sık (interval daha kısa).
+	## Emir sıklığı: yüksek fazda daha sık, ama eski kadar sert değil.
 	match _phase:
 		PHASE_RAMP:
-			return 0.62
+			return 0.74
 		PHASE_FINALE:
-			return 0.42
+			return 0.58
 		_:
-			return 0.85
+			return 0.92
