@@ -200,7 +200,7 @@ func _on_close() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not visible:
+	if not is_visible_in_tree():
 		return
 	if event.is_action_pressed("ui_accept") or event.is_action_pressed("interact"):
 		_on_close()

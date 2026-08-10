@@ -17,7 +17,7 @@ var _objective_label: Label
 var _level_label: Label
 var _phase_hud: Label
 var _menu: Control
-var _world_map: WorldMapSelect3D
+var _world_map: WorldMapHub3D
 var _particles: ComedyParticles
 var _tempo: TempoPhaseDirector
 var _micro: MicroTaskDirector
@@ -1659,81 +1659,97 @@ func _setup_hud() -> void:
 
 
 func _setup_menu() -> void:
+	# 3D dünya haritası hub
+	_world_map = WorldMapHub3D.new()
+	_world_map.name = "WorldMapHub3D"
+	add_child(_world_map)
+	if _camera_rig != null and _camera_rig.has_node("Camera3D"):
+		_world_map.set_game_camera(_camera_rig.get_node("Camera3D") as Camera3D)
+	_world_map.level_chosen.connect(func(idx: int) -> void: start_level(idx))
+
 	_menu = Control.new()
 	_menu.name = "LevelMenu"
 	_menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_menu.visible = false
+	_menu.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	$UI.add_child(_menu)
 
+	# Üst şerit — 3D harita görünsün diye sadece header
 	var bg := ColorRect.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.08, 0.1, 0.12, 0.92)
+	bg.anchor_right = 1.0
+	bg.offset_bottom = 300.0
+	bg.color = Color(0.06, 0.08, 0.1, 0.72)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_menu.add_child(bg)
 
 	var title := Label.new()
 	title.text = "MESSY JANITOR · 3D"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.anchor_right = 1.0
-	title.offset_top = 48.0
-	title.offset_bottom = 110.0
-	title.add_theme_font_size_override("font_size", 42)
+	title.offset_top = 12.0
+	title.offset_bottom = 56.0
+	title.add_theme_font_size_override("font_size", 34)
 	title.add_theme_color_override("font_color", Color(0.95, 0.88, 0.55))
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	title.add_theme_constant_override("outline_size", 6)
 	_menu.add_child(title)
 
 	_menu_coin_label = Label.new()
 	_menu_coin_label.name = "MenuCoinLabel"
 	_menu_coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_menu_coin_label.anchor_right = 1.0
-	_menu_coin_label.offset_top = 108.0
-	_menu_coin_label.offset_bottom = 138.0
-	_menu_coin_label.add_theme_font_size_override("font_size", 26)
+	_menu_coin_label.offset_top = 52.0
+	_menu_coin_label.offset_bottom = 78.0
+	_menu_coin_label.add_theme_font_size_override("font_size", 22)
 	_menu_coin_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
 	_menu_coin_label.text = "🪙 0"
 	_menu.add_child(_menu_coin_label)
 
 	var sub := Label.new()
-	sub.text = "WASD harita  ·  A/D seviye · W/S dünya · Space gir"
-
+	sub.text = "3D harita  ·  Q/E seviye · W/S dünya · Space gir"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.anchor_right = 1.0
-	sub.offset_top = 138.0
-	sub.offset_bottom = 168.0
-	sub.add_theme_font_size_override("font_size", 18)
-	sub.add_theme_color_override("font_color", Color(0.7, 0.85, 0.95))
+	sub.offset_top = 76.0
+	sub.offset_bottom = 100.0
+	sub.add_theme_font_size_override("font_size", 15)
+	sub.add_theme_color_override("font_color", Color(0.75, 0.88, 0.95))
 	_menu.add_child(sub)
 
 	_hard_mode_btn = Button.new()
 	_hard_mode_btn.focus_mode = Control.FOCUS_NONE
+	_hard_mode_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	_hard_mode_btn.anchor_left = 0.5
 	_hard_mode_btn.anchor_right = 0.5
 	_hard_mode_btn.offset_left = -200.0
 	_hard_mode_btn.offset_right = 200.0
-	_hard_mode_btn.offset_top = 168.0
-	_hard_mode_btn.offset_bottom = 204.0
+	_hard_mode_btn.offset_top = 108.0
+	_hard_mode_btn.offset_bottom = 140.0
 	_hard_mode_btn.pressed.connect(_toggle_hard_mode)
 	_menu.add_child(_hard_mode_btn)
 	_update_hard_mode_btn()
 
 	_diff_btn = Button.new()
 	_diff_btn.focus_mode = Control.FOCUS_NONE
+	_diff_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	_diff_btn.anchor_left = 0.5
 	_diff_btn.anchor_right = 0.5
 	_diff_btn.offset_left = -200.0
 	_diff_btn.offset_right = 200.0
-	_diff_btn.offset_top = 210.0
-	_diff_btn.offset_bottom = 246.0
+	_diff_btn.offset_top = 146.0
+	_diff_btn.offset_bottom = 178.0
 	_diff_btn.pressed.connect(_cycle_difficulty)
 	_menu.add_child(_diff_btn)
 	_update_diff_btn()
 
 	var daily_btn := Button.new()
 	daily_btn.focus_mode = Control.FOCUS_NONE
+	daily_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	daily_btn.anchor_left = 0.5
 	daily_btn.anchor_right = 0.5
 	daily_btn.offset_left = -200.0
 	daily_btn.offset_right = 200.0
-	daily_btn.offset_top = 252.0
-	daily_btn.offset_bottom = 288.0
+	daily_btn.offset_top = 184.0
+	daily_btn.offset_bottom = 216.0
 	var d_lv := DailyChallenge3D.todays_level_index(LevelData3D.level_count())
 	daily_btn.text = "📅 %s" % DailyChallenge3D.challenge_title(d_lv)
 	daily_btn.modulate = Color(1.0, 0.8, 0.45)
@@ -1744,34 +1760,23 @@ func _setup_menu() -> void:
 	curse_info.name = "MenuCurseInfo"
 	curse_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	curse_info.anchor_right = 1.0
-	curse_info.offset_top = 292.0
-	curse_info.offset_bottom = 324.0
-	curse_info.add_theme_font_size_override("font_size", 14)
+	curse_info.offset_top = 222.0
+	curse_info.offset_bottom = 254.0
+	curse_info.add_theme_font_size_override("font_size", 13)
 	curse_info.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5))
 	curse_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_menu.add_child(curse_info)
 	_refresh_menu_curse_info(curse_info)
 
-	# NSMB tarzı dünya haritası — alt alanı doldurur
-	_world_map = WorldMapSelect3D.new()
-	_world_map.name = "WorldMapSelect3D"
-	_world_map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_world_map.offset_top = 328.0
-	_world_map.offset_bottom = -8.0
-	_world_map.offset_left = 12.0
-	_world_map.offset_right = -12.0
-	_menu.add_child(_world_map)
-	_world_map.level_chosen.connect(func(idx: int) -> void: start_level(idx))
-	_world_map.setup(_highest_unlocked, clampi(_highest_unlocked - 1, 0, LevelData3D.level_count() - 1))
+	_world_map.setup(_highest_unlocked, -1)
 
 
 func _rebuild_level_buttons() -> void:
 	if _world_map == null:
 		return
-	_world_map.setup(
-		_highest_unlocked,
-		clampi(_highest_unlocked - 1, 0, LevelData3D.level_count() - 1)
-	)
+	# Menüye dönüşte mevcut level'e odaklan; yoksa bölümün ilk açık seviyesi
+	var prefer := _level_index if _level_index >= 0 else -1
+	_world_map.setup(_highest_unlocked, prefer)
 
 
 func _show_menu(open: bool) -> void:
@@ -1815,6 +1820,18 @@ func _show_menu(open: bool) -> void:
 		if open:
 			_rebuild_level_buttons()
 			_on_wallet_changed(_wallet.get_balance() if _wallet != null else 0)
+	# Oyun dünyası ↔ 3D harita
+	if has_node("World"):
+		$World.visible = not open
+	if _camera_rig != null:
+		_camera_rig.visible = not open
+		_camera_rig.set_process(not open)
+		_camera_rig.set_physics_process(not open)
+	if _player != null:
+		_player.set_process_unhandled_input(not open)
+		_player.set_physics_process(not open)
+	if _world_map != null:
+		_world_map.set_active(open)
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 

@@ -1,0 +1,1074 @@
+class_name WorldMapHub3D
+extends Node3D
+
+## 3D dünya haritası (NSMB tarzı path + node + pawn).
+## Q/E veya A/D: seviye  ·  W/S: dünya  ·  Space: gir
+
+signal level_chosen(level_index: int)
+signal world_changed(world_slot: int)
+
+const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
+
+const PATH_SPACING := 3.2
+const NODE_Y := 0.18
+const WALK_SPEED := 5.2 ## birimler / sn — node arası yürüyüş
+const NODE_PEDESTAL_R := 0.28
+const NODE_GEM_R := 0.20
+
+var _highest_unlocked: int = 1
+var _world_slot: int = 0
+var _cursor: int = 0
+var _levels: Array[int] = []
+var _node_roots: Array[Node3D] = []
+var _node_pos: Array[Vector3] = []
+var _active: bool = false
+var _palette: Dictionary = {}
+
+var _ground: MeshInstance3D
+var _ground_mat: StandardMaterial3D
+var _hills_root: Node3D
+var _decor_root: Node3D
+var _path_mesh: MeshInstance3D
+var _nodes_root: Node3D
+var _pawn: Node3D
+var _janitor: JanitorVisual
+var _camera: Camera3D
+var _cam_env: Environment
+var _sun: DirectionalLight3D
+var _hud: CanvasLayer
+var _world_label: Label
+var _info: Label
+var _hint: Label
+var _play_btn: Button
+var _prev_btn: Button
+var _next_btn: Button
+var _sfx: AudioStreamPlayer
+var _move_tween: Tween
+var _bounce_tween: Tween
+var _walking: bool = false
+var _game_camera: Camera3D
+
+
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_sfx = AudioStreamPlayer.new()
+	_sfx.bus = &"Master"
+	_sfx.volume_db = -6.0
+	add_child(_sfx)
+	_build_world()
+	_build_hud()
+	set_active(false)
+
+
+func set_game_camera(cam: Camera3D) -> void:
+	_game_camera = cam
+
+
+func set_active(on: bool) -> void:
+	_active = on
+	visible = on
+	process_mode = Node.PROCESS_MODE_ALWAYS if on else Node.PROCESS_MODE_DISABLED
+	if _hud != null:
+		_hud.visible = on
+	if _camera != null:
+		_camera.current = on
+	if on:
+		_snap_pawn(false)
+		_refresh_node_visuals()
+		_refresh_labels()
+		_update_camera()
+	elif _game_camera != null:
+		_game_camera.current = true
+
+
+func is_map_active() -> bool:
+	return _active
+
+
+func setup(highest_unlocked: int, prefer_level: int = -1) -> void:
+	_highest_unlocked = maxi(1, highest_unlocked)
+	if prefer_level >= 0:
+		_world_slot = LevelData3D.world_slot_for_level(prefer_level)
+	else:
+		_world_slot = _default_world_for_progress()
+	_load_world(_world_slot, prefer_level)
+
+
+func set_highest_unlocked(n: int) -> void:
+	_highest_unlocked = maxi(1, n)
+	_refresh_node_visuals()
+	_refresh_labels()
+
+
+func _default_world_for_progress() -> int:
+	var last_unlocked := clampi(_highest_unlocked - 1, 0, LevelData3D.level_count() - 1)
+	return LevelData3D.world_slot_for_level(last_unlocked)
+
+
+func _build_world() -> void:
+	_sun = DirectionalLight3D.new()
+	_sun.light_energy = 1.05
+	_sun.shadow_enabled = true
+	_sun.rotation_degrees = Vector3(-48, 35, 0)
+	add_child(_sun)
+
+	_ground = MeshInstance3D.new()
+	var ground_mesh := BoxMesh.new()
+	ground_mesh.size = Vector3(42, 0.25, 22)
+	_ground.mesh = ground_mesh
+	_ground_mat = StandardMaterial3D.new()
+	_ground_mat.albedo_color = Color(0.22, 0.48, 0.26)
+	_ground_mat.roughness = 0.92
+	_ground.material_override = _ground_mat
+	_ground.position = Vector3(0, -0.12, 0)
+	add_child(_ground)
+
+	_hills_root = Node3D.new()
+	_hills_root.name = "Hills"
+	add_child(_hills_root)
+	for i in 6:
+		var hill := MeshInstance3D.new()
+		var hm := SphereMesh.new()
+		hm.radius = 2.2 + float(i % 3) * 0.4
+		hm.height = hm.radius * 1.1
+		hill.mesh = hm
+		hill.material_override = StandardMaterial3D.new()
+		hill.position = Vector3(-16.0 + float(i) * 6.5, -0.8, -7.5 - float(i % 2) * 1.5)
+		_hills_root.add_child(hill)
+
+	_decor_root = Node3D.new()
+	_decor_root.name = "ThemeDecor"
+	add_child(_decor_root)
+
+	_path_mesh = MeshInstance3D.new()
+	_path_mesh.name = "PathRibbon"
+	add_child(_path_mesh)
+
+	_nodes_root = Node3D.new()
+	_nodes_root.name = "LevelNodes"
+	add_child(_nodes_root)
+
+	_pawn = Node3D.new()
+	_pawn.name = "MapPawn"
+	add_child(_pawn)
+	_janitor = JanitorVisualScript.new()
+	_janitor.name = "JanitorVisual"
+	_janitor.size_mult = 1.75
+	_janitor.yaw_offset = 0.0
+	_pawn.add_child(_janitor)
+	if not _janitor.setup():
+		var body := MeshInstance3D.new()
+		var cap := CapsuleMesh.new()
+		cap.radius = 0.28
+		cap.height = 1.05
+		body.mesh = cap
+		var pmat := StandardMaterial3D.new()
+		pmat.albedo_color = Color(0.35, 0.62, 0.95)
+		body.material_override = pmat
+		body.position.y = 0.55
+		_pawn.add_child(body)
+	else:
+		_janitor.play_loco(&"idle", 1.0)
+
+	_camera = Camera3D.new()
+	_camera.name = "MapCamera"
+	_camera.fov = 42.0
+	_camera.current = false
+	_cam_env = Environment.new()
+	_cam_env.background_mode = Environment.BG_COLOR
+	_cam_env.background_color = Color(0.45, 0.72, 0.95)
+	_cam_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_cam_env.ambient_light_color = Color(0.55, 0.65, 0.75)
+	_cam_env.ambient_light_energy = 0.6
+	_camera.environment = _cam_env
+	add_child(_camera)
+	_palette = _palette_for_world(0)
+	_apply_palette_visuals()
+
+
+func _build_hud() -> void:
+	_hud = CanvasLayer.new()
+	_hud.layer = 12
+	_hud.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_hud)
+
+	_world_label = Label.new()
+	_world_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_world_label.anchor_right = 1.0
+	_world_label.offset_top = 258.0
+	_world_label.offset_bottom = 300.0
+	_world_label.add_theme_font_size_override("font_size", 28)
+	_world_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
+	_world_label.add_theme_color_override("font_outline_color", Color(0.08, 0.1, 0.08, 0.95))
+	_world_label.add_theme_constant_override("outline_size", 8)
+	_hud.add_child(_world_label)
+
+	_prev_btn = Button.new()
+	_prev_btn.text = "◀ Dünya"
+	_prev_btn.focus_mode = Control.FOCUS_NONE
+	_prev_btn.offset_left = 24.0
+	_prev_btn.offset_top = 262.0
+	_prev_btn.offset_right = 140.0
+	_prev_btn.offset_bottom = 298.0
+	_prev_btn.pressed.connect(func() -> void: _shift_world(-1))
+	_hud.add_child(_prev_btn)
+
+	_next_btn = Button.new()
+	_next_btn.text = "Dünya ▶"
+	_next_btn.focus_mode = Control.FOCUS_NONE
+	_next_btn.anchor_left = 1.0
+	_next_btn.anchor_right = 1.0
+	_next_btn.offset_left = -140.0
+	_next_btn.offset_right = -24.0
+	_next_btn.offset_top = 262.0
+	_next_btn.offset_bottom = 298.0
+	_next_btn.pressed.connect(func() -> void: _shift_world(1))
+	_hud.add_child(_next_btn)
+
+	_info = Label.new()
+	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_info.anchor_left = 0.0
+	_info.anchor_right = 1.0
+	_info.anchor_top = 1.0
+	_info.anchor_bottom = 1.0
+	_info.offset_left = 48.0
+	_info.offset_right = -48.0
+	_info.offset_top = -150.0
+	_info.offset_bottom = -78.0
+	_info.add_theme_font_size_override("font_size", 20)
+	_info.add_theme_color_override("font_color", Color(0.97, 0.98, 1.0))
+	_info.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	_info.add_theme_constant_override("outline_size", 6)
+	_hud.add_child(_info)
+
+	_play_btn = Button.new()
+	_play_btn.text = "Gir  ·  Space"
+	_play_btn.focus_mode = Control.FOCUS_NONE
+	_play_btn.anchor_left = 0.5
+	_play_btn.anchor_right = 0.5
+	_play_btn.anchor_top = 1.0
+	_play_btn.anchor_bottom = 1.0
+	_play_btn.offset_left = -150.0
+	_play_btn.offset_right = 150.0
+	_play_btn.offset_top = -68.0
+	_play_btn.offset_bottom = -24.0
+	_play_btn.pressed.connect(_try_enter_level)
+	_hud.add_child(_play_btn)
+
+	_hint = Label.new()
+	_hint.text = "Q/E seviye  ·  W/S dünya  ·  Space gir"
+	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint.anchor_right = 1.0
+	_hint.anchor_top = 1.0
+	_hint.anchor_bottom = 1.0
+	_hint.offset_top = -178.0
+	_hint.offset_bottom = -152.0
+	_hint.add_theme_font_size_override("font_size", 15)
+	_hint.add_theme_color_override("font_color", Color(0.9, 0.95, 0.85))
+	_hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	_hint.add_theme_constant_override("outline_size", 4)
+	_hud.add_child(_hint)
+
+
+func _process(_delta: float) -> void:
+	if not _active:
+		return
+	_update_camera()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not _active:
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key: Key = event.physical_keycode
+		if key == KEY_NONE:
+			key = event.keycode
+		match key:
+			KEY_Q, KEY_A:
+				_move_cursor(-1)
+				get_viewport().set_input_as_handled()
+			KEY_E, KEY_D:
+				_move_cursor(1)
+				get_viewport().set_input_as_handled()
+			KEY_W:
+				_shift_world(-1)
+				get_viewport().set_input_as_handled()
+			KEY_S:
+				_shift_world(1)
+				get_viewport().set_input_as_handled()
+			KEY_SPACE, KEY_ENTER, KEY_KP_ENTER:
+				_try_enter_level()
+				get_viewport().set_input_as_handled()
+		return
+	# interact (E / sol tık) haritada seviye BAŞLATMASIN — sadece Space
+	if event.is_action_pressed("ui_accept"):
+		_try_enter_level()
+		get_viewport().set_input_as_handled()
+
+
+func _shift_world(dir: int) -> void:
+	var max_w := LevelData3D.world_count() - 1
+	var next := _world_slot + dir
+	if next < 0 or next > max_w:
+		PrototypeSfx.play(_sfx, PrototypeSfx.Kind.SWITCH, 0.8)
+		return
+	if not _world_has_unlocked(next) and next != 0:
+		PrototypeSfx.play(_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.3)
+		return
+	_load_world(next, -1) # bölüm değişince ilk açık seviyeden
+	_play_world_switch_bounce(dir)
+	world_changed.emit(_world_slot)
+	PrototypeSfx.play(_sfx, PrototypeSfx.Kind.SWITCH, 1.0)
+
+
+func _world_has_unlocked(slot: int) -> bool:
+	for li in LevelData3D.level_indices_for_world(slot):
+		if LevelData3D.is_level_unlocked(li, _highest_unlocked):
+			return true
+	return false
+
+
+func _load_world(slot: int, prefer_level: int = -1) -> void:
+	_world_slot = clampi(slot, 0, LevelData3D.world_count() - 1)
+	_levels = LevelData3D.level_indices_for_world(_world_slot)
+	_cursor = 0
+	if prefer_level >= 0:
+		var found := false
+		for i in _levels.size():
+			if _levels[i] == prefer_level:
+				_cursor = i
+				found = true
+				break
+		if not found:
+			_cursor = _first_unlocked_cursor()
+	else:
+		_cursor = _first_unlocked_cursor()
+	_palette = _palette_for_world(_world_slot)
+	_apply_palette_visuals()
+	_rebuild_theme_decor()
+	_rebuild_nodes()
+	_snap_pawn(false)
+	_refresh_labels()
+
+
+func _first_unlocked_cursor() -> int:
+	for i in _levels.size():
+		if LevelData3D.is_level_unlocked(_levels[i], _highest_unlocked):
+			return i
+	return 0
+
+
+func _rebuild_nodes() -> void:
+	for c in _nodes_root.get_children():
+		c.queue_free()
+	_node_roots.clear()
+	_node_pos.clear()
+	var n := _levels.size()
+	if n <= 0:
+		_rebuild_path_mesh()
+		return
+	var start_x := -PATH_SPACING * float(n - 1) * 0.5
+	for i in n:
+		var t := 0.0 if n == 1 else float(i) / float(n - 1)
+		var x := start_x + float(i) * PATH_SPACING
+		var z := sin(t * PI * 1.1 + float(_world_slot) * 0.4) * 1.6
+		if i == n - 1 and n >= 4:
+			z -= 0.85
+		var pos := Vector3(x, NODE_Y, z)
+		_node_pos.append(pos)
+		var root := _make_node_visual(i)
+		root.position = pos
+		_nodes_root.add_child(root)
+		_node_roots.append(root)
+	_rebuild_path_mesh()
+	_refresh_node_visuals()
+
+
+func _make_node_visual(index: int) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Node_%d" % index
+	var pedestal := MeshInstance3D.new()
+	pedestal.name = "Pedestal"
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = NODE_PEDESTAL_R
+	cyl.bottom_radius = NODE_PEDESTAL_R + 0.04
+	cyl.height = 0.14
+	pedestal.mesh = cyl
+	pedestal.position.y = 0.0
+	root.add_child(pedestal)
+	var gem := MeshInstance3D.new()
+	gem.name = "Gem"
+	var sph := SphereMesh.new()
+	sph.radius = NODE_GEM_R
+	sph.height = NODE_GEM_R * 2.0
+	gem.mesh = sph
+	gem.position.y = 0.28
+	root.add_child(gem)
+	var label := Label3D.new()
+	label.name = "Tag"
+	label.font_size = 28
+	label.position = Vector3(0, 0.62, 0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.outline_size = 6
+	root.add_child(label)
+	return root
+
+
+func _rebuild_path_mesh() -> void:
+	if _path_mesh == null:
+		return
+	if _node_pos.size() < 2:
+		_path_mesh.mesh = null
+		return
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_color = Color.WHITE
+	var path_on: Color = _palette.get("path", Color(0.95, 0.8, 0.35))
+	var path_off: Color = _palette.get("path_locked", Color(0.35, 0.38, 0.36))
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(_node_pos.size() - 1):
+		var a: Vector3 = _node_pos[i]
+		var b: Vector3 = _node_pos[i + 1]
+		var unlocked_edge := LevelData3D.is_level_unlocked(_levels[mini(i + 1, _levels.size() - 1)], _highest_unlocked)
+		var col := path_on if unlocked_edge else path_off
+		_add_path_quad(st, a, b, 0.38, col)
+	_path_mesh.mesh = st.commit()
+	_path_mesh.material_override = mat
+
+
+func _add_path_quad(st: SurfaceTool, a: Vector3, b: Vector3, half_w: float, col: Color) -> void:
+	var dir := (b - a)
+	dir.y = 0.0
+	if dir.length_squared() < 0.0001:
+		return
+	dir = dir.normalized()
+	var side := Vector3(-dir.z, 0.0, dir.x) * half_w
+	var y := 0.02
+	var p0 := Vector3(a.x, y, a.z) - side
+	var p1 := Vector3(a.x, y, a.z) + side
+	var p2 := Vector3(b.x, y, b.z) + side
+	var p3 := Vector3(b.x, y, b.z) - side
+	st.set_color(col)
+	st.set_normal(Vector3.UP)
+	st.add_vertex(p0)
+	st.add_vertex(p1)
+	st.add_vertex(p2)
+	st.add_vertex(p0)
+	st.add_vertex(p2)
+	st.add_vertex(p3)
+
+
+func _refresh_node_visuals() -> void:
+	var col_locked: Color = _palette.get("node_locked", Color(0.45, 0.45, 0.48))
+	var col_open: Color = _palette.get("node", Color(0.92, 0.32, 0.28))
+	var col_clear: Color = _palette.get("node_clear", Color(0.35, 0.85, 0.45))
+	var col_boss: Color = _palette.get("node_boss", Color(0.95, 0.5, 0.3))
+	var ped_col: Color = _palette.get("pedestal", Color(0.55, 0.5, 0.42))
+	for i in _node_roots.size():
+		var root := _node_roots[i]
+		if not is_instance_valid(root):
+			continue
+		var li: int = _levels[i]
+		var unlocked := LevelData3D.is_level_unlocked(li, _highest_unlocked)
+		var cleared := LevelData3D.is_level_cleared(li, _highest_unlocked)
+		var info := LevelData3D.get_level(li)
+		var is_boss := bool(info.get("is_boss_room", false))
+		var selected := i == _cursor
+		var fill := col_locked
+		if unlocked:
+			fill = col_boss if is_boss else col_open
+			if cleared:
+				fill = col_clear
+		var ped := root.get_node_or_null("Pedestal") as MeshInstance3D
+		if ped != null:
+			var pmat := StandardMaterial3D.new()
+			pmat.albedo_color = ped_col.darkened(0.15 if not unlocked else 0.0)
+			ped.material_override = pmat
+		var gem := root.get_node_or_null("Gem") as MeshInstance3D
+		if gem != null:
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = fill
+			mat.emission_enabled = selected or unlocked
+			mat.emission = fill
+			mat.emission_energy_multiplier = 1.55 if selected else 0.45
+			gem.material_override = mat
+			gem.scale = Vector3.ONE * (1.22 if selected else 1.0)
+		var tag := root.get_node_or_null("Tag") as Label3D
+		if tag != null:
+			if not unlocked:
+				tag.text = "🔒"
+			elif cleared:
+				tag.text = "★"
+			elif is_boss:
+				tag.text = "🏰"
+			elif bool(info.get("tutorial_level", false)):
+				tag.text = String(info.get("icon", "📘"))
+			else:
+				tag.text = str(int(info.get("tier", i)) + 1)
+	_rebuild_path_mesh()
+
+
+func _refresh_labels() -> void:
+	if _world_label != null:
+		_world_label.text = "%s  %s" % [LevelData3D.world_icon(_world_slot), LevelData3D.world_title(_world_slot)]
+		var ac: Color = _palette.get("accent", Color(1.0, 0.92, 0.45))
+		_world_label.add_theme_color_override("font_color", ac)
+	_update_info()
+	_update_play_enabled()
+	if _prev_btn != null:
+		_prev_btn.disabled = _world_slot <= 0
+	if _next_btn != null:
+		_next_btn.disabled = _world_slot >= LevelData3D.world_count() - 1
+
+
+func _current_level_index() -> int:
+	if _cursor < 0 or _cursor >= _levels.size():
+		return -1
+	return _levels[_cursor]
+
+
+func _update_info() -> void:
+	if _info == null:
+		return
+	var li := _current_level_index()
+	if li < 0:
+		_info.text = ""
+		return
+	var info := LevelData3D.get_level(li)
+	var unlocked := LevelData3D.is_level_unlocked(li, _highest_unlocked)
+	var cleared := LevelData3D.is_level_cleared(li, _highest_unlocked)
+	var status := "🔒 Kilitli"
+	if unlocked:
+		status = "✅ Temizlendi" if cleared else "▶ Hazır"
+	_info.text = "%s\n%s\n%s" % [
+		String(info.get("name", "Seviye")),
+		String(info.get("subtitle", "")),
+		status,
+	]
+
+
+func _update_play_enabled() -> void:
+	var li := _current_level_index()
+	var ok := li >= 0 and LevelData3D.is_level_unlocked(li, _highest_unlocked)
+	if _play_btn != null:
+		_play_btn.disabled = not ok
+		_play_btn.modulate = Color.WHITE if ok else Color(0.6, 0.6, 0.65, 0.85)
+
+
+func _move_cursor(dir: int) -> void:
+	if _levels.is_empty():
+		return
+	var next := _cursor + dir
+	if next < 0 or next >= _levels.size():
+		PrototypeSfx.play(_sfx, PrototypeSfx.Kind.SWITCH, 0.85)
+		return
+	if not LevelData3D.is_level_unlocked(_levels[next], _highest_unlocked):
+		PrototypeSfx.play(_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.35)
+		return
+	_cursor = next
+	_walk_pawn_to_cursor(true)
+	_refresh_node_visuals()
+	_update_info()
+	_update_play_enabled()
+	PrototypeSfx.play(_sfx, PrototypeSfx.Kind.SWITCH, 1.15)
+
+
+func _pawn_stand_pos(idx: int) -> Vector3:
+	if idx < 0 or idx >= _node_pos.size():
+		return Vector3.ZERO
+	var p: Vector3 = _node_pos[idx]
+	return Vector3(p.x, 0.0, p.z)
+
+
+func _walk_pawn_to_cursor(animate: bool) -> void:
+	if _pawn == null or _cursor < 0 or _cursor >= _node_pos.size():
+		return
+	var target := _pawn_stand_pos(_cursor)
+	if _move_tween != null and _move_tween.is_valid():
+		_move_tween.kill()
+	if not animate:
+		_walking = false
+		_pawn.position = target
+		_play_janitor_idle()
+		return
+	var from := _pawn.position
+	var flat := Vector3(target.x - from.x, 0.0, target.z - from.z)
+	var dist := flat.length()
+	if dist < 0.04:
+		_walking = false
+		_pawn.position = target
+		_play_janitor_idle()
+		return
+	_face_direction(flat)
+	_play_janitor_run(clampf(dist / 2.5, 0.95, 1.35))
+	_walking = true
+	var dur := clampf(dist / WALK_SPEED, 0.32, 1.1)
+	_move_tween = create_tween()
+	_move_tween.tween_property(_pawn, "position", target, dur)\
+		.set_trans(Tween.TRANS_LINEAR).set_ease(Tween.EASE_IN_OUT)
+	_move_tween.finished.connect(_on_pawn_walk_finished)
+
+
+func _on_pawn_walk_finished() -> void:
+	_walking = false
+	_play_janitor_idle()
+
+
+func _face_direction(dir: Vector3) -> void:
+	if _pawn == null or dir.length_squared() < 0.0001:
+		return
+	# Model +Z bakıyorsa atan2(x,z); ters ise +PI
+	_pawn.rotation.y = atan2(dir.x, dir.z)
+
+
+func _play_janitor_run(speed: float = 1.15) -> void:
+	if _janitor != null and _janitor.is_ready_visual():
+		_janitor.play_loco(&"run", speed)
+
+
+func _play_janitor_idle() -> void:
+	if _janitor != null and _janitor.is_ready_visual():
+		_janitor.play_loco(&"idle", 1.0)
+
+
+func _snap_pawn(animate: bool) -> void:
+	_walk_pawn_to_cursor(animate)
+
+
+func _play_world_switch_bounce(dir: int = 1) -> void:
+	if _pawn == null:
+		return
+	if _bounce_tween != null and _bounce_tween.is_valid():
+		_bounce_tween.kill()
+	if _move_tween != null and _move_tween.is_valid():
+		_move_tween.kill()
+		_walking = false
+	var base := _pawn_stand_pos(_cursor) if _cursor >= 0 and _cursor < _node_pos.size() else _pawn.position
+	_pawn.position = base
+	_pawn.scale = Vector3.ONE
+	_pawn.rotation.y += float(dir) * 0.2
+	_bounce_tween = create_tween()
+	# Hafif squash
+	_bounce_tween.tween_property(_pawn, "scale", Vector3(1.08, 0.9, 1.08), 0.05)\
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	# Küçük hop
+	_bounce_tween.tween_property(_pawn, "scale", Vector3(0.96, 1.08, 0.96), 0.07)\
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_bounce_tween.parallel().tween_property(_pawn, "position:y", base.y + 0.28, 0.09)\
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	# Yumuşak iniş
+	_bounce_tween.tween_property(_pawn, "position:y", base.y, 0.12)\
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	_bounce_tween.parallel().tween_property(_pawn, "scale", Vector3.ONE, 0.12)\
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_bounce_tween.tween_callback(func() -> void:
+		if _pawn != null:
+			_pawn.scale = Vector3.ONE
+			_pawn.position = base
+		_play_janitor_idle()
+	)
+
+
+func _try_enter_level() -> void:
+	if not _active:
+		return
+	var li := _current_level_index()
+	if li < 0:
+		return
+	if not LevelData3D.is_level_unlocked(li, _highest_unlocked):
+		PrototypeSfx.play(_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.2)
+		return
+	PrototypeSfx.play(_sfx, PrototypeSfx.Kind.TASK_OK, 1.1)
+	level_chosen.emit(li)
+
+
+func _update_camera() -> void:
+	if _camera == null:
+		return
+	var focus := Vector3.ZERO
+	if _pawn != null:
+		focus = _pawn.global_position
+	elif _cursor >= 0 and _cursor < _node_pos.size():
+		focus = _node_pos[_cursor]
+	elif not _node_pos.is_empty():
+		focus = _node_pos[int(_node_pos.size() / 2)]
+	var desired := focus + Vector3(0.0, 10.5, 13.5)
+	_camera.global_position = _camera.global_position.lerp(desired, 0.14)
+	_camera.look_at(focus + Vector3(0, 0.85, 0), Vector3.UP)
+
+
+func _palette_for_world(slot: int) -> Dictionary:
+	# Eğitim
+	if slot <= 0:
+		return {
+			"id": "tutorial",
+			"sky": Color(0.55, 0.7, 0.82),
+			"ambient": Color(0.6, 0.65, 0.7),
+			"ground": Color(0.34, 0.36, 0.38),
+			"hill": Color(0.28, 0.3, 0.32),
+			"path": Color(0.85, 0.72, 0.4),
+			"path_locked": Color(0.4, 0.4, 0.42),
+			"node": Color(0.75, 0.55, 0.3),
+			"node_clear": Color(0.4, 0.8, 0.5),
+			"node_boss": Color(0.9, 0.55, 0.25),
+			"node_locked": Color(0.42, 0.42, 0.45),
+			"pedestal": Color(0.5, 0.48, 0.44),
+			"accent": Color(0.72, 0.58, 0.32),
+			"sun": 1.05,
+		}
+	var themes := {
+		"liquids": {
+			"sky": Color(0.42, 0.68, 0.88), "ambient": Color(0.5, 0.7, 0.85),
+			"ground": Color(0.28, 0.34, 0.4), "hill": Color(0.22, 0.3, 0.38),
+			"path": Color(0.45, 0.85, 1.0), "path_locked": Color(0.3, 0.4, 0.45),
+			"node": Color(0.35, 0.75, 0.95), "node_clear": Color(0.4, 0.9, 0.75),
+			"node_boss": Color(0.2, 0.55, 0.9), "pedestal": Color(0.45, 0.55, 0.62),
+			"accent": Color(0.45, 0.85, 1.0), "sun": 1.1,
+		},
+		"mold": {
+			"sky": Color(0.35, 0.55, 0.38), "ambient": Color(0.4, 0.55, 0.4),
+			"ground": Color(0.16, 0.28, 0.18), "hill": Color(0.12, 0.22, 0.14),
+			"path": Color(0.55, 0.9, 0.4), "path_locked": Color(0.28, 0.35, 0.28),
+			"node": Color(0.45, 0.9, 0.35), "node_clear": Color(0.7, 0.95, 0.4),
+			"node_boss": Color(0.25, 0.7, 0.2), "pedestal": Color(0.3, 0.4, 0.28),
+			"accent": Color(0.45, 0.95, 0.4), "sun": 0.9,
+		},
+		"broom": {
+			"sky": Color(0.72, 0.58, 0.4), "ambient": Color(0.7, 0.6, 0.45),
+			"ground": Color(0.32, 0.22, 0.14), "hill": Color(0.26, 0.18, 0.12),
+			"path": Color(0.95, 0.75, 0.4), "path_locked": Color(0.4, 0.32, 0.25),
+			"node": Color(0.9, 0.65, 0.3), "node_clear": Color(0.85, 0.85, 0.45),
+			"node_boss": Color(0.85, 0.45, 0.2), "pedestal": Color(0.45, 0.35, 0.25),
+			"accent": Color(0.95, 0.72, 0.35), "sun": 1.15,
+		},
+		"slime": {
+			"sky": Color(0.3, 0.55, 0.5), "ambient": Color(0.35, 0.6, 0.55),
+			"ground": Color(0.12, 0.26, 0.24), "hill": Color(0.1, 0.2, 0.18),
+			"path": Color(0.4, 1.0, 0.75), "path_locked": Color(0.25, 0.35, 0.32),
+			"node": Color(0.3, 0.95, 0.7), "node_clear": Color(0.55, 1.0, 0.8),
+			"node_boss": Color(0.15, 0.75, 0.55), "pedestal": Color(0.25, 0.4, 0.38),
+			"accent": Color(0.35, 1.0, 0.72), "sun": 0.95,
+		},
+		"brush": {
+			"sky": Color(0.55, 0.35, 0.7), "ambient": Color(0.55, 0.4, 0.7),
+			"ground": Color(0.32, 0.18, 0.4), "hill": Color(0.26, 0.14, 0.34),
+			"path": Color(0.9, 0.45, 1.0), "path_locked": Color(0.4, 0.3, 0.45),
+			"node": Color(0.85, 0.4, 0.95), "node_clear": Color(0.7, 0.55, 1.0),
+			"node_boss": Color(0.7, 0.25, 0.85), "pedestal": Color(0.4, 0.28, 0.48),
+			"accent": Color(0.85, 0.4, 1.0), "sun": 1.0,
+		},
+		"spray": {
+			"sky": Color(0.35, 0.55, 0.78), "ambient": Color(0.4, 0.6, 0.8),
+			"ground": Color(0.14, 0.22, 0.32), "hill": Color(0.12, 0.18, 0.28),
+			"path": Color(0.45, 0.9, 1.0), "path_locked": Color(0.28, 0.35, 0.42),
+			"node": Color(0.4, 0.85, 1.0), "node_clear": Color(0.55, 0.95, 0.9),
+			"node_boss": Color(0.25, 0.65, 0.95), "pedestal": Color(0.3, 0.4, 0.5),
+			"accent": Color(0.4, 0.85, 1.0), "sun": 1.05,
+		},
+		"tweezers": {
+			"sky": Color(0.4, 0.42, 0.58), "ambient": Color(0.45, 0.48, 0.62),
+			"ground": Color(0.18, 0.18, 0.26), "hill": Color(0.14, 0.14, 0.2),
+			"path": Color(0.85, 0.9, 1.0), "path_locked": Color(0.35, 0.35, 0.42),
+			"node": Color(0.75, 0.85, 1.0), "node_clear": Color(0.9, 0.9, 0.7),
+			"node_boss": Color(0.95, 0.85, 0.45), "pedestal": Color(0.35, 0.35, 0.42),
+			"accent": Color(0.75, 0.85, 1.0), "sun": 0.85,
+		},
+		"dark": {
+			"sky": Color(0.08, 0.1, 0.16), "ambient": Color(0.2, 0.22, 0.32),
+			"ground": Color(0.07, 0.07, 0.1), "hill": Color(0.05, 0.05, 0.08),
+			"path": Color(0.35, 0.7, 0.95), "path_locked": Color(0.2, 0.22, 0.28),
+			"node": Color(0.4, 0.75, 1.0), "node_clear": Color(0.45, 0.85, 0.7),
+			"node_boss": Color(0.7, 0.35, 0.95), "pedestal": Color(0.2, 0.2, 0.28),
+			"accent": Color(0.45, 0.85, 1.0), "sun": 0.45,
+		},
+		"ritual": {
+			"sky": Color(0.35, 0.15, 0.4), "ambient": Color(0.45, 0.25, 0.5),
+			"ground": Color(0.18, 0.08, 0.2), "hill": Color(0.14, 0.06, 0.16),
+			"path": Color(0.95, 0.4, 0.85), "path_locked": Color(0.35, 0.22, 0.38),
+			"node": Color(0.9, 0.35, 0.8), "node_clear": Color(0.75, 0.5, 0.95),
+			"node_boss": Color(0.95, 0.25, 0.55), "pedestal": Color(0.35, 0.2, 0.4),
+			"accent": Color(0.95, 0.4, 0.85), "sun": 0.75,
+		},
+		"finale": {
+			"sky": Color(0.55, 0.2, 0.18), "ambient": Color(0.6, 0.3, 0.25),
+			"ground": Color(0.28, 0.08, 0.1), "hill": Color(0.22, 0.06, 0.08),
+			"path": Color(1.0, 0.45, 0.3), "path_locked": Color(0.4, 0.22, 0.22),
+			"node": Color(1.0, 0.35, 0.35), "node_clear": Color(1.0, 0.7, 0.35),
+			"node_boss": Color(1.0, 0.2, 0.15), "pedestal": Color(0.4, 0.18, 0.16),
+			"accent": Color(1.0, 0.35, 0.4), "sun": 1.2,
+		},
+	}
+	var ids := ["liquids", "mold", "broom", "slime", "brush", "spray", "tweezers", "dark", "ritual", "finale"]
+	var idx := clampi(slot - 1, 0, ids.size() - 1)
+	var tid: String = ids[idx]
+	var p: Dictionary = (themes[tid] as Dictionary).duplicate()
+	p["id"] = tid
+	p["node_locked"] = Color(0.35, 0.35, 0.38)
+	return p
+
+
+func _apply_palette_visuals() -> void:
+	if _palette.is_empty():
+		return
+	if _ground_mat != null:
+		_ground_mat.albedo_color = _palette.get("ground", Color(0.25, 0.4, 0.25))
+	if _hills_root != null:
+		var hill_c: Color = _palette.get("hill", Color(0.2, 0.35, 0.2))
+		var i := 0
+		for c in _hills_root.get_children():
+			var mi := c as MeshInstance3D
+			if mi == null:
+				continue
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = hill_c.darkened(0.04 * float(i % 3))
+			mat.roughness = 0.95
+			mi.material_override = mat
+			i += 1
+	if _cam_env != null:
+		_cam_env.background_color = _palette.get("sky", Color(0.45, 0.72, 0.95))
+		_cam_env.ambient_light_color = _palette.get("ambient", Color(0.55, 0.65, 0.75))
+		_cam_env.ambient_light_energy = 0.55 if float(_palette.get("sun", 1.0)) > 0.7 else 0.35
+	if _sun != null:
+		_sun.light_energy = float(_palette.get("sun", 1.0))
+		var accent: Color = _palette.get("accent", Color.WHITE)
+		_sun.light_color = Color(1.0, 0.95, 0.9).lerp(accent, 0.25)
+	if _world_label != null:
+		var ac: Color = _palette.get("accent", Color(1.0, 0.92, 0.45))
+		_world_label.add_theme_color_override("font_color", ac)
+
+
+func _rebuild_theme_decor() -> void:
+	if _decor_root == null:
+		return
+	for c in _decor_root.get_children():
+		c.queue_free()
+	var tid := String(_palette.get("id", "tutorial"))
+	var accent: Color = _palette.get("accent", Color(0.8, 0.7, 0.4))
+	match tid:
+		"tutorial":
+			_spawn_box_props(accent)
+			_spawn_prop_label("🧹", Vector3(-7, 1.2, 4.5))
+		"liquids":
+			_spawn_puddles(accent)
+			_spawn_bucket(Vector3(-8.5, 0, 3.2), accent)
+			_spawn_bucket(Vector3(8.2, 0, -2.5), accent)
+			_spawn_prop_label("💧", Vector3(0, 2.2, -5.5))
+		"mold":
+			_spawn_blobs(Color(0.35, 0.75, 0.3), 8)
+			_spawn_prop_label("🤢", Vector3(-6, 1.8, 4))
+		"broom":
+			_spawn_dust_piles()
+			_spawn_box_props(Color(0.7, 0.5, 0.3))
+			_spawn_prop_label("👻", Vector3(7, 1.6, 3.5))
+		"slime":
+			_spawn_blobs(Color(0.3, 0.95, 0.65), 10)
+			_spawn_prop_label("🐌", Vector3(-5, 1.5, -4))
+		"brush":
+			_spawn_potions(accent)
+			_spawn_prop_label("🧪", Vector3(6.5, 1.8, 2.5))
+		"spray":
+			_spawn_cans(accent)
+			_spawn_mist(accent)
+			_spawn_prop_label("💧", Vector3(-7, 2.0, 3))
+		"tweezers":
+			_spawn_candles()
+			_spawn_prop_label("🕯", Vector3(5, 1.7, -3.5))
+		"dark":
+			_spawn_lanterns(accent)
+			_spawn_prop_label("🦇", Vector3(0, 2.4, -6))
+		"ritual":
+			_spawn_candles()
+			_spawn_runes(accent)
+			_spawn_prop_label("🧙", Vector3(-6.5, 1.9, 3.5))
+		"finale":
+			_spawn_box_props(Color(0.85, 0.25, 0.25))
+			_spawn_flames()
+			_spawn_prop_label("🔥", Vector3(0, 2.5, -5.5))
+		_:
+			_spawn_box_props(accent)
+
+
+func _mat(col: Color, emit: float = 0.0) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.roughness = 0.75
+	if emit > 0.0:
+		m.emission_enabled = true
+		m.emission = col
+		m.emission_energy_multiplier = emit
+	return m
+
+
+func _spawn_mesh(mesh: Mesh, pos: Vector3, col: Color, emit: float = 0.0, scale := Vector3.ONE) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = _mat(col, emit)
+	mi.position = pos
+	mi.scale = scale
+	_decor_root.add_child(mi)
+	return mi
+
+
+func _spawn_prop_label(text: String, pos: Vector3) -> void:
+	var lab := Label3D.new()
+	lab.text = text
+	lab.font_size = 96
+	lab.position = pos
+	lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lab.outline_size = 10
+	_decor_root.add_child(lab)
+
+
+func _spawn_box_props(col: Color) -> void:
+	var spots := [
+		Vector3(-9, 0.35, 4), Vector3(-8.2, 0.35, 4.6), Vector3(9, 0.35, -3),
+		Vector3(8.3, 0.7, -3.2), Vector3(-10, 0.35, -2), Vector3(10, 0.35, 2.5),
+	]
+	for i in spots.size():
+		var box := BoxMesh.new()
+		box.size = Vector3(0.7, 0.7, 0.7) if i % 2 == 0 else Vector3(0.55, 0.55, 0.55)
+		var mi := _spawn_mesh(box, spots[i], col.darkened(0.08 * float(i % 3)))
+		mi.rotation_degrees.y = float(i) * 25.0
+
+
+func _spawn_puddles(col: Color) -> void:
+	for i in 7:
+		var disk := CylinderMesh.new()
+		disk.top_radius = 0.7 + float(i % 3) * 0.25
+		disk.bottom_radius = disk.top_radius
+		disk.height = 0.04
+		var p := Vector3(-9.0 + float(i) * 3.0, 0.02, 3.5 - float(i % 2) * 5.5)
+		_spawn_mesh(disk, p, Color(col.r, col.g, col.b, 0.85).lightened(0.1), 0.35)
+
+
+func _spawn_bucket(pos: Vector3, col: Color) -> void:
+	var body := CylinderMesh.new()
+	body.top_radius = 0.35
+	body.bottom_radius = 0.4
+	body.height = 0.55
+	_spawn_mesh(body, pos + Vector3(0, 0.28, 0), Color(0.45, 0.5, 0.55))
+	var water := CylinderMesh.new()
+	water.top_radius = 0.28
+	water.bottom_radius = 0.28
+	water.height = 0.08
+	_spawn_mesh(water, pos + Vector3(0, 0.48, 0), col, 0.5)
+
+
+func _spawn_blobs(col: Color, count: int) -> void:
+	for i in count:
+		var sph := SphereMesh.new()
+		sph.radius = 0.25 + float(i % 4) * 0.08
+		sph.height = sph.radius * 1.4
+		var p := Vector3(
+			-10.0 + float(i) * 2.4 + sin(float(i)) * 0.8,
+			sph.radius * 0.45,
+			3.8 - float(i % 3) * 3.2
+		)
+		_spawn_mesh(sph, p, col.darkened(0.05 * float(i % 3)), 0.25)
+
+
+func _spawn_dust_piles() -> void:
+	for i in 6:
+		var sph := SphereMesh.new()
+		sph.radius = 0.35 + float(i % 3) * 0.1
+		sph.height = sph.radius * 0.9
+		_spawn_mesh(
+			sph,
+			Vector3(-8.5 + float(i) * 3.2, 0.12, 4.0 - float(i % 2) * 6.0),
+			Color(0.55, 0.48, 0.38)
+		)
+
+
+func _spawn_potions(col: Color) -> void:
+	for i in 5:
+		var bottle := CylinderMesh.new()
+		bottle.top_radius = 0.12
+		bottle.bottom_radius = 0.16
+		bottle.height = 0.55
+		var p := Vector3(-8.0 + float(i) * 4.0, 0.3, 3.5 - float(i % 2) * 5.5)
+		_spawn_mesh(bottle, p, col, 0.7)
+		var cap := SphereMesh.new()
+		cap.radius = 0.1
+		_spawn_mesh(cap, p + Vector3(0, 0.35, 0), Color(0.9, 0.85, 0.3), 0.4)
+
+
+func _spawn_cans(col: Color) -> void:
+	for i in 4:
+		var can := CylinderMesh.new()
+		can.top_radius = 0.14
+		can.bottom_radius = 0.14
+		can.height = 0.45
+		_spawn_mesh(can, Vector3(-7.5 + float(i) * 4.5, 0.25, 4.2), col.lightened(0.15), 0.3)
+
+
+func _spawn_mist(col: Color) -> void:
+	for i in 5:
+		var sph := SphereMesh.new()
+		sph.radius = 0.8 + float(i % 3) * 0.2
+		var mi := _spawn_mesh(
+			sph,
+			Vector3(-9.0 + float(i) * 4.0, 1.2 + float(i % 2) * 0.4, -4.5),
+			Color(col.r, col.g, col.b, 0.25),
+			0.2
+		)
+		var mat := mi.material_override as StandardMaterial3D
+		if mat != null:
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color.a = 0.28
+
+
+func _spawn_candles() -> void:
+	for i in 6:
+		var stick := CylinderMesh.new()
+		stick.top_radius = 0.06
+		stick.bottom_radius = 0.07
+		stick.height = 0.45
+		var p := Vector3(-9.0 + float(i) * 3.5, 0.25, 3.8 - float(i % 2) * 6.0)
+		_spawn_mesh(stick, p, Color(0.9, 0.88, 0.8))
+		var flame := SphereMesh.new()
+		flame.radius = 0.09
+		_spawn_mesh(flame, p + Vector3(0, 0.32, 0), Color(1.0, 0.7, 0.25), 2.2)
+
+
+func _spawn_lanterns(col: Color) -> void:
+	for i in 4:
+		var pole := CylinderMesh.new()
+		pole.top_radius = 0.05
+		pole.bottom_radius = 0.06
+		pole.height = 1.4
+		var p := Vector3(-8.5 + float(i) * 5.5, 0.7, 4.0 - float(i % 2) * 7.0)
+		_spawn_mesh(pole, p, Color(0.25, 0.25, 0.28))
+		var lamp := SphereMesh.new()
+		lamp.radius = 0.22
+		_spawn_mesh(lamp, p + Vector3(0, 0.85, 0), col, 2.8)
+
+
+func _spawn_runes(col: Color) -> void:
+	for i in 5:
+		var ring := TorusMesh.new()
+		ring.inner_radius = 0.35
+		ring.outer_radius = 0.48
+		var mi := _spawn_mesh(
+			ring,
+			Vector3(-8.0 + float(i) * 4.0, 0.08, 3.2 - float(i % 2) * 5.0),
+			col,
+			0.9
+		)
+		mi.rotation_degrees.x = 90.0
+
+
+func _spawn_flames() -> void:
+	for i in 5:
+		var cone := CylinderMesh.new()
+		cone.top_radius = 0.05
+		cone.bottom_radius = 0.35
+		cone.height = 1.1
+		_spawn_mesh(
+			cone,
+			Vector3(-8.0 + float(i) * 4.0, 0.55, 4.0 - float(i % 2) * 6.5),
+			Color(1.0, 0.4 + float(i % 3) * 0.1, 0.15),
+			2.5
+		)
