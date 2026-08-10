@@ -43,8 +43,8 @@ func _ready() -> void:
 	_panel.anchor_bottom = 0.5
 	_panel.offset_left = -280.0
 	_panel.offset_right = 280.0
-	_panel.offset_top = -210.0
-	_panel.offset_bottom = 210.0
+	_panel.offset_top = -230.0
+	_panel.offset_bottom = 230.0
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.08, 0.09, 0.12, 0.96)
 	style.set_corner_radius_all(16)
@@ -125,7 +125,12 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 		_grade_wave.text = grade
 		_grade_wave.font_color = gcol
 		_grade_wave.scale = Vector2(0.4, 0.4)
-	_score_label.text = "Skor: %d" % score
+	var coins_earned := int(result.get("coins_earned", 0))
+	var wallet_total := int(result.get("wallet_total", 0))
+	if coins_earned > 0:
+		_score_label.text = "Skor: %d   ·   +%d🪙" % [score, coins_earned]
+	else:
+		_score_label.text = "Skor: %d" % score
 
 	var lines: PackedStringArray = []
 	var prev_best := int(compare.get("prev_best", compare.get("best", 0)))
@@ -157,6 +162,9 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 				lines.append("📅 Günlük ilk rekor: %d" % score)
 		elif db > 0:
 			lines.append("📅 Günlük en iyi: %d" % db)
+
+	if coins_earned > 0 or wallet_total > 0:
+		lines.append("🪙 +%d coin  →  cüzdan: %d" % [coins_earned, wallet_total])
 
 	_compare.text = "\n".join(lines)
 	_detail.text = "Combo x%d  ·  Temizlik %d  ·  Hata %d  ·  %.0fs" % [

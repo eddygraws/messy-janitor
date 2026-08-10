@@ -5,7 +5,7 @@ extends Node
 ## Faz1: AT!/SİL!/TOPLA!  ·  Faz2: SEÇ!/ÇİFTE!/KAÇ!  ·  Faz3: DUR!/HEPSİNİ AT!/SON KUTU!
 
 signal task_issued(task_type: String, duration: float, color: Color)
-signal task_succeeded(task_type: String)
+signal task_succeeded(task_type: String, star_units: int)
 signal task_failed(task_type: String)
 signal task_cleared
 ## DUR! verilmeden önce 3 → 2 → 1 (saniye kalan).
@@ -40,6 +40,7 @@ var _active: Dictionary = {}
 var _targets: Array[ClutterProp] = []
 var _decoys: Array[ClutterProp] = []
 var _choose_correct: ClutterProp
+var _active_star_units: int = 0
 var _last_types: Array[String] = []
 var _running: bool = false
 var _stop_grace: float = 0.0
@@ -441,6 +442,10 @@ func _issue(task_type: String, duration: float) -> bool:
 
 func _commit_active(task_type: String, duration: float) -> void:
 	duration = _boost_duration_for_targets(duration, _targets)
+	_active_star_units = 0
+	for t in _targets:
+		if t != null and is_instance_valid(t):
+			_active_star_units += t.get_stack_units()
 	_active = {
 		"type": task_type,
 		"duration": duration,
@@ -627,8 +632,9 @@ func _prune_dead_targets() -> void:
 
 func _succeed() -> void:
 	var t := String(_active.get("type", ""))
+	var stars := _active_star_units
 	_clear_task(false)
-	task_succeeded.emit(t)
+	task_succeeded.emit(t, stars)
 	_schedule_next()
 
 
@@ -668,6 +674,7 @@ func _clear_task(_unmark_fail: bool) -> void:
 	_choose_correct = null
 	_clear_dodge_zone()
 	_active.clear()
+	_active_star_units = 0
 	_task_time_left = 0.0
 	_stop_grace = 0.0
 	task_cleared.emit()

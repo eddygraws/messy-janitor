@@ -15,6 +15,8 @@ signal section_advanced(section_index: int, section_count: int, section: Diction
 signal prop_cleared
 
 @export var spawn_on_ready: bool = false
+## Menü zorluğu (DifficultyProfile3D.prop_count_mult) — load_level öncesi set edilir.
+var prop_difficulty_mult: float = 1.0
 
 var _objective_total: int = 0
 var _cleared: bool = false
@@ -56,6 +58,8 @@ func _process(_delta: float) -> void:
 func load_level(index: int) -> Dictionary:
 	_level_index = index
 	var spec: Dictionary = LevelData3D.get_level(index)
+	if not bool(spec.get("tutorial_level", false)):
+		spec = LevelData3D.apply_runtime_prop_scale(spec, prop_difficulty_mult)
 	populate_from_spec(spec)
 	return spec
 
@@ -233,6 +237,23 @@ func sweep_all_objectives() -> int:
 	return cleared
 
 
+## Opsiyonel yan ödül coin'leri — objective değil, seviye kilidi yok.
+func spawn_bonus_coins(count: int = 3, parent_override: Node3D = null) -> int:
+	var CoinScript := preload("res://scenes3d/props/coin_pickup.gd")
+	var parent: Node3D = parent_override if parent_override != null else self
+	var spawned := 0
+	for _i in maxi(0, count):
+		var pos := _free_pos(0.85)
+		_commit_placed(pos, 0.85)
+		var coin: CoinPickup3D = CoinScript.new()
+		coin.name = "BonusCoin"
+		coin.value = 1
+		coin.position = pos
+		parent.add_child(coin)
+		spawned += 1
+	return spawned
+
+
 func _clear_children() -> void:
 	for c in get_children():
 		c.queue_free()
@@ -302,7 +323,10 @@ func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
 			if fallen:
 				_add_single_box(pos, Vector3(0.3, 0.2, 0.4), true)
 			else:
-				_add_box_stack(pos, _rng.randi_range(1, 3), _rng.randf_range(-0.4, 0.4))
+				var mn := int(_level_spec.get("box_stack_min", 1))
+				var mx := int(_level_spec.get("box_stack_max", 3))
+				mx = maxi(mn, mx)
+				_add_box_stack(pos, _rng.randi_range(mn, mx), _rng.randf_range(-0.4, 0.4))
 		"tv":
 			_add_broken_tv(pos, _rng.randf_range(-1.0, 1.0), _rng.randf() > 0.65)
 		"tv_repair":

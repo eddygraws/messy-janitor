@@ -9,6 +9,13 @@ const TIERS_PER_CHAPTER := 5
 const INTRO_LEVELS := 2
 const TIER_LABELS: Array[String] = ["Giriş", "Alıştırma", "Pratik", "Zorluk", "Doruk"]
 
+## Kampanya prop yoğunluğu — buradan / chapter dict override ile ayarlanır.
+## final ≈ base × tier_mult × chapter_prop_mult × DifficultyProfile3D.prop_count_mult
+const CHAPTER_PROP_GROWTH := 0.10 ## her bölüm +10% (ch1=1.0 … ch10≈1.9)
+const CHAPTER_PROP_MULT_MAX := 2.0
+const SETPIECE_COUNT_CAP_MULT := 1.2 ## tv / painting / boss — oda şişmesin
+const SETPIECE_TYPES: Array[String] = ["tv", "tv_repair", "painting", "boss_slime"]
+
 
 static func level_count() -> int:
 	return _all().size()
@@ -19,6 +26,48 @@ static func get_level(index: int) -> Dictionary:
 	if index < 0 or index >= levels.size():
 		return levels[0]
 	return levels[index]
+
+
+## Bölüm → prop count çarpanı. Chapter dict: "prop_mult" (mutlak) veya "prop_growth".
+static func chapter_prop_mult(chapter_num: int, ch: Dictionary = {}) -> float:
+	if ch.has("prop_mult"):
+		return clampf(float(ch.get("prop_mult", 1.0)), 0.5, CHAPTER_PROP_MULT_MAX)
+	var growth := float(ch.get("prop_growth", CHAPTER_PROP_GROWTH))
+	var m := 1.0 + float(maxi(0, chapter_num - 1)) * growth
+	return clampf(m, 0.5, CHAPTER_PROP_MULT_MAX)
+
+
+## Kutu stack yüksekliği — chapter ilerledikçe 1–2 → 2–4.
+## Override: chapter dict "box_stack_min" / "box_stack_max".
+static func box_stack_range_for(chapter_num: int, ch: Dictionary = {}) -> Vector2i:
+	if ch.has("box_stack_min") or ch.has("box_stack_max"):
+		var mn := int(ch.get("box_stack_min", 1))
+		var mx := int(ch.get("box_stack_max", 3))
+		return Vector2i(maxi(1, mn), maxi(maxi(1, mn), mx))
+	var m := chapter_prop_mult(chapter_num, ch)
+	var mn2 := 1 if m < 1.55 else 2
+	var mx2 := clampi(2 + int(round((m - 1.0) / 0.30)), 2, 4)
+	return Vector2i(mn2, maxi(mn2, mx2))
+
+
+## Menü zorluğu gibi runtime çarpan — props + (tutorial değilse) sections.
+static func apply_runtime_prop_scale(spec: Dictionary, difficulty_mult: float) -> Dictionary:
+	if absf(difficulty_mult - 1.0) < 0.001:
+		return spec
+	var out: Dictionary = spec.duplicate(true)
+	if out.has("props"):
+		out["props"] = _scale_props(out.get("props", []) as Array, difficulty_mult)
+	if bool(out.get("tutorial_level", false)):
+		return out
+	if out.has("sections"):
+		var secs: Array = []
+		for sec_v in out.get("sections", []) as Array:
+			var sec: Dictionary = (sec_v as Dictionary).duplicate(true)
+			if sec.has("props"):
+				sec["props"] = _scale_props(sec.get("props", []) as Array, difficulty_mult)
+			secs.append(sec)
+		out["sections"] = secs
+	return out
 
 
 static func is_tutorial_level(index: int) -> bool:
@@ -38,19 +87,80 @@ static func dash_charges_for(index: int) -> int:
 
 static func chapter_index_for(level_index: int) -> int:
 	var info := get_level(level_index)
-	if bool(info.get("tutorial_level", false)):
+	if bool(info.get("tutorial_level", false)) and int(info.get("chapter", 0)) <= 0:
 		return -1
 	var ch := int(info.get("chapter", 0))
 	if ch <= 0:
+		# Global intro tutorial'lar chapter alanı yok
+		if bool(info.get("tutorial_level", false)):
+			return -1
 		return -1
 	return ch - 1
 
 
 static func tier_in_chapter(level_index: int) -> int:
 	var info := get_level(level_index)
-	if bool(info.get("tutorial_level", false)):
+	if bool(info.get("tutorial_level", false)) and int(info.get("chapter", 0)) <= 0:
 		return 0
 	return int(info.get("tier", 0))
+
+
+## Dünya haritası: -1 = Eğitim (intro), 0..N-1 = bölümler.
+static func world_count() -> int:
+	return 1 + CHAPTERS_PER_CAMPAIGN  # eğitim + 10 bölüm
+
+
+static func world_title(world_slot: int) -> String:
+	if world_slot <= 0:
+		return "Eğitim"
+	var ch := _chapter_defs()
+	var idx := world_slot - 1
+	if idx < 0 or idx >= ch.size():
+		return "Bölüm %d" % world_slot
+	var d: Dictionary = ch[idx]
+	return "%d · %s" % [world_slot, String(d.get("title", "Bölüm"))]
+
+
+static func world_icon(world_slot: int) -> String:
+	if world_slot <= 0:
+		return "📘"
+	var ch := _chapter_defs()
+	var idx := world_slot - 1
+	if idx < 0 or idx >= ch.size():
+		return "🗺️"
+	return String((ch[idx] as Dictionary).get("icon", "🗺️"))
+
+
+## world_slot: 0 = eğitim (intro), 1..10 = bölüm → seviye index listesi
+static func level_indices_for_world(world_slot: int) -> Array[int]:
+	var out: Array[int] = []
+	var levels := _all()
+	if world_slot <= 0:
+		for i in mini(INTRO_LEVELS, levels.size()):
+			out.append(i)
+		return out
+	var chapter_num := world_slot
+	for i in levels.size():
+		var info: Dictionary = levels[i]
+		if int(info.get("chapter", 0)) == chapter_num:
+			out.append(i)
+	return out
+
+
+static func world_slot_for_level(level_index: int) -> int:
+	var info := get_level(level_index)
+	var ch := int(info.get("chapter", 0))
+	if ch > 0:
+		return ch
+	return 0
+
+
+static func is_level_unlocked(level_index: int, highest_unlocked: int) -> bool:
+	return (level_index + 1) <= highest_unlocked
+
+
+static func is_level_cleared(level_index: int, highest_unlocked: int) -> bool:
+	return highest_unlocked > (level_index + 1)
 
 
 static func _commission(npc: String, icon: String, title: String, desc: String, rule: int, param: float) -> Dictionary:
@@ -68,8 +178,12 @@ static func _scale_props(base: Array, mult: float) -> Array:
 	var out: Array = []
 	for entry_v in base:
 		var e: Dictionary = (entry_v as Dictionary).duplicate(true)
+		var typ := String(e.get("type", "box"))
+		var use_m := mult
+		if typ in SETPIECE_TYPES:
+			use_m = minf(mult, SETPIECE_COUNT_CAP_MULT)
 		var c := int(e.get("count", 1))
-		e["count"] = maxi(1, int(round(float(c) * mult)))
+		e["count"] = maxi(1, int(round(float(c) * use_m)))
 		out.append(e)
 	return out
 
@@ -95,6 +209,8 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 	var icon := String(ch.get("icon", "🧹"))
 	var chapter_title := String(ch.get("title", "Bölüm"))
 	var id_base := String(ch.get("id", "ch"))
+	var ch_prop_m := chapter_prop_mult(chapter_num, ch)
+	var stack_range := box_stack_range_for(chapter_num, ch)
 
 	for tier in TIERS_PER_CHAPTER:
 		# Global display number: intro'lar + bölüm kademeleri
@@ -117,7 +233,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 
 		match tier:
 			0:
-				props = _scale_props(focus, 0.45)
+				props = _scale_props(focus, 0.45 * ch_prop_m)
 				time_lim = base_time + 12.0
 				subtitle = "Yeni: %s" % String(ch.get("new_mechanic", "öğren"))
 				intro = "Bu bölümün temeli: %s. Sakin başla." % String(ch.get("new_mechanic", "mekanik"))
@@ -128,21 +244,27 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				disable_pressure = true
 				allow_junk = false
 			1:
-				props = _scale_props(focus, 0.7)
+				props = _scale_props(focus, 0.7 * ch_prop_m)
 				time_lim = base_time + 6.0
 				subtitle = "Alıştırma · %s" % TIER_LABELS[tier]
 				intro = "Aynı mekaniği biraz daha yoğun tekrarla."
 				hint = String(ch.get("hint_filler", ch.get("tutorial", "")))
 				commission_desc = intro
 			2:
-				props = _merge_props(_scale_props(focus, 0.75), _scale_props(filler, 0.85))
+				props = _merge_props(
+					_scale_props(focus, 0.75 * ch_prop_m),
+					_scale_props(filler, 0.85 * ch_prop_m)
+				)
 				time_lim = base_time
 				subtitle = "Karışık pratik"
 				intro = "Önceki kirler de karışıyor — tempo tut."
 				hint = String(ch.get("hint_mixed", "Öncelik tut · alet değiştir"))
 				commission_desc = intro
 			3:
-				props = _merge_props(_scale_props(focus, 1.0), _scale_props(filler, 1.0))
+				props = _merge_props(
+					_scale_props(focus, 1.0 * ch_prop_m),
+					_scale_props(filler, 1.0 * ch_prop_m)
+				)
 				time_lim = maxf(28.0, base_time - 6.0)
 				subtitle = "Zorluk artıyor"
 				intro = String(ch.get("challenge_intro", "Daha sıkı süre · daha çok kir."))
@@ -153,7 +275,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 					rule_param = time_lim
 				commission_desc = String(ch.get("challenge_desc", intro))
 			4:
-				props = _scale_props(climax, 1.0)
+				props = _scale_props(climax, 1.0 * ch_prop_m)
 				time_lim = maxf(30.0, base_time - 4.0)
 				subtitle = String(ch.get("climax_subtitle", "Bölüm doruğu"))
 				intro = String(ch.get("climax_intro", ch.get("intro", "Doruk turu.")))
@@ -194,6 +316,9 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 			"double_dash": bool(ch.get("double_dash", false)) and tier >= int(ch.get("dash_from_tier", 2)),
 			"chapter": chapter_num,
 			"tier": tier,
+			"chapter_prop_mult": ch_prop_m,
+			"box_stack_min": stack_range.x,
+			"box_stack_max": stack_range.y,
 			"commission": _commission(npc, icon, commission_title, commission_desc, rule, rule_param),
 			"props": props,
 		}
@@ -242,6 +367,10 @@ static func _all() -> Array[Dictionary]:
 
 
 static func _chapter_defs() -> Array[Dictionary]:
+	## İsteğe bağlı override anahtarları (herhangi bir chapter dict'te):
+	##   prop_growth: float     — CHAPTER_PROP_GROWTH yerine (örn. 0.12)
+	##   prop_mult: float       — mutlak çarpan (prop_growth yok sayılır)
+	##   box_stack_min/max: int — kutu yığını yüksekliği
 	return [
 		{
 			"id": "liquids",
@@ -332,7 +461,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"title": "Süpürge",
 			"npc": "Hayalet Ev Sahibi",
 			"icon": "👻",
-			"new_mechanic": "süpürge emme (Luigi)",
+			"new_mechanic": "süpürge emme (sektör)",
 			"floor": Color(0.28, 0.2, 0.14),
 			"wall": Color(0.36, 0.28, 0.2),
 			"wall_style": "peach",
@@ -344,10 +473,10 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"hazards_from_tier": 2,
 			"micro_from_tier": 1,
 			"pressure_from_tier": 2,
-			"tutorial": "2=Süpürge · basılı tut em · torba dolunca çöpe boşalt",
-			"hint_intro": "Süpürge: doğrult, basılı tut, em! Torba 3/3 → çöp",
-			"hint_filler": "Toz + küf em · alet değiştir (1/2)",
-			"hint_mixed": "TV tamir + süpürge emme",
+			"tutorial": "2=Süpürge · Space basılı tut = mavi sektör · içindeki tozu çek",
+			"hint_intro": "Süpürge: mavi alan içindeki tozlar uçar! Torba 3/3 → çöp",
+			"hint_filler": "Sektördeki her şeyi em · alet değiştir (1/2)",
+			"hint_mixed": "TV tamir + süpürge sektörü",
 			"intro_sections_desc": "Üç kısa ders: em → torba doldur/boşalt → karışık toz.",
 			"intro_sections": [
 				{
@@ -355,8 +484,8 @@ static func _chapter_defs() -> Array[Dictionary]:
 					"title": "Bölüm 1 · Em",
 					"banner": "SÜPÜRGEYLE EM",
 					"subtitle": "2 = Süpürge · Space basılı tut",
-					"hint": "2 tuşu · toza doğrult · Space BASILI TUT → em",
-					"card_desc": "Süpürgeyi seç (2). Toza / kırıntıya bakıp Space'e basılı tut — Luigi gibi emer.",
+					"hint": "2 tuşu · Space BASILI TUT → mavi sektör açılır, tozlar uçar",
+					"card_desc": "Süpürge (2) + Space basılı tut. Yerde mavi alan açılır — içindeki toz/kırıntı/küf aynı anda çekilir.",
 					"banner_color": Color(0.45, 0.85, 1.0),
 					"enable_micro": false,
 					"enable_pressure": false,

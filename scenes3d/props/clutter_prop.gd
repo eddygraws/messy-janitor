@@ -252,36 +252,37 @@ func is_vacuum_target_for(tool_name: String) -> bool:
 	return required_tool.is_empty() or required_tool == "broom"
 
 
-## Luigi emme: nozzle'a çek, küçült, yeterince yakın+ilerlemede yakala.
-## true = emildi / yok edildi.
+## Emme: nozzle'a çek + hafif spiral, küçült, yakala.
 func apply_vacuum_suck(delta: float, nozzle_world: Vector3, pull_speed: float = 5.2) -> bool:
 	if not is_vacuumable():
 		return false
 	if not _vacuuming:
 		_vacuuming = true
 		_kill_idle()
-		_disable_collisions()  # karaktere çarpıp hit animi tetiklemesin
-	var flat := nozzle_world - global_position
-	flat.y = 0.0
+		_disable_collisions()
+	var to_noz := nozzle_world - global_position
+	var flat := Vector3(to_noz.x, 0.0, to_noz.z)
 	var dist := flat.length()
 	var resist := maxf(vacuum_resist, 0.35)
-	var pull := pull_speed * (0.65 + _vacuum_progress * 1.1) / resist
-	if dist > 0.12:
-		global_position += flat.normalized() * pull * delta
-	# Hafif yükselt + sallan
-	var lift := lerpf(0.05, 0.55, _vacuum_progress)
-	global_position.y = lerpf(global_position.y, lift, clampf(6.0 * delta, 0.0, 1.0))
-	var gain := delta * (1.55 if dist < 1.35 else 0.7) / resist
+	var pull := pull_speed * (0.7 + _vacuum_progress * 1.25) / resist
+	if dist > 0.1:
+		var dir := flat / dist
+		# Spiral — ZZZ magnet hissi
+		var side := Vector3(-dir.z, 0.0, dir.x)
+		var swirl := side * sin(_vacuum_progress * TAU * 1.5) * (0.55 * (1.0 - _vacuum_progress))
+		global_position += (dir * pull + swirl * pull * 0.45) * delta
+	var lift := lerpf(0.08, 0.7, _vacuum_progress)
+	global_position.y = lerpf(global_position.y, lift, clampf(7.0 * delta, 0.0, 1.0))
+	var gain := delta * (1.75 if dist < 1.5 else 0.85) / resist
 	_vacuum_progress = clampf(_vacuum_progress + gain, 0.0, 1.0)
-	_vacuum_spin += delta * (6.0 + _vacuum_progress * 14.0)
+	_vacuum_spin += delta * (8.0 + _vacuum_progress * 18.0)
 	if _anim_root != null:
 		_anim_root.rotation.y = _base_rot.y + _vacuum_spin
-		_anim_root.rotation.x = _base_rot.x + sin(_vacuum_spin * 2.2) * 0.25 * _vacuum_progress
-		_anim_root.rotation.z = _base_rot.z + cos(_vacuum_spin * 1.7) * 0.2 * _vacuum_progress
-	var s := lerpf(1.0, 0.18, _vacuum_progress * _vacuum_progress)
+		_anim_root.rotation.x = _base_rot.x + sin(_vacuum_spin * 2.4) * 0.35 * _vacuum_progress
+		_anim_root.rotation.z = _base_rot.z + cos(_vacuum_spin * 1.9) * 0.28 * _vacuum_progress
+	var s := lerpf(1.0, 0.12, _vacuum_progress * _vacuum_progress)
 	scale = _scrub_base_scale * s
-	# Yakın + neredeyse doldu → içeri çek
-	if dist < 0.7 and _vacuum_progress >= 0.88:
+	if dist < 0.75 and _vacuum_progress >= 0.82:
 		_capture_by_vacuum()
 		return true
 	return false

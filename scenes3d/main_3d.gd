@@ -17,7 +17,7 @@ var _objective_label: Label
 var _level_label: Label
 var _phase_hud: Label
 var _menu: Control
-var _level_grid: GridContainer
+var _world_map: WorldMapSelect3D
 var _particles: ComedyParticles
 var _tempo: TempoPhaseDirector
 var _micro: MicroTaskDirector
@@ -44,6 +44,9 @@ var _diff_btn: Button
 var _difficulty: int = DifficultyProfile3D.Tier.NORMAL
 var _score: ScoreTracker3D
 var _score_label: Label
+var _wallet: Wallet3D
+var _coin_label: Label
+var _menu_coin_label: Label
 var _result_ui: RunResultUI
 var _fail_overlay: Control
 var _tool_bar: HBoxContainer
@@ -58,6 +61,7 @@ var _game_paused: bool = false
 var _pause_overlay: Control
 var _paused_room_timer: bool = false
 var _save_path := "user://messy3d_progress_v2.cfg"
+var _pending_wallet_coins: int = -1
 var _arcade_void_mat: ShaderMaterial
 var _arcade_void: MeshInstance3D
 var _section_hint: String = ""
@@ -229,6 +233,15 @@ func _setup_tempo_and_tasks() -> void:
 	_score.name = "ScoreTracker3D"
 	add_child(_score)
 	_score.score_changed.connect(_on_score_changed)
+	_score.run_coins_changed.connect(_on_run_coins_changed)
+
+	_wallet = Wallet3D.new()
+	_wallet.name = "Wallet3D"
+	add_child(_wallet)
+	_wallet.balance_changed.connect(_on_wallet_changed)
+	if _pending_wallet_coins >= 0:
+		_wallet.set_balance(_pending_wallet_coins)
+		_pending_wallet_coins = -1
 
 	_result_ui = RunResultUI.new()
 	_result_ui.name = "RunResultUI"
@@ -353,6 +366,7 @@ func start_level(index: int, daily: bool = false) -> void:
 
 	var spec: Dictionary = {}
 	if _spawner != null:
+		_spawner.prop_difficulty_mult = DifficultyProfile3D.prop_count_mult(_difficulty)
 		spec = _spawner.load_level(_level_index)
 	_apply_theme(spec)
 	var mop_ok := bool(spec.get("allow_mop", true))
@@ -499,6 +513,8 @@ func start_level(index: int, daily: bool = false) -> void:
 	if _score != null:
 		_score.begin_level()
 		_on_score_changed(0)
+		_on_run_coins_changed(0)
+	_spawn_level_bonus_coins(spec, is_tutorial)
 	if is_boss:
 		_flash_boss_intro(String(spec.get("boss_title", "SET-PIECE")))
 	if _daily_mode and _hint != null:
@@ -862,7 +878,7 @@ func _clear_stop_vignette() -> void:
 		_banner.set_vignette_heat(0.0)
 
 
-func _on_task_succeeded(_task_type: String) -> void:
+func _on_task_succeeded(_task_type: String, star_units: int = 1) -> void:
 	_clear_stop_vignette()
 	if _banner != null:
 		_banner.hide_task(true)
@@ -874,6 +890,7 @@ func _on_task_succeeded(_task_type: String) -> void:
 	var combo_n := _combo.get_combo() if _combo else 0
 	if _score != null:
 		_score.on_task_ok(combo_n)
+		_score.on_star_task(star_units)
 	if _stress != null:
 		_stress.reduce_stress(task_success_relief)
 	if _music != null:
@@ -883,6 +900,8 @@ func _on_task_succeeded(_task_type: String) -> void:
 	if _camera_rig != null:
 		_camera_rig.shake(0.55)
 	_spawn_pop("+%d" % (80 + mini(combo_n, 8) * 12), Color(0.55, 1.0, 0.7), 72)
+	if star_units >= 2:
+		_spawn_pop("+%d🪙" % maxi(0, star_units - 1), Color(1.0, 0.85, 0.35), 56)
 	if _hint != null:
 		_hint.text = "Emir tamam! ★  combo x%d" % combo_n
 
@@ -993,6 +1012,71 @@ func _on_score_changed(score: int) -> void:
 		_score_label.text = "SKOR: %d" % score
 		if _daily_mode:
 			_score_label.text = "📅 SKOR: %d" % score
+
+
+func _on_run_coins_changed(run_coins: int) -> void:
+	_refresh_coin_hud(run_coins)
+
+
+func _on_wallet_changed(_balance: int) -> void:
+	_refresh_coin_hud(-1)
+	if _menu_coin_label != null:
+		_menu_coin_label.text = "🪙 %d" % (_wallet.get_balance() if _wallet != null else 0)
+
+
+func _refresh_coin_hud(run_override: int = -1) -> void:
+	if _coin_label == null:
+		return
+	var total := _wallet.get_balance() if _wallet != null else 0
+	var run_c := run_override
+	if run_c < 0 and _score != null:
+		run_c = _score.get_run_bonus_coins()
+	if run_c > 0:
+		_coin_label.text = "🪙 %d  (+%d bu tur)" % [total, run_c]
+	else:
+		_coin_label.text = "🪙 %d" % total
+
+
+func _clear_bonus_coins() -> void:
+	for n in get_tree().get_nodes_in_group("CoinPickup"):
+		if is_instance_valid(n):
+			n.queue_free()
+
+
+func _spawn_level_bonus_coins(spec: Dictionary, is_tutorial: bool) -> void:
+	_clear_bonus_coins()
+	if _spawner == null:
+		return
+	# İlk garaj tutorial bölümlerinde yok; abur cubur tutorial ve normal seviyelerde var
+	if is_tutorial and _spawner.has_sections():
+		return
+	if bool(spec.get("disable_coins", false)):
+		return
+	var count := int(spec.get("bonus_coins", -1))
+	if count < 0:
+		count = 2 + mini(2, int(_level_index / 12))
+		if bool(spec.get("allow_junk", false)) and is_tutorial:
+			count = 3
+	var world := $World as Node3D
+	var spawned := _spawner.spawn_bonus_coins(count, world)
+	for n in get_tree().get_nodes_in_group("CoinPickup"):
+		var coin := n as CoinPickup3D
+		if coin != null and not coin.collected.is_connected(_on_coin_collected):
+			coin.collected.connect(_on_coin_collected)
+	if spawned > 0 and _hint != null and not is_tutorial:
+		# Sticky değil — sadece bilgi
+		pass
+
+
+func _on_coin_collected(amount: int, world_pos: Vector3) -> void:
+	if _score != null:
+		_score.on_coin_pickup(amount)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.DISPOSE, 1.35)
+	_spawn_pop("+%d🪙" % amount, Color(1.0, 0.85, 0.3), 64)
+	if _particles != null:
+		_particles.burst(&"clean", world_pos + Vector3(0, 0.5, 0), 0.9)
+	if _camera_rig != null:
+		_camera_rig.shake(0.2)
 
 
 func _on_combo_milestone(combo: int) -> void:
@@ -1273,6 +1357,10 @@ func _on_level_cleared() -> void:
 	var result: Dictionary = {}
 	if _score != null:
 		result = _score.finalize(stress_r, _daily_mode, _level_index)
+	var earned := int(result.get("coins_earned", 0))
+	if _wallet != null and earned > 0:
+		_wallet.add(earned)
+		_save_progress()
 	var compare := DailyChallenge3D.save_result(_level_index, int(result.get("score", 0)), _daily_mode)
 
 	var next := _level_index + 1
@@ -1294,6 +1382,7 @@ func _on_level_cleared() -> void:
 		_combo.reset()
 
 	if _result_ui != null:
+		result["wallet_total"] = _wallet.get_balance() if _wallet != null else 0
 		_result_ui.present(result, compare, _daily_mode)
 		if _particles != null and _player != null:
 			_particles.burst(&"clean", _player.global_position + Vector3(0, 1.2, 0), 1.4)
@@ -1554,6 +1643,20 @@ func _setup_hud() -> void:
 	_score_label.visible = false
 	ui.add_child(_score_label)
 
+	_coin_label = Label.new()
+	_coin_label.offset_left = 24.0
+	_coin_label.offset_top = 228.0
+	_coin_label.offset_right = 360.0
+	_coin_label.offset_bottom = 256.0
+	_coin_label.add_theme_font_size_override("font_size", 18)
+	_coin_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.4))
+	_coin_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
+	_coin_label.add_theme_constant_override("outline_size", 6)
+	_coin_label.text = "🪙 0"
+	_coin_label.visible = false
+	ui.add_child(_coin_label)
+	_refresh_coin_hud()
+
 
 func _setup_menu() -> void:
 	_menu = Control.new()
@@ -1577,13 +1680,25 @@ func _setup_menu() -> void:
 	title.add_theme_color_override("font_color", Color(0.95, 0.88, 0.55))
 	_menu.add_child(title)
 
+	_menu_coin_label = Label.new()
+	_menu_coin_label.name = "MenuCoinLabel"
+	_menu_coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_menu_coin_label.anchor_right = 1.0
+	_menu_coin_label.offset_top = 108.0
+	_menu_coin_label.offset_bottom = 138.0
+	_menu_coin_label.add_theme_font_size_override("font_size", 26)
+	_menu_coin_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+	_menu_coin_label.text = "🪙 0"
+	_menu.add_child(_menu_coin_label)
+
 	var sub := Label.new()
-	sub.text = "2D level design → komedi fizik  ·  10 seviye"
+	sub.text = "WASD harita  ·  A/D seviye · W/S dünya · Space gir"
+
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.anchor_right = 1.0
-	sub.offset_top = 110.0
-	sub.offset_bottom = 150.0
-	sub.add_theme_font_size_override("font_size", 20)
+	sub.offset_top = 138.0
+	sub.offset_bottom = 168.0
+	sub.add_theme_font_size_override("font_size", 18)
 	sub.add_theme_color_override("font_color", Color(0.7, 0.85, 0.95))
 	_menu.add_child(sub)
 
@@ -1593,8 +1708,8 @@ func _setup_menu() -> void:
 	_hard_mode_btn.anchor_right = 0.5
 	_hard_mode_btn.offset_left = -200.0
 	_hard_mode_btn.offset_right = 200.0
-	_hard_mode_btn.offset_top = 152.0
-	_hard_mode_btn.offset_bottom = 196.0
+	_hard_mode_btn.offset_top = 168.0
+	_hard_mode_btn.offset_bottom = 204.0
 	_hard_mode_btn.pressed.connect(_toggle_hard_mode)
 	_menu.add_child(_hard_mode_btn)
 	_update_hard_mode_btn()
@@ -1605,8 +1720,8 @@ func _setup_menu() -> void:
 	_diff_btn.anchor_right = 0.5
 	_diff_btn.offset_left = -200.0
 	_diff_btn.offset_right = 200.0
-	_diff_btn.offset_top = 202.0
-	_diff_btn.offset_bottom = 242.0
+	_diff_btn.offset_top = 210.0
+	_diff_btn.offset_bottom = 246.0
 	_diff_btn.pressed.connect(_cycle_difficulty)
 	_menu.add_child(_diff_btn)
 	_update_diff_btn()
@@ -1617,8 +1732,8 @@ func _setup_menu() -> void:
 	daily_btn.anchor_right = 0.5
 	daily_btn.offset_left = -200.0
 	daily_btn.offset_right = 200.0
-	daily_btn.offset_top = 248.0
-	daily_btn.offset_bottom = 292.0
+	daily_btn.offset_top = 252.0
+	daily_btn.offset_bottom = 288.0
 	var d_lv := DailyChallenge3D.todays_level_index(LevelData3D.level_count())
 	daily_btn.text = "📅 %s" % DailyChallenge3D.challenge_title(d_lv)
 	daily_btn.modulate = Color(1.0, 0.8, 0.45)
@@ -1629,50 +1744,34 @@ func _setup_menu() -> void:
 	curse_info.name = "MenuCurseInfo"
 	curse_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	curse_info.anchor_right = 1.0
-	curse_info.offset_top = 298.0
-	curse_info.offset_bottom = 340.0
-	curse_info.add_theme_font_size_override("font_size", 15)
+	curse_info.offset_top = 292.0
+	curse_info.offset_bottom = 324.0
+	curse_info.add_theme_font_size_override("font_size", 14)
 	curse_info.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5))
 	curse_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_menu.add_child(curse_info)
 	_refresh_menu_curse_info(curse_info)
 
-	var scroll := ScrollContainer.new()
-	scroll.anchor_left = 0.5
-	scroll.anchor_right = 0.5
-	scroll.anchor_top = 0.5
-	scroll.anchor_bottom = 0.5
-	scroll.offset_left = -420.0
-	scroll.offset_right = 420.0
-	scroll.offset_top = -40.0
-	scroll.offset_bottom = 290.0
-	_menu.add_child(scroll)
-
-	_level_grid = GridContainer.new()
-	_level_grid.columns = 3
-	_level_grid.add_theme_constant_override("h_separation", 10)
-	_level_grid.add_theme_constant_override("v_separation", 8)
-	scroll.add_child(_level_grid)
-	_rebuild_level_buttons()
+	# NSMB tarzı dünya haritası — alt alanı doldurur
+	_world_map = WorldMapSelect3D.new()
+	_world_map.name = "WorldMapSelect3D"
+	_world_map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_world_map.offset_top = 328.0
+	_world_map.offset_bottom = -8.0
+	_world_map.offset_left = 12.0
+	_world_map.offset_right = -12.0
+	_menu.add_child(_world_map)
+	_world_map.level_chosen.connect(func(idx: int) -> void: start_level(idx))
+	_world_map.setup(_highest_unlocked, clampi(_highest_unlocked - 1, 0, LevelData3D.level_count() - 1))
 
 
 func _rebuild_level_buttons() -> void:
-	for c in _level_grid.get_children():
-		c.queue_free()
-	for i in LevelData3D.level_count():
-		var info: Dictionary = LevelData3D.get_level(i)
-		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(260, 64)
-		btn.focus_mode = Control.FOCUS_NONE
-		var unlocked := (i + 1) <= _highest_unlocked
-		btn.disabled = not unlocked
-		if unlocked:
-			btn.text = "%s\n%s" % [String(info.get("name", "")), String(info.get("subtitle", ""))]
-			var idx := i
-			btn.pressed.connect(func() -> void: start_level(idx))
-		else:
-			btn.text = "🔒  %s" % String(info.get("name", ""))
-		_level_grid.add_child(btn)
+	if _world_map == null:
+		return
+	_world_map.setup(
+		_highest_unlocked,
+		clampi(_highest_unlocked - 1, 0, LevelData3D.level_count() - 1)
+	)
 
 
 func _show_menu(open: bool) -> void:
@@ -1681,6 +1780,9 @@ func _show_menu(open: bool) -> void:
 	if open:
 		_level_failing = false
 		_hide_fail_overlay()
+		_clear_bonus_coins()
+		if _score != null:
+			_score.stop()
 		if _room_timer != null:
 			_room_timer.stop()
 		_set_time_label_visible(false)
@@ -1707,12 +1809,23 @@ func _show_menu(open: bool) -> void:
 			_camera_rig.set_finale_zoom(false)
 		if _player != null and _player.has_method("_release_vacuum"):
 			_player.call("_release_vacuum")
+	_set_run_hud_visible(not open)
 	if _menu != null:
 		_menu.visible = open
 		if open:
 			_rebuild_level_buttons()
+			_on_wallet_changed(_wallet.get_balance() if _wallet != null else 0)
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _set_run_hud_visible(show: bool) -> void:
+	if _score_label != null:
+		_score_label.visible = show
+	if _coin_label != null:
+		_coin_label.visible = show
+	if show:
+		_refresh_coin_hud()
 
 
 func _refresh_hint() -> void:
@@ -2132,12 +2245,24 @@ func _pause_quit_to_menu() -> void:
 
 
 func _load_progress() -> void:
-	# Tüm seviyeler açık (dev / test)
+	# Tüm seviyeler açık (dev / test) — coin cüzdanı yine kalıcı
 	_highest_unlocked = LevelData3D.level_count()
-	_save_progress()
+	var cfg := ConfigFile.new()
+	if cfg.load(_save_path) == OK:
+		_pending_wallet_coins = maxi(0, int(cfg.get_value("wallet", "coins", 0)))
+	if _wallet != null and _pending_wallet_coins >= 0:
+		_wallet.set_balance(_pending_wallet_coins)
+		_pending_wallet_coins = -1
 
 
 func _save_progress() -> void:
 	var cfg := ConfigFile.new()
+	cfg.load(_save_path)  # mevcut anahtarları koru
 	cfg.set_value("progress", "unlocked", _highest_unlocked)
+	var coins := 0
+	if _wallet != null:
+		coins = _wallet.get_balance()
+	elif _pending_wallet_coins >= 0:
+		coins = _pending_wallet_coins
+	cfg.set_value("wallet", "coins", coins)
 	cfg.save(_save_path)
