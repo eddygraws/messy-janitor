@@ -163,8 +163,21 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 		elif db > 0:
 			lines.append("📅 Günlük en iyi: %d" % db)
 
-	if coins_earned > 0 or wallet_total > 0:
+	# Coin her zaman görünsün (geçiş ekranında da net)
+	if coins_earned > 0:
 		lines.append("🪙 +%d coin  →  cüzdan: %d" % [coins_earned, wallet_total])
+	else:
+		lines.append("🪙 Cüzdan: %d" % wallet_total)
+	var lives_n := int(result.get("lives", -1))
+	var life_prog := int(result.get("life_coin_progress", -1))
+	if lives_n >= 0:
+		var extra := ""
+		if int(result.get("lives_from_coins", 0)) > 0:
+			extra = "  (+%d can coin'den)" % int(result.get("lives_from_coins", 0))
+		if life_prog >= 0:
+			lines.append("❤️ can: %d  ·  %d/100%s" % [lives_n, life_prog, extra])
+		else:
+			lines.append("❤️ can: %d%s" % [lives_n, extra])
 
 	_compare.text = "\n".join(lines)
 	_detail.text = "Combo x%d  ·  Temizlik %d  ·  Hata %d  ·  %.0fs" % [
@@ -173,7 +186,7 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 		int(result.get("mistakes", 0)),
 		float(result.get("elapsed", 0.0)),
 	]
-	_btn.text = "Menü" if daily else "Devam"
+	_btn.text = "Menü" if daily else "Devam → Harita"
 
 	PrototypeSfx.play(_sfx, PrototypeSfx.Kind.TASK_OK, 1.15)
 	if is_new_best:

@@ -254,6 +254,19 @@ func spawn_bonus_coins(count: int = 3, parent_override: Node3D = null) -> int:
 	return spawned
 
 
+## Nadir can pickup — şans dışarıdan verilir (0/1).
+func spawn_heart_pickup(parent_override: Node3D = null) -> bool:
+	var HeartScript := preload("res://scenes3d/props/heart_pickup.gd")
+	var parent: Node3D = parent_override if parent_override != null else self
+	var pos := _free_pos(0.9)
+	_commit_placed(pos, 0.9)
+	var heart: HeartPickup3D = HeartScript.new()
+	heart.name = "HeartPickup"
+	heart.position = pos
+	parent.add_child(heart)
+	return true
+
+
 func _clear_children() -> void:
 	for c in get_children():
 		c.queue_free()

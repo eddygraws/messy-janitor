@@ -6,6 +6,7 @@ extends Node3D
 
 signal level_chosen(level_index: int)
 signal world_changed(world_slot: int)
+signal advance_finished(level_index: int)
 
 const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
 
@@ -23,6 +24,8 @@ var _node_roots: Array[Node3D] = []
 var _node_pos: Array[Vector3] = []
 var _active: bool = false
 var _palette: Dictionary = {}
+var _auto_advancing: bool = false
+var _wallet_coins: int = 0
 
 var _ground: MeshInstance3D
 var _ground_mat: StandardMaterial3D
@@ -37,6 +40,7 @@ var _cam_env: Environment
 var _sun: DirectionalLight3D
 var _hud: CanvasLayer
 var _world_label: Label
+var _coin_hud: Label
 var _info: Label
 var _hint: Label
 var _play_btn: Button
@@ -73,12 +77,103 @@ func set_active(on: bool) -> void:
 	if _camera != null:
 		_camera.current = on
 	if on:
-		_snap_pawn(false)
+		if not _auto_advancing:
+			_snap_pawn(false)
 		_refresh_node_visuals()
 		_refresh_labels()
+		_refresh_coin_hud()
 		_update_camera()
 	elif _game_camera != null:
 		_game_camera.current = true
+
+
+func set_wallet_coins(amount: int) -> void:
+	_wallet_coins = maxi(0, amount)
+	_refresh_coin_hud()
+
+
+## Seviye / bölüm sonrası: karakter cleared → next node'a yürür, bitince sinyal.
+func play_advance(from_level: int, to_level: int, highest_unlocked: int) -> void:
+	_auto_advancing = true
+	_highest_unlocked = maxi(1, highest_unlocked)
+	_set_nav_controls_enabled(false)
+	if _hint != null:
+		_hint.text = "Sonraki seviyeye geçiliyor…"
+	if _play_btn != null:
+		_play_btn.disabled = true
+		_play_btn.text = "Geçiş…"
+
+	var from_world := LevelData3D.world_slot_for_level(from_level)
+	var to_world := LevelData3D.world_slot_for_level(to_level)
+
+	_load_world(from_world, from_level)
+	_snap_pawn(false)
+	_refresh_coin_hud()
+	await get_tree().process_frame
+	await get_tree().create_timer(0.25).timeout
+
+	if from_world == to_world:
+		var to_idx := _index_in_levels(to_level)
+		if to_idx >= 0:
+			_cursor = to_idx
+			_refresh_node_visuals()
+			_update_info()
+			await _walk_pawn_to_cursor_async(true)
+	else:
+		# Bölüm sonu: son node'a yürü → yeni dünya → ilk hedefe yürü
+		var last_idx := _levels.size() - 1
+		if last_idx > _cursor:
+			_cursor = last_idx
+			_refresh_node_visuals()
+			_update_info()
+			await _walk_pawn_to_cursor_async(true)
+		await get_tree().create_timer(0.2).timeout
+		_load_world(to_world, to_level)
+		_snap_pawn(false)
+		_play_world_switch_bounce(1)
+		if _bounce_tween != null and _bounce_tween.is_valid():
+			await _bounce_tween.finished
+		var to_idx2 := _index_in_levels(to_level)
+		if to_idx2 >= 0 and to_idx2 != _cursor:
+			_cursor = to_idx2
+			_refresh_node_visuals()
+			_update_info()
+			await _walk_pawn_to_cursor_async(true)
+
+	await get_tree().create_timer(0.35).timeout
+	_auto_advancing = false
+	_set_nav_controls_enabled(true)
+	if _play_btn != null:
+		_play_btn.text = "Gir  ·  Space"
+		_update_play_enabled()
+	if _hint != null:
+		_hint.text = "Q/E seviye  ·  W/S dünya  ·  Space gir"
+	advance_finished.emit(to_level)
+
+
+func _index_in_levels(level_index: int) -> int:
+	for i in _levels.size():
+		if _levels[i] == level_index:
+			return i
+	return -1
+
+
+func _set_nav_controls_enabled(on: bool) -> void:
+	if _prev_btn != null:
+		_prev_btn.disabled = not on or _world_slot <= 0
+	if _next_btn != null:
+		_next_btn.disabled = not on or _world_slot >= LevelData3D.world_count() - 1
+	if _play_btn != null:
+		if on:
+			_update_play_enabled()
+		else:
+			_play_btn.disabled = true
+
+
+func _refresh_coin_hud() -> void:
+	if _coin_hud == null:
+		return
+	_coin_hud.text = "🪙 %d" % _wallet_coins
 
 
 func is_map_active() -> bool:
@@ -196,20 +291,33 @@ func _build_hud() -> void:
 	_world_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_world_label.anchor_right = 1.0
 	_world_label.offset_top = 258.0
-	_world_label.offset_bottom = 300.0
+	_world_label.offset_bottom = 292.0
 	_world_label.add_theme_font_size_override("font_size", 28)
 	_world_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
 	_world_label.add_theme_color_override("font_outline_color", Color(0.08, 0.1, 0.08, 0.95))
 	_world_label.add_theme_constant_override("outline_size", 8)
 	_hud.add_child(_world_label)
 
+	_coin_hud = Label.new()
+	_coin_hud.name = "MapCoinHud"
+	_coin_hud.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_coin_hud.anchor_right = 1.0
+	_coin_hud.offset_top = 292.0
+	_coin_hud.offset_bottom = 322.0
+	_coin_hud.add_theme_font_size_override("font_size", 26)
+	_coin_hud.add_theme_color_override("font_color", Color(1.0, 0.88, 0.35))
+	_coin_hud.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_coin_hud.add_theme_constant_override("outline_size", 7)
+	_coin_hud.text = "🪙 0"
+	_hud.add_child(_coin_hud)
+
 	_prev_btn = Button.new()
 	_prev_btn.text = "◀ Dünya"
 	_prev_btn.focus_mode = Control.FOCUS_NONE
 	_prev_btn.offset_left = 24.0
-	_prev_btn.offset_top = 262.0
+	_prev_btn.offset_top = 286.0
 	_prev_btn.offset_right = 140.0
-	_prev_btn.offset_bottom = 298.0
+	_prev_btn.offset_bottom = 322.0
 	_prev_btn.pressed.connect(func() -> void: _shift_world(-1))
 	_hud.add_child(_prev_btn)
 
@@ -220,8 +328,8 @@ func _build_hud() -> void:
 	_next_btn.anchor_right = 1.0
 	_next_btn.offset_left = -140.0
 	_next_btn.offset_right = -24.0
-	_next_btn.offset_top = 262.0
-	_next_btn.offset_bottom = 298.0
+	_next_btn.offset_top = 286.0
+	_next_btn.offset_bottom = 322.0
 	_next_btn.pressed.connect(func() -> void: _shift_world(1))
 	_hud.add_child(_next_btn)
 
@@ -278,7 +386,7 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not _active:
+	if not _active or _auto_advancing:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key: Key = event.physical_keycode
@@ -308,6 +416,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _shift_world(dir: int) -> void:
+	if _auto_advancing:
+		return
 	var max_w := LevelData3D.world_count() - 1
 	var next := _world_slot + dir
 	if next < 0 or next > max_w:
@@ -517,11 +627,15 @@ func _refresh_labels() -> void:
 		var ac: Color = _palette.get("accent", Color(1.0, 0.92, 0.45))
 		_world_label.add_theme_color_override("font_color", ac)
 	_update_info()
-	_update_play_enabled()
-	if _prev_btn != null:
-		_prev_btn.disabled = _world_slot <= 0
-	if _next_btn != null:
-		_next_btn.disabled = _world_slot >= LevelData3D.world_count() - 1
+	if _auto_advancing:
+		_set_nav_controls_enabled(false)
+	else:
+		_update_play_enabled()
+		if _prev_btn != null:
+			_prev_btn.disabled = _world_slot <= 0
+		if _next_btn != null:
+			_next_btn.disabled = _world_slot >= LevelData3D.world_count() - 1
+	_refresh_coin_hud()
 
 
 func _current_level_index() -> int:
@@ -559,7 +673,7 @@ func _update_play_enabled() -> void:
 
 
 func _move_cursor(dir: int) -> void:
-	if _levels.is_empty():
+	if _auto_advancing or _levels.is_empty():
 		return
 	var next := _cursor + dir
 	if next < 0 or next >= _levels.size():
@@ -581,6 +695,14 @@ func _pawn_stand_pos(idx: int) -> Vector3:
 		return Vector3.ZERO
 	var p: Vector3 = _node_pos[idx]
 	return Vector3(p.x, 0.0, p.z)
+
+
+func _walk_pawn_to_cursor_async(animate: bool) -> void:
+	_walk_pawn_to_cursor(animate)
+	if not animate:
+		return
+	if _move_tween != null and _move_tween.is_valid():
+		await _move_tween.finished
 
 
 func _walk_pawn_to_cursor(animate: bool) -> void:
@@ -673,7 +795,7 @@ func _play_world_switch_bounce(dir: int = 1) -> void:
 
 
 func _try_enter_level() -> void:
-	if not _active:
+	if not _active or _auto_advancing:
 		return
 	var li := _current_level_index()
 	if li < 0:

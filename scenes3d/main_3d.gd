@@ -45,8 +45,11 @@ var _difficulty: int = DifficultyProfile3D.Tier.NORMAL
 var _score: ScoreTracker3D
 var _score_label: Label
 var _wallet: Wallet3D
+var _lives: Lives3D
 var _coin_label: Label
+var _lives_label: Label
 var _menu_coin_label: Label
+var _menu_lives_label: Label
 var _result_ui: RunResultUI
 var _fail_overlay: Control
 var _tool_bar: HBoxContainer
@@ -56,12 +59,15 @@ var _pending_next_level: int = -1
 var _level_index: int = 0
 var _highest_unlocked: int = 1
 var _menu_open: bool = false
+var _map_advancing: bool = false
 var _level_failing: bool = false
 var _game_paused: bool = false
 var _pause_overlay: Control
 var _paused_room_timer: bool = false
 var _save_path := "user://messy3d_progress_v2.cfg"
 var _pending_wallet_coins: int = -1
+var _pending_lives: int = -1
+var _pending_life_coin_progress: int = -1
 var _arcade_void_mat: ShaderMaterial
 var _arcade_void: MeshInstance3D
 var _section_hint: String = ""
@@ -243,6 +249,17 @@ func _setup_tempo_and_tasks() -> void:
 		_wallet.set_balance(_pending_wallet_coins)
 		_pending_wallet_coins = -1
 
+	_lives = Lives3D.new()
+	_lives.name = "Lives3D"
+	add_child(_lives)
+	_lives.lives_changed.connect(_on_lives_changed)
+	_lives.life_gained.connect(_on_life_gained)
+	_lives.coin_progress_changed.connect(func(_p: int, _n: int) -> void: _refresh_lives_hud())
+	if _pending_lives >= 0:
+		_lives.set_state(_pending_lives, maxi(0, _pending_life_coin_progress))
+		_pending_lives = -1
+		_pending_life_coin_progress = -1
+
 	_result_ui = RunResultUI.new()
 	_result_ui.name = "RunResultUI"
 	$UI.add_child(_result_ui)
@@ -328,6 +345,20 @@ func _spawn_pop(text: String, color: Color = Color(1.0, 0.92, 0.45), font_px: in
 
 
 func start_level(index: int, daily: bool = false) -> void:
+	if _map_advancing:
+		return
+	if _lives != null and not _lives.has_lives():
+		# Softlock önleme: 100 coin = 1 can (cüzdandan)
+		if _wallet != null and _wallet.spend(Lives3D.COINS_PER_LIFE):
+			_lives.add_life(&"buy")
+			_save_progress()
+			_spawn_pop("❤️ 100 coin → can", Color(1.0, 0.45, 0.55), 64)
+		else:
+			_show_menu(true)
+			if _menu_lives_label != null:
+				_menu_lives_label.text = "🖤 Can yok · 100 coin lazım"
+			PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.1)
+			return
 	_set_game_paused(false)
 	_daily_mode = daily
 	_pending_next_level = -1
@@ -529,6 +560,8 @@ func start_level(index: int, daily: bool = false) -> void:
 
 
 func _start_daily_challenge() -> void:
+	if _map_advancing:
+		return
 	var lv := DailyChallenge3D.todays_level_index(LevelData3D.level_count())
 	# Kilidi açılmış olmalı; değilse en yüksek açık seviyeyi kullan
 	if lv + 1 > _highest_unlocked:
@@ -672,14 +705,19 @@ func _on_room_time_expired() -> void:
 	if _camera_rig != null:
 		_camera_rig.shake(2.4)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.75)
+	if _lives != null:
+		_lives.lose_life()
+		_save_progress()
 	if _hint != null:
-		_hint.text = "⏱ SÜRE DOLDU!"
+		var left := _lives.get_lives() if _lives != null else 0
+		_hint.text = "⏱ SÜRE DOLDU!  ·  can: %d" % left
 	_show_fail_overlay()
 
 
 func _show_fail_overlay() -> void:
 	if _fail_overlay == null:
 		_ensure_fail_overlay()
+	_refresh_fail_overlay()
 	if _fail_overlay != null:
 		_fail_overlay.visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -688,6 +726,22 @@ func _show_fail_overlay() -> void:
 func _hide_fail_overlay() -> void:
 	if _fail_overlay != null:
 		_fail_overlay.visible = false
+
+
+func _refresh_fail_overlay() -> void:
+	if _fail_overlay == null:
+		return
+	var left := _lives.get_lives() if _lives != null else 0
+	var sub := _fail_overlay.get_node_or_null("Panel/VBox/FailSub") as Label
+	var retry := _fail_overlay.get_node_or_null("Panel/VBox/FailRetry") as Button
+	if sub != null:
+		if left > 0:
+			sub.text = "Kalan can: %d  ·  Tekrar dene veya menüye dön" % left
+		else:
+			sub.text = "Can bitti! 100 coin veya seviyede ❤️ bul"
+	if retry != null:
+		retry.disabled = left <= 0
+		retry.text = "Tekrar" if left > 0 else "Can yok"
 
 
 func _ensure_fail_overlay() -> void:
@@ -709,17 +763,19 @@ func _ensure_fail_overlay() -> void:
 	_fail_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var panel := PanelContainer.new()
+	panel.name = "Panel"
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_top = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -200.0
-	panel.offset_right = 200.0
-	panel.offset_top = -110.0
-	panel.offset_bottom = 110.0
+	panel.offset_left = -220.0
+	panel.offset_right = 220.0
+	panel.offset_top = -130.0
+	panel.offset_bottom = 130.0
 	_fail_overlay.add_child(panel)
 
 	var vbox := VBoxContainer.new()
+	vbox.name = "VBox"
 	vbox.add_theme_constant_override("separation", 14)
 	panel.add_child(vbox)
 
@@ -731,13 +787,16 @@ func _ensure_fail_overlay() -> void:
 	vbox.add_child(title)
 
 	var sub := Label.new()
-	sub.text = "Combo ile süre uzat, hatadan kaçın."
+	sub.name = "FailSub"
+	sub.text = "Kalan can: 3"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 16)
 	sub.modulate = Color(0.85, 0.8, 0.75)
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(sub)
 
 	var retry := Button.new()
+	retry.name = "FailRetry"
 	retry.text = "Tekrar"
 	retry.custom_minimum_size = Vector2(0, 40)
 	retry.pressed.connect(_on_fail_retry)
@@ -751,6 +810,10 @@ func _ensure_fail_overlay() -> void:
 
 
 func _on_fail_retry() -> void:
+	if _lives != null and not _lives.has_lives():
+		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.2)
+		_refresh_fail_overlay()
+		return
 	_hide_fail_overlay()
 	_level_failing = false
 	start_level(_level_index, _daily_mode)
@@ -1020,8 +1083,24 @@ func _on_run_coins_changed(run_coins: int) -> void:
 
 func _on_wallet_changed(_balance: int) -> void:
 	_refresh_coin_hud(-1)
+	var bal := _wallet.get_balance() if _wallet != null else 0
 	if _menu_coin_label != null:
-		_menu_coin_label.text = "🪙 %d" % (_wallet.get_balance() if _wallet != null else 0)
+		_menu_coin_label.text = "🪙 %d" % bal
+	if _world_map != null:
+		_world_map.set_wallet_coins(bal)
+	_refresh_lives_hud()
+
+
+func _on_lives_changed(_lives_n: int) -> void:
+	_refresh_lives_hud()
+
+
+func _on_life_gained(reason: StringName, lives_n: int) -> void:
+	_refresh_lives_hud()
+	if reason == &"coins":
+		_spawn_pop("❤️ +1 CAN", Color(1.0, 0.45, 0.55), 70)
+		if _hint != null and not _menu_open:
+			_hint.text = "❤️ 100 coin → can! (toplam %d)" % lives_n
 
 
 func _refresh_coin_hud(run_override: int = -1) -> void:
@@ -1037,8 +1116,26 @@ func _refresh_coin_hud(run_override: int = -1) -> void:
 		_coin_label.text = "🪙 %d" % total
 
 
+func _refresh_lives_hud() -> void:
+	var n := _lives.get_lives() if _lives != null else Lives3D.START_LIVES
+	var prog := _lives.get_coin_progress() if _lives != null else 0
+	var need := _lives.get_coins_per_life() if _lives != null else Lives3D.COINS_PER_LIFE
+	var hearts := ""
+	for _i in n:
+		hearts += "❤️"
+	if hearts.is_empty():
+		hearts = "🖤"
+	if _lives_label != null:
+		_lives_label.text = "%s %d  ·  %d/%d" % [hearts, n, prog, need]
+	if _menu_lives_label != null:
+		_menu_lives_label.text = "%s %d  ·  %d/%d coin → +can" % [hearts, n, prog, need]
+
+
 func _clear_bonus_coins() -> void:
 	for n in get_tree().get_nodes_in_group("CoinPickup"):
+		if is_instance_valid(n):
+			n.queue_free()
+	for n in get_tree().get_nodes_in_group("HeartPickup"):
 		if is_instance_valid(n):
 			n.queue_free()
 
@@ -1063,9 +1160,32 @@ func _spawn_level_bonus_coins(spec: Dictionary, is_tutorial: bool) -> void:
 		var coin := n as CoinPickup3D
 		if coin != null and not coin.collected.is_connected(_on_coin_collected):
 			coin.collected.connect(_on_coin_collected)
+	_spawn_level_heart(spec, is_tutorial, world)
 	if spawned > 0 and _hint != null and not is_tutorial:
-		# Sticky değil — sadece bilgi
 		pass
+
+
+func _spawn_level_heart(spec: Dictionary, is_tutorial: bool, world: Node3D) -> void:
+	if _spawner == null or world == null:
+		return
+	if bool(spec.get("disable_hearts", false)):
+		return
+	# Tutorial / boss: daha seyrek veya kapalı
+	var chance := float(spec.get("heart_chance", -1.0))
+	if chance < 0.0:
+		chance = 0.22
+		if is_tutorial:
+			chance = 0.12
+		elif bool(spec.get("is_boss_room", false)):
+			chance = 0.35
+	if randf() > chance:
+		return
+	if not _spawner.spawn_heart_pickup(world):
+		return
+	for n in get_tree().get_nodes_in_group("HeartPickup"):
+		var heart := n as HeartPickup3D
+		if heart != null and not heart.collected.is_connected(_on_heart_collected):
+			heart.collected.connect(_on_heart_collected)
 
 
 func _on_coin_collected(amount: int, world_pos: Vector3) -> void:
@@ -1077,6 +1197,24 @@ func _on_coin_collected(amount: int, world_pos: Vector3) -> void:
 		_particles.burst(&"clean", world_pos + Vector3(0, 0.5, 0), 0.9)
 	if _camera_rig != null:
 		_camera_rig.shake(0.2)
+
+
+func _on_heart_collected(world_pos: Vector3) -> void:
+	var ok := false
+	if _lives != null:
+		ok = _lives.add_life(&"pickup")
+		_save_progress()
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.2)
+	if ok:
+		_spawn_pop("+1❤️", Color(1.0, 0.4, 0.5), 72)
+	else:
+		_spawn_pop("CAN DOLU", Color(1.0, 0.7, 0.75), 56)
+	if _particles != null:
+		_particles.burst(&"clean", world_pos + Vector3(0, 0.6, 0), 1.1)
+	if _camera_rig != null:
+		_camera_rig.shake(0.35)
+	if _hint != null and ok:
+		_hint.text = "❤️ Can +1!"
 
 
 func _on_combo_milestone(combo: int) -> void:
@@ -1360,7 +1498,15 @@ func _on_level_cleared() -> void:
 	var earned := int(result.get("coins_earned", 0))
 	if _wallet != null and earned > 0:
 		_wallet.add(earned)
+		var gained := 0
+		if _lives != null:
+			gained = _lives.register_coins_earned(earned)
 		_save_progress()
+		if gained > 0:
+			result["lives_from_coins"] = gained
+	if _lives != null:
+		result["lives"] = _lives.get_lives()
+		result["life_coin_progress"] = _lives.get_coin_progress()
 	var compare := DailyChallenge3D.save_result(_level_index, int(result.get("score", 0)), _daily_mode)
 
 	var next := _level_index + 1
@@ -1399,7 +1545,32 @@ func _on_result_closed() -> void:
 	if was_daily or _pending_next_level < 0:
 		_show_menu(true)
 		return
-	start_level(_pending_next_level, false)
+	var from_level := _level_index
+	var to_level := _pending_next_level
+	_pending_next_level = -1
+	await _play_map_advance_then_start(from_level, to_level)
+
+
+func _play_map_advance_then_start(from_level: int, to_level: int) -> void:
+	_map_advancing = true
+	_show_menu(true)
+	if _hard_mode_btn != null:
+		_hard_mode_btn.disabled = true
+	if _diff_btn != null:
+		_diff_btn.disabled = true
+	if _world_map == null:
+		_map_advancing = false
+		start_level(to_level, false)
+		return
+	var bal := _wallet.get_balance() if _wallet != null else 0
+	_world_map.set_wallet_coins(bal)
+	await _world_map.play_advance(from_level, to_level, _highest_unlocked)
+	_map_advancing = false
+	if _hard_mode_btn != null:
+		_hard_mode_btn.disabled = false
+	if _diff_btn != null:
+		_diff_btn.disabled = false
+	start_level(to_level, false)
 
 
 func _ensure_wall_colliders() -> void:
@@ -1657,6 +1828,20 @@ func _setup_hud() -> void:
 	ui.add_child(_coin_label)
 	_refresh_coin_hud()
 
+	_lives_label = Label.new()
+	_lives_label.offset_left = 24.0
+	_lives_label.offset_top = 256.0
+	_lives_label.offset_right = 420.0
+	_lives_label.offset_bottom = 284.0
+	_lives_label.add_theme_font_size_override("font_size", 18)
+	_lives_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.5))
+	_lives_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
+	_lives_label.add_theme_constant_override("outline_size", 6)
+	_lives_label.text = "❤️ 3"
+	_lives_label.visible = false
+	ui.add_child(_lives_label)
+	_refresh_lives_hud()
+
 
 func _setup_menu() -> void:
 	# 3D dünya haritası hub
@@ -1665,7 +1850,11 @@ func _setup_menu() -> void:
 	add_child(_world_map)
 	if _camera_rig != null and _camera_rig.has_node("Camera3D"):
 		_world_map.set_game_camera(_camera_rig.get_node("Camera3D") as Camera3D)
-	_world_map.level_chosen.connect(func(idx: int) -> void: start_level(idx))
+	_world_map.level_chosen.connect(func(idx: int) -> void:
+		if _map_advancing:
+			return
+		start_level(idx)
+	)
 
 	_menu = Control.new()
 	_menu.name = "LevelMenu"
@@ -1705,12 +1894,23 @@ func _setup_menu() -> void:
 	_menu_coin_label.text = "🪙 0"
 	_menu.add_child(_menu_coin_label)
 
+	_menu_lives_label = Label.new()
+	_menu_lives_label.name = "MenuLivesLabel"
+	_menu_lives_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_menu_lives_label.anchor_right = 1.0
+	_menu_lives_label.offset_top = 78.0
+	_menu_lives_label.offset_bottom = 102.0
+	_menu_lives_label.add_theme_font_size_override("font_size", 20)
+	_menu_lives_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.55))
+	_menu_lives_label.text = "❤️ 3  ·  0/100 → +can"
+	_menu.add_child(_menu_lives_label)
+
 	var sub := Label.new()
 	sub.text = "3D harita  ·  Q/E seviye · W/S dünya · Space gir"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.anchor_right = 1.0
-	sub.offset_top = 76.0
-	sub.offset_bottom = 100.0
+	sub.offset_top = 102.0
+	sub.offset_bottom = 124.0
 	sub.add_theme_font_size_override("font_size", 15)
 	sub.add_theme_color_override("font_color", Color(0.75, 0.88, 0.95))
 	_menu.add_child(sub)
@@ -1722,8 +1922,8 @@ func _setup_menu() -> void:
 	_hard_mode_btn.anchor_right = 0.5
 	_hard_mode_btn.offset_left = -200.0
 	_hard_mode_btn.offset_right = 200.0
-	_hard_mode_btn.offset_top = 108.0
-	_hard_mode_btn.offset_bottom = 140.0
+	_hard_mode_btn.offset_top = 128.0
+	_hard_mode_btn.offset_bottom = 160.0
 	_hard_mode_btn.pressed.connect(_toggle_hard_mode)
 	_menu.add_child(_hard_mode_btn)
 	_update_hard_mode_btn()
@@ -1735,8 +1935,8 @@ func _setup_menu() -> void:
 	_diff_btn.anchor_right = 0.5
 	_diff_btn.offset_left = -200.0
 	_diff_btn.offset_right = 200.0
-	_diff_btn.offset_top = 146.0
-	_diff_btn.offset_bottom = 178.0
+	_diff_btn.offset_top = 166.0
+	_diff_btn.offset_bottom = 198.0
 	_diff_btn.pressed.connect(_cycle_difficulty)
 	_menu.add_child(_diff_btn)
 	_update_diff_btn()
@@ -1748,8 +1948,8 @@ func _setup_menu() -> void:
 	daily_btn.anchor_right = 0.5
 	daily_btn.offset_left = -200.0
 	daily_btn.offset_right = 200.0
-	daily_btn.offset_top = 184.0
-	daily_btn.offset_bottom = 216.0
+	daily_btn.offset_top = 204.0
+	daily_btn.offset_bottom = 236.0
 	var d_lv := DailyChallenge3D.todays_level_index(LevelData3D.level_count())
 	daily_btn.text = "📅 %s" % DailyChallenge3D.challenge_title(d_lv)
 	daily_btn.modulate = Color(1.0, 0.8, 0.45)
@@ -1760,8 +1960,8 @@ func _setup_menu() -> void:
 	curse_info.name = "MenuCurseInfo"
 	curse_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	curse_info.anchor_right = 1.0
-	curse_info.offset_top = 222.0
-	curse_info.offset_bottom = 254.0
+	curse_info.offset_top = 242.0
+	curse_info.offset_bottom = 274.0
 	curse_info.add_theme_font_size_override("font_size", 13)
 	curse_info.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5))
 	curse_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1820,6 +2020,7 @@ func _show_menu(open: bool) -> void:
 		if open:
 			_rebuild_level_buttons()
 			_on_wallet_changed(_wallet.get_balance() if _wallet != null else 0)
+			_refresh_lives_hud()
 	# Oyun dünyası ↔ 3D harita
 	if has_node("World"):
 		$World.visible = not open
@@ -1831,6 +2032,8 @@ func _show_menu(open: bool) -> void:
 		_player.set_process_unhandled_input(not open)
 		_player.set_physics_process(not open)
 	if _world_map != null:
+		if open:
+			_world_map.set_wallet_coins(_wallet.get_balance() if _wallet != null else 0)
 		_world_map.set_active(open)
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -1841,8 +2044,11 @@ func _set_run_hud_visible(show: bool) -> void:
 		_score_label.visible = show
 	if _coin_label != null:
 		_coin_label.visible = show
+	if _lives_label != null:
+		_lives_label.visible = show
 	if show:
 		_refresh_coin_hud()
+		_refresh_lives_hud()
 
 
 func _refresh_hint() -> void:
@@ -1960,6 +2166,8 @@ func _update_diff_btn() -> void:
 
 
 func _cycle_difficulty() -> void:
+	if _map_advancing:
+		return
 	_difficulty = (_difficulty + 1) % 3
 	_update_diff_btn()
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.SWITCH, 1.05)
@@ -1979,7 +2187,7 @@ func _apply_difficulty_profile() -> void:
 
 
 func _toggle_hard_mode() -> void:
-	if _curses == null:
+	if _map_advancing or _curses == null:
 		return
 	_curses.set_hard_mode(not _curses.is_hard_mode())
 	_curses.roll_daily(true)
@@ -2262,14 +2470,25 @@ func _pause_quit_to_menu() -> void:
 
 
 func _load_progress() -> void:
-	# Tüm seviyeler açık (dev / test) — coin cüzdanı yine kalıcı
+	# Tüm seviyeler açık (dev / test) — coin + can kalıcı
 	_highest_unlocked = LevelData3D.level_count()
 	var cfg := ConfigFile.new()
 	if cfg.load(_save_path) == OK:
 		_pending_wallet_coins = maxi(0, int(cfg.get_value("wallet", "coins", 0)))
+		_pending_lives = clampi(int(cfg.get_value("lives", "count", Lives3D.START_LIVES)), 0, Lives3D.MAX_LIVES)
+		_pending_life_coin_progress = clampi(
+			int(cfg.get_value("lives", "coin_progress", 0)), 0, Lives3D.COINS_PER_LIFE - 1
+		)
+	else:
+		_pending_lives = Lives3D.START_LIVES
+		_pending_life_coin_progress = 0
 	if _wallet != null and _pending_wallet_coins >= 0:
 		_wallet.set_balance(_pending_wallet_coins)
 		_pending_wallet_coins = -1
+	if _lives != null and _pending_lives >= 0:
+		_lives.set_state(_pending_lives, maxi(0, _pending_life_coin_progress))
+		_pending_lives = -1
+		_pending_life_coin_progress = -1
 
 
 func _save_progress() -> void:
@@ -2282,4 +2501,14 @@ func _save_progress() -> void:
 	elif _pending_wallet_coins >= 0:
 		coins = _pending_wallet_coins
 	cfg.set_value("wallet", "coins", coins)
+	var lives_n := Lives3D.START_LIVES
+	var prog := 0
+	if _lives != null:
+		lives_n = _lives.get_lives()
+		prog = _lives.get_coin_progress()
+	elif _pending_lives >= 0:
+		lives_n = _pending_lives
+		prog = maxi(0, _pending_life_coin_progress)
+	cfg.set_value("lives", "count", lives_n)
+	cfg.set_value("lives", "coin_progress", prog)
 	cfg.save(_save_path)
