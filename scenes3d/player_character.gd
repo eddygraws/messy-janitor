@@ -53,13 +53,15 @@ signal wrong_tool_used(needed: String)
 @export var rinse_per_second: float = 1.15
 
 @export_group("Süpürge emme")
-@export var vacuum_range: float = 4.2
-@export var vacuum_sector_half_deg: float = 32.0 ## Dar sektör yarı-açısı (~64° toplam)
-@export var vacuum_cone_dot: float = 0.85 ## cos(~32°) — hedef filtre
-@export var vacuum_pull_speed: float = 6.2
+@export var vacuum_range: float = 4.4
+@export var vacuum_sector_half_deg: float = 42.0 ## Sektör yarı-açısı (~84° toplam)
+@export var vacuum_cone_dot: float = 0.72 ## cos(~44°) — uzak hedef filtre
+@export var vacuum_close_magnet: float = 1.75 ## Bu mesafede 360° emme (ayak altı dahil)
+@export var vacuum_pull_speed: float = 7.0
 @export var vacuum_bag_capacity: int = 3
-@export var vacuum_move_mult: float = 0.68 ## Emme sırasında yavaşlama
-@export var vacuum_max_targets: int = 6
+@export var vacuum_move_mult: float = 0.72 ## Hedef çekerken yavaşlama
+@export var vacuum_idle_move_mult: float = 0.92 ## Süpürge açık, hedef yokken hafif yavaşlama
+@export var vacuum_max_targets: int = 8
 
 @export_group("Dash")
 @export var dash_speed: float = 14.0
@@ -246,36 +248,79 @@ func _setup_flashlight() -> void:
 		_flash_mask = Node3D.new()
 		_flash_mask.name = "FlashMask"
 		add_child(_flash_mask)
-	_flash_cone = _flash_mask.get_node_or_null("Cone") as MeshInstance3D
-	if _flash_cone == null:
-		_flash_cone = MeshInstance3D.new()
-		_flash_cone.name = "Cone"
-		_flash_mask.add_child(_flash_cone)
-	# Görsel koni: gameplay menzilinin 1/6'sı · yön 180° çevrili
-	var vis_range := _flash_range / 6.0
+	# Eski çocukları temizle — yeniden kur
+	while _flash_mask.get_child_count() > 0:
+		var c := _flash_mask.get_child(0)
+		_flash_mask.remove_child(c)
+		c.free()
+	_flash_cone = MeshInstance3D.new()
+	_flash_cone.name = "Cone"
+	_flash_mask.add_child(_flash_cone)
+	# Görsel = gameplay menzili (önde, bakış yönünde)
+	var vis_range := _flash_range
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.03
+	cyl.top_radius = 0.05
 	cyl.bottom_radius = tan(deg_to_rad(_flash_half_angle_deg)) * vis_range
 	cyl.height = vis_range
-	cyl.radial_segments = 20
+	cyl.radial_segments = 24
 	_flash_cone.mesh = cyl
-	# Silindir Y → bakış; önceki -90'a göre 180° ( +90 ) + Z ofseti ters
-	_flash_cone.rotation_degrees = Vector3(90.0, 0.0, 0.0)
-	_flash_cone.position = Vector3(0.0, 0.0, vis_range * 0.5)
+	# Silindir Y → -Z (Basis.looking_at ileri = -Z)
+	_flash_cone.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	_flash_cone.position = Vector3(0.0, 0.0, -vis_range * 0.5)
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.albedo_color = Color(0.35, 0.75, 1.0, 0.14)
+	mat.albedo_color = Color(0.35, 0.75, 1.0, 0.12)
 	mat.emission_enabled = true
 	mat.emission = Color(0.45, 0.85, 1.0)
-	mat.emission_energy_multiplier = 1.6
+	mat.emission_energy_multiplier = 1.5
 	mat.no_depth_test = false
 	_flash_cone.material_override = mat
 	_flash_cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	# Zemin sektörü — tarama alanını net gösterir
+	var floor_sector := MeshInstance3D.new()
+	floor_sector.name = "FloorSector"
+	floor_sector.mesh = _build_flashlight_sector_mesh(_flash_range, _flash_half_angle_deg, 28)
+	var fmat := StandardMaterial3D.new()
+	fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	fmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	fmat.albedo_color = Color(0.35, 0.78, 1.0, 0.2)
+	fmat.emission_enabled = true
+	fmat.emission = Color(0.4, 0.85, 1.0)
+	fmat.emission_energy_multiplier = 1.8
+	fmat.no_depth_test = true
+	floor_sector.material_override = fmat
+	floor_sector.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	floor_sector.position = Vector3(0.0, -0.82, 0.0) # göğüs origin → yere yakın
+	_flash_mask.add_child(floor_sector)
+
 	_flash_mask.visible = false
 	_flash_enabled = false
+
+
+func _build_flashlight_sector_mesh(radius: float, half_deg: float, segs: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var ha := deg_to_rad(half_deg)
+	var y := 0.05
+	for i in segs:
+		var a0 := -ha + (2.0 * ha) * float(i) / float(segs)
+		var a1 := -ha + (2.0 * ha) * float(i + 1) / float(segs)
+		# İleri = -Z (looking_at uyumu)
+		var p0 := Vector3(0.0, y, 0.0)
+		var p1 := Vector3(sin(a0) * radius, y, -cos(a0) * radius)
+		var p2 := Vector3(sin(a1) * radius, y, -cos(a1) * radius)
+		st.set_normal(Vector3.UP)
+		st.add_vertex(p0)
+		st.add_vertex(p1)
+		st.add_vertex(p2)
+	st.generate_normals()
+	return st.commit()
 
 
 func set_flashlight_enabled(on: bool) -> void:
@@ -485,7 +530,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_released("interact"):
 		_rinsing = false
-		_release_vacuum()
+		# Süpürge artık basılı tutma değil — bırakınca emme kesilmesin
 		return
 	if event.is_action_pressed("tool_mop") or event.is_action_pressed("tool_1"):
 		_try_set_tool_index(0)
@@ -578,7 +623,10 @@ func _apply_overcooked_movement() -> void:
 	wish.y = 0.0
 	var speed := move_speed * _carry_move_mult()
 	if _vacuum_active:
-		speed *= vacuum_move_mult
+		if not _vacuum_targets.is_empty():
+			speed *= vacuum_move_mult
+		else:
+			speed *= vacuum_idle_move_mult
 	if _speed_rush_t > 0.0 and _held == null:
 		speed *= speed_rush_move_mult
 	elif _speed_rush_t > 0.0:
@@ -672,11 +720,12 @@ func _trigger_potion_silence() -> void:
 func _update_flashlight_aim() -> void:
 	if _flash_mask == null or not _flash_enabled:
 		return
-	var fwd := _facing
+	var fwd := _aim_direction()
 	fwd.y = 0.0
 	if fwd.length_squared() < 0.0001:
 		fwd = Vector3(0.0, 0.0, -1.0)
 	fwd = fwd.normalized()
+	# Göğüs hizası — koni öne doğru yayılır
 	var origin := global_position + Vector3(0.0, 0.85, 0.0)
 	_flash_mask.global_transform = Transform3D(Basis.looking_at(fwd, Vector3.UP), origin)
 
@@ -1127,9 +1176,12 @@ func _try_interact() -> void:
 
 	var prop := _find_interact_target()
 	if prop == null:
-		# Boş alanda broom tap → emme ipucu
+		# Boş alanda broom tap → ipucu (emme zaten otomatik)
 		if active_tool == ToolKind.BROOM and unlocked_tool_count >= 2:
-			status_message.emit("Süpürgeyi toza doğrultup basılı tut")
+			if is_vacuum_bag_full():
+				status_message.emit("Torba dolu — çöpe yaklaşıp Space/tık")
+			else:
+				status_message.emit("Süpürge otomatik emer — toza yaklaş")
 			_swing_cooldown = 0.12
 		return
 
@@ -1463,13 +1515,10 @@ func _update_mop_scrub(delta: float) -> void:
 		item_disposed.emit(prop.prop_id)
 
 
-## ZZZ Beachcombing tarzı: basılı tut → yerde mavi sektör, koni içindeki tüm tozu çek.
+## Süpürge seçiliyken sürekli emme — basılı tutmaya gerek yok.
 func _update_broom_vacuum(delta: float) -> void:
 	_refresh_vacuum_tool_visual()
 	if _held != null or active_tool != ToolKind.BROOM or unlocked_tool_count < 2:
-		_release_vacuum()
-		return
-	if not Input.is_action_pressed("interact"):
 		_release_vacuum()
 		return
 	_vacuum_active = true
@@ -1492,8 +1541,8 @@ func _update_broom_vacuum(delta: float) -> void:
 	_aim_vacuum_beam(targets[0] if not targets.is_empty() else null)
 	_vacuum_hum_cd -= delta
 	if _vacuum_hum_cd <= 0.0:
-		_vacuum_hum_cd = 0.12
-		_play_sfx(PrototypeSfx.Kind.RINSE, 1.4 + randf_range(-0.08, 0.1))
+		_vacuum_hum_cd = 0.14 if targets.is_empty() else 0.10
+		_play_sfx(PrototypeSfx.Kind.RINSE, 1.35 + randf_range(-0.08, 0.1))
 	if targets.is_empty():
 		return
 	# En yakın hedefe hafif bak (spin yok)
@@ -1513,7 +1562,6 @@ func _update_broom_vacuum(delta: float) -> void:
 			var mid := prop.global_position.lerp(nozzle, 0.4) + Vector3(0, 0.15, 0)
 			fx_burst.emit(&"suck", mid, 0.55 + prop.get_vacuum_progress() * 0.55)
 		if slots_left <= 0:
-			# Çekmeye devam et ama yakalama — torba dolunca bırak
 			prop.apply_vacuum_suck(delta * 0.35, nozzle, vacuum_pull_speed * 0.4)
 			continue
 		var captured := prop.apply_vacuum_suck(delta, nozzle, vacuum_pull_speed)
@@ -1616,25 +1664,39 @@ func _release_vacuum() -> void:
 func _find_vacuum_targets() -> Array[ClutterProp]:
 	var facing := _aim_direction()
 	var tool := get_tool_name()
+	var nozzle := _get_vacuum_nozzle_pos()
 	var scored: Array[Dictionary] = []
 	for node in get_tree().get_nodes_in_group(PROP_GROUP):
 		var prop := node as ClutterProp
 		if prop == null or not prop.is_vacuum_target_for(tool):
 			continue
-		var flat := prop.global_position - global_position
-		flat.y = 0.0
-		var dist := flat.length()
-		if dist > vacuum_range or dist < 0.05:
+		var flat_p := prop.global_position - global_position
+		flat_p.y = 0.0
+		var dist_p := flat_p.length()
+		var flat_n := prop.global_position - nozzle
+		flat_n.y = 0.0
+		var dist_n := flat_n.length()
+		# Oyuncu veya nozul yakını — ayak altı / yan tozlar kaçmasın
+		var dist := minf(dist_p, dist_n)
+		if dist > vacuum_range:
 			continue
-		var dir := flat / dist
-		var dot := facing.dot(dir)
-		# Yakın magnet: sektör biraz daha geniş
-		var need := vacuum_cone_dot
-		if dist < close_magnet_range:
-			need = vacuum_cone_dot - 0.12
-		if dot < need:
-			continue
-		var score := (1.0 - dist / vacuum_range) * 2.2 + maxf(dot, 0.0) + prop.get_vacuum_progress() * 1.4
+		var magnet := dist <= vacuum_close_magnet or dist_p <= vacuum_close_magnet * 0.85
+		var dot := 1.0
+		if dist_p > 0.04:
+			dot = facing.dot(flat_p / dist_p)
+		if not magnet:
+			# Orta mesafe: yumuşak koni; uzak: tam sektör
+			var need := vacuum_cone_dot
+			if dist < vacuum_close_magnet * 1.45:
+				need = lerpf(0.15, vacuum_cone_dot, (dist - vacuum_close_magnet) / maxf(vacuum_close_magnet * 0.45, 0.01))
+			if dot < need:
+				continue
+		# Yakın / emilmekte olanlar öncelikli
+		var score := (1.0 - dist / vacuum_range) * 2.6 + maxf(dot, 0.0) + prop.get_vacuum_progress() * 1.6
+		if magnet:
+			score += 1.8
+		if dist_p < 0.55:
+			score += 1.2
 		scored.append({"prop": prop, "score": score})
 	scored.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return float(a["score"]) > float(b["score"])
@@ -2110,6 +2172,10 @@ func _find_interact_target() -> ClutterProp:
 
 func get_facing_direction() -> Vector3:
 	return _facing
+
+
+func get_aim_direction() -> Vector3:
+	return _aim_direction()
 
 
 func is_holding() -> bool:

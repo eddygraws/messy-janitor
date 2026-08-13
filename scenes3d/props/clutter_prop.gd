@@ -264,16 +264,29 @@ func apply_vacuum_suck(delta: float, nozzle_world: Vector3, pull_speed: float = 
 	var flat := Vector3(to_noz.x, 0.0, to_noz.z)
 	var dist := flat.length()
 	var resist := maxf(vacuum_resist, 0.35)
-	var pull := pull_speed * (0.7 + _vacuum_progress * 1.25) / resist
-	if dist > 0.1:
+	var pull := pull_speed * (0.75 + _vacuum_progress * 1.35) / resist
+	if dist > 0.08:
 		var dir := flat / dist
-		# Spiral — ZZZ magnet hissi
+		# Spiral — magnet hissi; yakınken daha az sapma
 		var side := Vector3(-dir.z, 0.0, dir.x)
-		var swirl := side * sin(_vacuum_progress * TAU * 1.5) * (0.55 * (1.0 - _vacuum_progress))
-		global_position += (dir * pull + swirl * pull * 0.45) * delta
+		var swirl_amt := 0.55 * (1.0 - _vacuum_progress) * clampf(dist / 1.2, 0.15, 1.0)
+		var swirl := side * sin(_vacuum_progress * TAU * 1.5) * swirl_amt
+		global_position += (dir * pull + swirl * pull * 0.4) * delta
+	else:
+		# Nozula yapışmış — doğrudan çek
+		global_position = global_position.lerp(nozzle_world, clampf(10.0 * delta, 0.0, 1.0))
+		dist = 0.0
 	var lift := lerpf(0.08, 0.7, _vacuum_progress)
-	global_position.y = lerpf(global_position.y, lift, clampf(7.0 * delta, 0.0, 1.0))
-	var gain := delta * (1.75 if dist < 1.5 else 0.85) / resist
+	global_position.y = lerpf(global_position.y, lift, clampf(8.0 * delta, 0.0, 1.0))
+	# Yakınken hızla dol — ayak altı / nozul yanı takılmasın
+	var gain_mul := 1.0
+	if dist < 0.55:
+		gain_mul = 2.4
+	elif dist < 1.4:
+		gain_mul = 1.75
+	else:
+		gain_mul = 0.9
+	var gain := delta * gain_mul / resist
 	_vacuum_progress = clampf(_vacuum_progress + gain, 0.0, 1.0)
 	_vacuum_spin += delta * (8.0 + _vacuum_progress * 18.0)
 	if _anim_root != null:
@@ -282,7 +295,14 @@ func apply_vacuum_suck(delta: float, nozzle_world: Vector3, pull_speed: float = 
 		_anim_root.rotation.z = _base_rot.z + cos(_vacuum_spin * 1.9) * 0.28 * _vacuum_progress
 	var s := lerpf(1.0, 0.12, _vacuum_progress * _vacuum_progress)
 	scale = _scrub_base_scale * s
-	if dist < 0.75 and _vacuum_progress >= 0.82:
+	# Esnek yakalama: yakın + ilerleme, veya neredeyse tamam
+	if _vacuum_progress >= 0.98:
+		_capture_by_vacuum()
+		return true
+	if dist < 0.9 and _vacuum_progress >= 0.72:
+		_capture_by_vacuum()
+		return true
+	if dist < 0.4 and _vacuum_progress >= 0.5:
 		_capture_by_vacuum()
 		return true
 	return false

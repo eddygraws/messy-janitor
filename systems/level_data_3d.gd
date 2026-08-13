@@ -291,6 +291,11 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				disable_pressure = tier < int(ch.get("pressure_from_tier", 2))
 				allow_junk = bool(ch.get("allow_junk", true)) and tier >= int(ch.get("junk_from_tier", 1))
 
+		# Karanlık bölüm: tüm kademelerde fener konisi maskesi
+		if id_base == "dark":
+			rule = CommissionData.Rule.LOW_VISIBILITY
+			rule_param = float(ch.get("challenge_param", 0.0))
+
 		var lvl := {
 			"id": "%s_t%d" % [id_base, tier],
 			"name": "%d · %s · %s" % [display_n, chapter_title, TIER_LABELS[tier]],
@@ -473,7 +478,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"hazards_from_tier": 2,
 			"micro_from_tier": 1,
 			"pressure_from_tier": 2,
-			"tutorial": "2=Süpürge · Space basılı tut = mavi sektör · içindeki tozu çek",
+			"tutorial": "2=Süpürge · seçince otomatik emer · mavi sektördeki tozu çek",
 			"hint_intro": "Süpürge: mavi alan içindeki tozlar uçar! Torba 3/3 → çöp",
 			"hint_filler": "Sektördeki her şeyi em · alet değiştir (1/2)",
 			"hint_mixed": "TV tamir + süpürge sektörü",
@@ -483,9 +488,9 @@ static func _chapter_defs() -> Array[Dictionary]:
 					"id": "vac_suck",
 					"title": "Bölüm 1 · Em",
 					"banner": "SÜPÜRGEYLE EM",
-					"subtitle": "2 = Süpürge · Space basılı tut",
-					"hint": "2 tuşu · Space BASILI TUT → mavi sektör açılır, tozlar uçar",
-					"card_desc": "Süpürge (2) + Space basılı tut. Yerde mavi alan açılır — içindeki toz/kırıntı/küf aynı anda çekilir.",
+					"subtitle": "2 = Süpürge · otomatik emme",
+					"hint": "2 tuşu = süpürge · toza yaklaş → mavi sektör emer",
+					"card_desc": "Süpürgeyi (2) seç. Basılı tutmana gerek yok — mavi alan içindeki toz/kırıntı/küf otomatik çekilir.",
 					"banner_color": Color(0.45, 0.85, 1.0),
 					"enable_micro": false,
 					"enable_pressure": false,
@@ -729,8 +734,12 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"hazards_from_tier": 2,
 			"micro_from_tier": 1,
 			"pressure_from_tier": 2,
-			"tutorial": "Bakış konisi / yaklaşınca gizli kir parlar",
-			"hint_intro": "Karanlık — dönerek tara, gizli kirleri bul",
+			"tutorial": "Fener konisiyle tara — sadece mavi alanda kir görünür",
+			"hint_intro": "Karanlık — dönerek tara, koni içindeki gizli kirleri bul",
+			"hint_filler": "Feneri çevir · koni dışı görünmez",
+			"hint_mixed": "Koniyi tara · alet değiştir",
+			"hint_challenge": "Dar görüş — her köşeyi fenerle tara",
+			"hint_climax": "Fener konisiyle tara — her gizli kiri bul!",
 			"focus_props": [
 				{"type": "hidden", "count": 4},
 				{"type": "tiny", "count": 2},
@@ -746,11 +755,11 @@ static func _chapter_defs() -> Array[Dictionary]:
 				{"type": "boss_slime", "count": 1},
 			],
 			"challenge_rule": CommissionData.Rule.LOW_VISIBILITY,
-			"challenge_param": 3.4,
+			"challenge_param": 0.0,
 			"climax_rule": CommissionData.Rule.LOW_VISIBILITY,
-			"climax_param": 3.4,
+			"climax_param": 0.0,
 			"climax_subtitle": "Ay ışığı",
-			"climax_intro": "Maske ile tara — her gizli kiri bul!",
+			"climax_intro": "Fener konisiyle tara — her gizli kiri bul!",
 		},
 		{
 			"id": "ritual",

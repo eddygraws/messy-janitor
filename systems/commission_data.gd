@@ -10,7 +10,7 @@ const RULE_LABELS := {
 	Rule.NONE: "",
 	Rule.FORBIDDEN: "⛔ Yasak bölgeye dokunma!",
 	Rule.TIME_LIMIT: "⏱ Süreye karşı!",
-	Rule.LOW_VISIBILITY: "🌑 Karanlık: kiri imleçle bul",
+	Rule.LOW_VISIBILITY: "🌑 Karanlık: fener konisiyle tara",
 	Rule.HIGH_RISK: "☠ Yüksek risk: yanlış alet acıtır",
 }
 

@@ -130,21 +130,23 @@ func _mark_forbidden_prop() -> void:
 		_spawner.call("_emit_objective_state")
 
 
-func _apply_low_visibility(reveal_radius: float) -> void:
+func _apply_low_visibility(_reveal_radius: float) -> void:
 	if _spawner == null:
 		return
 	for c in _spawner.get_children():
-		var p := c as ClutterProp
-		if p == null:
-			continue
-		p.set_meta("low_vis", true)
-		p.set_meta("reveal_radius", reveal_radius)
-		if p.has_method("set_vis_mask_revealed"):
-			p.call("set_vis_mask_revealed", false)
-		else:
-			p.visible = false
+		_tag_prop_low_vis(c as ClutterProp)
 	# İlk karede maskeyi uygula
 	call_deferred("_update_low_visibility")
+
+
+func _tag_prop_low_vis(p: ClutterProp) -> void:
+	if p == null:
+		return
+	p.set_meta("low_vis", true)
+	if p.has_method("set_vis_mask_revealed"):
+		p.call("set_vis_mask_revealed", false)
+	else:
+		p.visible = false
 
 
 func _update_low_visibility() -> void:
@@ -154,15 +156,17 @@ func _update_low_visibility() -> void:
 		return
 	var origin: Vector3 = (_player as Node3D).global_position
 	var facing := Vector3(0.0, 0.0, -1.0)
-	if _player.has_method("get_facing_direction"):
+	if _player.has_method("get_aim_direction"):
+		facing = (_player.call("get_aim_direction") as Vector3)
+	elif _player.has_method("get_facing_direction"):
 		facing = (_player.call("get_facing_direction") as Vector3)
 	facing.y = 0.0
 	if facing.length_squared() < 0.0001:
 		facing = Vector3(0.0, 0.0, -1.0)
 	facing = facing.normalized()
 
-	# Mask: yakın daire + bakış konisi (gerçek SpotLight yok)
-	var foot_r := 2.6
+	# Sadece fener konisi — büyük ayak dairesi yok
+	var foot_r := 0.55
 	var beam_range := 11.0
 	var beam_cos := cos(deg_to_rad(48.0))
 	if _player.has_method("is_flashlight_on") and bool(_player.call("is_flashlight_on")):
@@ -173,14 +177,16 @@ func _update_low_visibility() -> void:
 
 	for c in _spawner.get_children():
 		var p := c as ClutterProp
-		if p == null or not bool(p.get_meta("low_vis", false)):
+		if p == null:
 			continue
-		var near_r := maxf(float(p.get_meta("reveal_radius", 3.2)), foot_r)
+		# Yeni spawn'lar da maskeye girsin
+		if not bool(p.get_meta("low_vis", false)):
+			_tag_prop_low_vis(p)
 		var flat := p.global_position - origin
 		flat.y = 0.0
 		var dist := flat.length()
-		var revealed := dist <= near_r
-		if not revealed and dist > 0.05 and dist <= beam_range:
+		var revealed := dist <= foot_r
+		if not revealed and dist > 0.02 and dist <= beam_range:
 			revealed = flat.normalized().dot(facing) >= beam_cos
 		if p.has_method("set_vis_mask_revealed"):
 			p.call("set_vis_mask_revealed", revealed)

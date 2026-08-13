@@ -60,6 +60,8 @@ var _level_index: int = 0
 var _highest_unlocked: int = 1
 var _menu_open: bool = false
 var _map_advancing: bool = false
+var _title_screen: TitleScreen3D
+var _boot_on_title: bool = true
 var _level_failing: bool = false
 var _game_paused: bool = false
 var _pause_overlay: Control
@@ -126,7 +128,8 @@ func _ready() -> void:
 		_spawner.section_advanced.connect(_on_section_advanced)
 		_spawner.prop_cleared.connect(_on_prop_cleared)
 
-	_show_menu(true)
+	_setup_title_screen()
+	_boot_to_title()
 	_configure_pause_modes()
 
 
@@ -403,10 +406,7 @@ func start_level(index: int, daily: bool = false) -> void:
 	var mop_ok := bool(spec.get("allow_mop", true))
 	var dash_charges := LevelData3D.dash_charges_for(_level_index)
 	var unlocked_tools := LevelData3D.unlocked_tools_for(_level_index)
-	var want_flashlight := (
-		String(spec.get("id", "")) == "dark"
-		or int(spec.get("commission", {}).get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY
-	)
+	var want_flashlight := _is_dark_level(spec)
 	_stop_vignette_active = false
 	_apply_dark_room_lighting(want_flashlight)
 	if _player != null:
@@ -1255,10 +1255,7 @@ func _on_task_cleared() -> void:
 func _apply_theme(spec: Dictionary) -> void:
 	var floor_c: Color = spec.get("floor", Color(0.34, 0.36, 0.38)) as Color
 	var wall_c: Color = spec.get("wall", Color(0.5, 0.5, 0.5)) as Color
-	var dark_room := (
-		String(spec.get("id", "")) == "dark"
-		or int(spec.get("commission", {}).get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY
-	)
+	var dark_room := _is_dark_level(spec)
 	if _floor_mesh != null:
 		_floor_mesh.material_override = RoomToonMaterial.make_floor(floor_c, dark_room)
 		_floor_mesh.set_surface_override_material(0, null)
@@ -1271,6 +1268,14 @@ func _apply_theme(spec: Dictionary) -> void:
 			continue
 		wall.material_override = RoomToonMaterial.make_wall(wall_c, dark_room, wall_style, wall_i)
 		wall_i += 1
+
+
+func _is_dark_level(spec: Dictionary) -> bool:
+	var id := String(spec.get("id", ""))
+	if id == "dark" or id.begins_with("dark_"):
+		return true
+	return int(spec.get("commission", {}).get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY
+
 
 func _apply_dark_room_lighting(on: bool) -> void:
 	var sun := get_node_or_null("Sun") as DirectionalLight3D
@@ -1843,6 +1848,41 @@ func _setup_hud() -> void:
 	_refresh_lives_hud()
 
 
+func _setup_title_screen() -> void:
+	_title_screen = TitleScreen3D.new()
+	_title_screen.name = "TitleScreen3D"
+	$UI.add_child(_title_screen)
+	_title_screen.continued.connect(_on_title_continued)
+
+
+func _boot_to_title() -> void:
+	_boot_on_title = true
+	_menu_open = false
+	_set_run_hud_visible(false)
+	if _menu != null:
+		_menu.visible = false
+	if has_node("World"):
+		$World.visible = false
+	if _camera_rig != null:
+		_camera_rig.visible = false
+		_camera_rig.set_process(false)
+		_camera_rig.set_physics_process(false)
+	if _player != null:
+		_player.set_process_unhandled_input(false)
+		_player.set_physics_process(false)
+	if _world_map != null:
+		_world_map.set_active(false)
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if _title_screen != null:
+		_title_screen.present()
+
+
+func _on_title_continued() -> void:
+	_boot_on_title = false
+	_show_menu(true)
+
+
 func _setup_menu() -> void:
 	# 3D dünya haritası hub
 	_world_map = WorldMapHub3D.new()
@@ -2361,6 +2401,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	get_viewport().set_input_as_handled()
 	# Seviye seçim menüsü / fail / sonuç / kart — Esc ile ölü sahneye dönme
+	if _boot_on_title:
+		return
 	if _menu_open:
 		return
 	if _level_failing:
@@ -2442,7 +2484,7 @@ func _toggle_game_pause() -> void:
 
 
 func _set_game_paused(on: bool) -> void:
-	if on and (_menu_open or _level_failing):
+	if on and (_menu_open or _level_failing or _boot_on_title):
 		return
 	_game_paused = on
 	_ensure_pause_overlay()
