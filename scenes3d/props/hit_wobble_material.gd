@@ -19,6 +19,7 @@ static func create(
 	var mat := ShaderMaterial.new()
 	mat.shader = WOBBLE_SHADER
 	mat.set_shader_parameter("albedo_color", albedo)
+	mat.set_shader_parameter("use_albedo_tex", false)
 	mat.set_shader_parameter("roughness", roughness)
 	mat.set_shader_parameter("emission_color", Vector3(emission.r, emission.g, emission.b))
 	mat.set_shader_parameter("emission_energy", emission_energy)
@@ -34,6 +35,21 @@ static func create(
 	mat.set_shader_parameter("ambient_boost", 0.2)
 	if with_outline:
 		mat.next_pass = _make_outline(outline_width)
+	return mat
+
+
+static func create_textured(
+	tex: Texture2D,
+	tint: Color = Color.WHITE,
+	roughness: float = 0.92,
+	wobble_scale: float = 0.07,
+	with_outline: bool = true,
+	outline_width: float = 0.028,
+) -> ShaderMaterial:
+	var mat := create(tint, roughness, Color.BLACK, 0.0, wobble_scale, with_outline, outline_width)
+	if tex != null:
+		mat.set_shader_parameter("albedo_tex", tex)
+		mat.set_shader_parameter("use_albedo_tex", true)
 	return mat
 
 

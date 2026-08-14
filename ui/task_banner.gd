@@ -133,9 +133,9 @@ func _ready() -> void:
 	add_child(_phase_label)
 
 
-func show_task(text: String, color: Color, subtitle: String = "", special: String = "") -> void:
+func show_task(task_text: String, color: Color, subtitle: String = "", special: String = "") -> void:
 	_bar_color = color
-	_label.text = text
+	_label.text = task_text
 	_label.add_theme_color_override("font_color", color)
 	_sub.text = subtitle
 	_sub.add_theme_color_override("font_color", Color(0.95, 0.95, 0.98))
@@ -231,19 +231,19 @@ func set_vignette_heat(amount: float) -> void:
 
 
 func flash_phase(phase: int) -> void:
-	var text := ""
+	var phase_text := ""
 	var col := Color(1, 1, 1)
 	match phase:
 		2:
-			text = "HIZLAN!"
+			phase_text = "HIZLAN!"
 			col = Color(1.0, 0.75, 0.2)
 		3:
-			text = "SON PATLAMA!"
+			phase_text = "SON PATLAMA!"
 			col = Color(1.0, 0.25, 0.35)
 		_:
 			return
 	# Üst şerit + çok hafif flaş — ortadaki gameplay açık kalsın
-	_phase_label.text = text
+	_phase_label.text = phase_text
 	_phase_label.add_theme_color_override("font_color", col)
 	_phase_label.modulate = Color(1, 1, 1, 0)
 	_phase_label.scale = Vector2(1.12, 1.12)

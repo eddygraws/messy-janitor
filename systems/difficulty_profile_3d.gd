@@ -11,7 +11,8 @@ const PROP_COUNT_EASY := 0.85
 const PROP_COUNT_NORMAL := 1.0
 const PROP_COUNT_HARD := 1.25
 
-static func tier_name(tier: int) -> String:
+
+static func tier_name(tier: Tier) -> String:
 	match tier:
 		Tier.EASY:
 			return "Kolay"
@@ -21,7 +22,7 @@ static func tier_name(tier: int) -> String:
 			return "Normal"
 
 
-static func task_duration_mult(tier: int) -> float:
+static func task_duration_mult(tier: Tier) -> float:
 	match tier:
 		Tier.EASY:
 			return 1.35
@@ -31,7 +32,7 @@ static func task_duration_mult(tier: int) -> float:
 			return 1.0
 
 
-static func task_interval_mult(tier: int) -> float:
+static func task_interval_mult(tier: Tier) -> float:
 	match tier:
 		Tier.EASY:
 			return 1.25 # daha seyrek emir
@@ -41,7 +42,7 @@ static func task_interval_mult(tier: int) -> float:
 			return 1.0
 
 
-static func spawn_rate_mult(tier: int) -> float:
+static func spawn_rate_mult(tier: Tier) -> float:
 	match tier:
 		Tier.EASY:
 			return 0.75
@@ -51,7 +52,7 @@ static func spawn_rate_mult(tier: int) -> float:
 			return 1.0
 
 
-static func prop_count_mult(tier: int) -> float:
+static func prop_count_mult(tier: Tier) -> float:
 	match tier:
 		Tier.EASY:
 			return PROP_COUNT_EASY
@@ -61,7 +62,7 @@ static func prop_count_mult(tier: int) -> float:
 			return PROP_COUNT_NORMAL
 
 
-static func stress_gain_mult(tier: int) -> float:
+static func stress_gain_mult(tier: Tier) -> float:
 	match tier:
 		Tier.EASY:
 			return 0.75

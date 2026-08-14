@@ -1,0 +1,15 @@
+﻿# Ağaç / çalı plane’leri — Y-billboard, transparan PNG:
+
+tree_plane_a.png
+tree_plane_b.png
+tree_plane_c.png
+  Dikey ağaç kartları. Öneri yükseklik ~512–1024px, alt kenar gövde.
+
+bush_plane_a.png
+bush_plane_b.png
+  Alçak çalı kartları. Daha geniş, daha kısa.
+
+mushroom_plane_a.png  (opsiyonel)
+  Dekor mantar; kod şimdilik tree/bush okur, sonra eklenir.
+
+Yoksa hub geçici yeşil küre/silindir placeholder kullanır.

@@ -1,0 +1,10 @@
+﻿# Koli — mesh + texture (sadece .mtl yetmez):
+
+box_cardboard_a.obj  (+ box_cardboard_a.png veya kutu1.png)
+box_cardboard_b.obj  (+ box_cardboard_b.png veya kutu2.png)
+box_cardboard_fallen.obj  (+ .png)   opsiyonel yıkık
+
+Alternatif: sadece PNG albedo — oyun BoxMesh üzerine basar.
+GLB/FBX de okunur (aynı stem isimleri).
+
+Oyun her spawn’da varyant / yaw / scale / tint random seçer.

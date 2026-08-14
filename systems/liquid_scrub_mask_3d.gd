@@ -44,8 +44,8 @@ func stamp_world(world_pos: Vector3, radius_m: float, strength: float) -> float:
 	if uv.x < -0.08 or uv.x > 1.08 or uv.y < -0.08 or uv.y > 1.08:
 		return get_wipe_ratio()
 	var radius_uv := clampf(radius_m / maxf(_half_extent * 2.0, 0.01), 0.07, 0.5)
-	var str := clampf(strength, 0.12, 0.62)
-	_paint_uv(uv, radius_uv, str)
+	var strength_amt := clampf(strength, 0.12, 0.62)
+	_paint_uv(uv, radius_uv, strength_amt)
 	_texture.update(_image)
 	if _material != null:
 		_material.set_shader_parameter("scrub_mask", _texture)

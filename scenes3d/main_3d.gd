@@ -2,13 +2,17 @@ extends Node3D
 
 ## Ana 3D oyun — 10 seviye, tempo fazları + mikro-görevler, komedi fizik.
 
-const ARCADE_VOID_SHADER := preload("res://shaders/arcade_tile_void_3d.gdshader")
+const WorldClearUIScript := preload("res://ui/world_clear_ui.gd")
+const LevelCountdownUIScript := preload("res://ui/level_countdown_ui.gd")
+const RoomLayoutScript := preload("res://scenes3d/props/room_layout_3d.gd")
 
 @onready var _player: PlayerCharacter3D = $World/PlayerCharacter
 @onready var _camera_rig: IsometricCameraRig = $IsometricCameraRig
 @onready var _hint: Label = $UI/HintLabel
 @onready var _spawner: GarageClutterSpawner = $World/GarageClutter
 @onready var _floor_mesh: MeshInstance3D = $World/GarageFloor/Mesh
+
+var _room_layout: RoomLayout3D
 
 var _mop_label: Label
 var _vacuum_label: Label
@@ -41,16 +45,25 @@ var _curses: CurseDirector3D
 var _curse_label: Label
 var _hard_mode_btn: Button
 var _diff_btn: Button
-var _difficulty: int = DifficultyProfile3D.Tier.NORMAL
+var _difficulty: DifficultyProfile3D.Tier = DifficultyProfile3D.Tier.NORMAL
 var _score: ScoreTracker3D
 var _score_label: Label
 var _wallet: Wallet3D
 var _lives: Lives3D
+var _scrap_collection: ScrapCollection3D
+var _scrap_director: ScrapDirector3D
+var _scrap_reveal: ScrapRevealUI
+var _menu_scrap_label: Label
+var _pending_scrap_ids: PackedStringArray = []
+var _scrap_revealing: bool = false
 var _coin_label: Label
 var _lives_label: Label
 var _menu_coin_label: Label
 var _menu_lives_label: Label
+var _menu_records_label: Label
 var _result_ui: RunResultUI
+var _world_clear_ui # WorldClearUI (preload)
+var _countdown_ui # LevelCountdownUI (preload)
 var _fail_overlay: Control
 var _tool_bar: HBoxContainer
 var _tool_bar_buttons: Array[Button] = []
@@ -70,13 +83,13 @@ var _save_path := "user://messy3d_progress_v2.cfg"
 var _pending_wallet_coins: int = -1
 var _pending_lives: int = -1
 var _pending_life_coin_progress: int = -1
-var _arcade_void_mat: ShaderMaterial
-var _arcade_void: MeshInstance3D
 var _section_hint: String = ""
 var _tutorial_banner_sticky: bool = false
 var _tutorial_section_busy: bool = false
 var _stop_vignette_active: bool = false
 var _vac_was_full: bool = false
+var _world_run_slot: int = -1
+var _world_run_stats: Dictionary = {}
 @export var task_fail_stress: float = 14.0
 @export var task_success_relief: float = 6.0
 
@@ -92,7 +105,8 @@ func _ready() -> void:
 	if _camera_rig != null and _player != null:
 		_camera_rig.set_follow(_player)
 	_ensure_wall_colliders()
-	_ensure_arcade_void()
+	_ensure_room_layout()
+	_remove_arcade_void()
 	_setup_tempo_and_tasks()
 	_setup_hud()
 	_setup_menu()
@@ -107,7 +121,7 @@ func _ready() -> void:
 		if _player.has_signal("vacuum_bag_changed"):
 			_player.vacuum_bag_changed.connect(_on_vacuum_bag_changed)
 		_player.rinsed.connect(_on_rinsed)
-		_player.carried_changed.connect(func(_h: bool) -> void: _refresh_hint())
+		_player.carried_changed.connect(_on_carried_changed)
 		_player.dance_changed.connect(_on_dance_changed)
 		_player.fx_burst.connect(_on_fx_burst)
 		_player.forbidden_touched.connect(_on_forbidden_touched)
@@ -117,6 +131,10 @@ func _ready() -> void:
 		if _player.has_signal("junk_powerup"):
 			_player.junk_powerup.connect(_on_junk_powerup)
 		_player.wrong_tool_used.connect(_on_wrong_tool)
+		if _player.has_signal("secret_probe"):
+			_player.secret_probe.connect(_on_secret_probe)
+		if _player.has_signal("bag_emptied"):
+			_player.bag_emptied.connect(_on_bag_emptied)
 		if _player.has_signal("status_message"):
 			_player.status_message.connect(_on_player_status_message)
 
@@ -124,7 +142,6 @@ func _ready() -> void:
 		_spawner.spawn_on_ready = false
 		_spawner.objective_changed.connect(_on_objective_changed)
 		_spawner.level_cleared.connect(_on_level_cleared)
-		_spawner.reinforcement_spawned.connect(_on_reinforcement_spawned)
 		_spawner.section_advanced.connect(_on_section_advanced)
 		_spawner.prop_cleared.connect(_on_prop_cleared)
 
@@ -252,6 +269,26 @@ func _setup_tempo_and_tasks() -> void:
 		_wallet.set_balance(_pending_wallet_coins)
 		_pending_wallet_coins = -1
 
+	_scrap_collection = ScrapCollection3D.new()
+	_scrap_collection.name = "ScrapCollection3D"
+	add_child(_scrap_collection)
+	if not _pending_scrap_ids.is_empty():
+		_scrap_collection.load_ids(_pending_scrap_ids)
+		_pending_scrap_ids.clear()
+	_scrap_collection.collection_changed.connect(_on_scrap_collection_changed)
+
+	_scrap_director = ScrapDirector3D.new()
+	_scrap_director.name = "ScrapDirector3D"
+	add_child(_scrap_director)
+	_scrap_director.setup(_scrap_collection, _player, $World as Node3D)
+	_scrap_director.scrap_found.connect(_on_scrap_found)
+
+	_scrap_reveal = ScrapRevealUI.new()
+	_scrap_reveal.name = "ScrapRevealUI"
+	$UI.add_child(_scrap_reveal)
+	_scrap_reveal.closed.connect(_on_scrap_reveal_closed)
+	_scrap_reveal.flight_started.connect(_on_scrap_flight_started)
+
 	_lives = Lives3D.new()
 	_lives.name = "Lives3D"
 	add_child(_lives)
@@ -267,6 +304,15 @@ func _setup_tempo_and_tasks() -> void:
 	_result_ui.name = "RunResultUI"
 	$UI.add_child(_result_ui)
 	_result_ui.closed.connect(_on_result_closed)
+
+	_world_clear_ui = WorldClearUIScript.new()
+	_world_clear_ui.name = "WorldClearUI"
+	$UI.add_child(_world_clear_ui)
+	_world_clear_ui.closed.connect(_on_result_closed)
+
+	_countdown_ui = LevelCountdownUIScript.new()
+	_countdown_ui.name = "LevelCountdownUI"
+	$UI.add_child(_countdown_ui)
 
 	_curse_label = Label.new()
 	_curse_label.name = "CurseLabel"
@@ -340,11 +386,11 @@ func _on_fx_burst(kind: StringName, world_pos: Vector3, strength: float) -> void
 		_camera_rig.shake(clampf(0.28 + strength * 0.18, 0.25, 0.55) if kind == &"suck" else clampf(0.35 + strength * 0.22, 0.35, 0.7))
 
 
-func _spawn_pop(text: String, color: Color = Color(1.0, 0.92, 0.45), font_px: int = 64) -> void:
+func _spawn_pop(pop_text: String, color: Color = Color(1.0, 0.92, 0.45), font_px: int = 64) -> void:
 	if _player == null:
 		return
 	var host: Node = $World if has_node("World") else self
-	FloatingPop3D.spawn(host, _player.global_position, text, color, font_px)
+	FloatingPop3D.spawn(host, _player.global_position, pop_text, color, font_px)
 
 
 func start_level(index: int, daily: bool = false) -> void:
@@ -367,6 +413,14 @@ func start_level(index: int, daily: bool = false) -> void:
 	_pending_next_level = -1
 	_level_index = clampi(index, 0, LevelData3D.level_count() - 1)
 	_level_failing = false
+	if _player != null and _player.has_method("set_control_locked"):
+		_player.call("set_control_locked", false)
+	# Dünya ilk seviyesinde özet sayacı sıfırla
+	var _ws := LevelData3D.world_slot_for_level(_level_index)
+	var _wix := LevelData3D.level_indices_for_world(_ws)
+	if not _wix.is_empty() and _wix[0] == _level_index:
+		_reset_world_run()
+	_ensure_world_run(_level_index)
 	_hide_fail_overlay()
 	_show_menu(false)
 	_section_hint = ""
@@ -378,7 +432,8 @@ func start_level(index: int, daily: bool = false) -> void:
 	if _junk_rain != null:
 		_junk_rain.stop_session()
 	if _player != null:
-		_player.global_position = Vector3(0.0, 0.9, 2.0)
+		var spawn := _room_layout.player_spawn() if _room_layout != null else RoomLayout3D.player_spawn_default()
+		_player.global_position = spawn
 		_player.velocity = Vector3.ZERO
 	if _tempo != null:
 		_tempo.stop_room()
@@ -401,14 +456,20 @@ func start_level(index: int, daily: bool = false) -> void:
 	var spec: Dictionary = {}
 	if _spawner != null:
 		_spawner.prop_difficulty_mult = DifficultyProfile3D.prop_count_mult(_difficulty)
-		spec = _spawner.load_level(_level_index)
-	_apply_theme(spec)
+		spec = _spawner.begin_level(_level_index)
+		_apply_theme(spec)
+		_spawner.populate_from_spec(spec)
+	else:
+		spec = LevelData3D.get_level(_level_index)
+		_apply_theme(spec)
 	var mop_ok := bool(spec.get("allow_mop", true))
 	var dash_charges := LevelData3D.dash_charges_for(_level_index)
 	var unlocked_tools := LevelData3D.unlocked_tools_for(_level_index)
 	var want_flashlight := _is_dark_level(spec)
 	_stop_vignette_active = false
 	_apply_dark_room_lighting(want_flashlight)
+	if _scrap_director != null:
+		_scrap_director.reset_level()
 	if _player != null:
 		_player.configure_for_level(mop_ok, dash_charges, want_flashlight, unlocked_tools)
 		var start_tool := String(spec.get("start_tool", ""))
@@ -440,21 +501,24 @@ func start_level(index: int, daily: bool = false) -> void:
 	if _commission != null:
 		await _commission.present_for_level(spec)
 		# LOW_VISIBILITY / dark — fener + karanlık kesin açık
-		if _player != null and int(_commission.get_current().get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY:
+		if _player != null and (int(_commission.get_current().get("rule", 0)) as CommissionData.Rule) == CommissionData.Rule.LOW_VISIBILITY:
 			_apply_dark_room_lighting(true)
 			_player.set_flashlight_enabled(true)
+
+	# 3-2-1 — tempo/skor başlamadan önce (hareket kilitli)
+	await _play_countdown_locked()
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.05)
 
 	# Tempo + mikro-görev seansı
 	var is_tutorial := bool(spec.get("tutorial_level", false)) or LevelData3D.is_tutorial_level(_level_index)
 	var is_boss := bool(spec.get("is_boss_room", false)) and not is_tutorial
 	var boss_mode := String(spec.get("boss_mode", "")) if not is_tutorial else ""
-	var duration := lerpf(62.0, 48.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
+	var duration := lerpf(90.0, 72.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
 	if is_tutorial:
 		# Çok bölümlü tutorial — tempo ısınması için uzun oda
-		duration = 220.0 if (_spawner != null and _spawner.has_sections()) else 96.0
+		duration = 280.0 if (_spawner != null and _spawner.has_sections()) else 120.0
 	elif is_boss:
-		duration = lerpf(55.0, 70.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
+		duration = lerpf(85.0, 105.0, clampf(float(_level_index) / 9.0, 0.0, 1.0))
 	if _camera_rig != null:
 		_camera_rig.set_finale_zoom(is_boss)
 	if _tempo != null:
@@ -520,7 +584,7 @@ func start_level(index: int, daily: bool = false) -> void:
 			_stress.mistake_multiplier = 0.45
 		elif _commission != null:
 			var c := _commission.get_current()
-			if int(c.get("rule", 0)) == CommissionData.Rule.HIGH_RISK:
+			if (int(c.get("rule", 0)) as CommissionData.Rule) == CommissionData.Rule.HIGH_RISK:
 				_stress.mistake_multiplier = clampf(float(c.get("param", 2.0)), 1.4, 3.0)
 	if _combo != null:
 		_combo.reset()
@@ -868,19 +932,6 @@ func _on_phase_flash(phase: int) -> void:
 			_hint.text = "🔥 SON PATLAMA — emirler sıklaşıyor!"
 
 
-func _on_reinforcement_spawned(count: int) -> void:
-	if count <= 0:
-		return
-	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 0.8)
-	if _particles != null and _player != null:
-		_particles.burst(&"throw", _player.global_position + Vector3(0, 0.5, 0), 0.9)
-	if _hint != null:
-		if LevelData3D.is_tutorial_level(_level_index):
-			_hint.text = "📦 Ekstra koli düştü! (+%d) — tempo ısınması" % count
-		else:
-			_hint.text = "Yeni kir düştü! (+%d)" % count
-
-
 func _on_task_issued(task_type: String, duration: float, color: Color) -> void:
 	# Şekil öneki — renk körü dostu (sadece renge güvenme)
 	var label := "▲ AT!"
@@ -928,9 +979,9 @@ func _on_task_issued(task_type: String, duration: float, color: Color) -> void:
 		_hint.text = "Emir: %s  (%.0fs)" % [label, duration]
 
 
-func _on_player_status_message(text: String) -> void:
-	if _hint != null and not text.is_empty():
-		_hint.text = text
+func _on_player_status_message(msg: String) -> void:
+	if _hint != null and not msg.is_empty():
+		_hint.text = msg
 
 
 func _clear_stop_vignette() -> void:
@@ -1252,14 +1303,30 @@ func _on_task_cleared() -> void:
 		_hint.text = _section_hint
 
 
+func _ensure_room_layout() -> void:
+	var world: Node3D = $World as Node3D
+	if world == null:
+		return
+	_room_layout = world.get_node_or_null("RoomLayout") as RoomLayout3D
+	if _room_layout == null:
+		_room_layout = RoomLayoutScript.new() as RoomLayout3D
+		_room_layout.name = "RoomLayout"
+		world.add_child(_room_layout)
+	if _spawner != null and _spawner.has_method("bind_room_layout"):
+		_spawner.call("bind_room_layout", _room_layout)
+
+
 func _apply_theme(spec: Dictionary) -> void:
 	var floor_c: Color = spec.get("floor", Color(0.34, 0.36, 0.38)) as Color
 	var wall_c: Color = spec.get("wall", Color(0.5, 0.5, 0.5)) as Color
 	var dark_room := _is_dark_level(spec)
+	if _room_layout != null:
+		_room_layout.apply_spec(spec)
+		_apply_room_footprint(_room_layout.half_x(), _room_layout.half_z())
 	if _floor_mesh != null:
 		_floor_mesh.material_override = RoomToonMaterial.make_floor(floor_c, dark_room)
 		_floor_mesh.set_surface_override_material(0, null)
-	_apply_arcade_void(floor_c, spec.get("accent", Color(0.7, 0.5, 0.3)) as Color)
+	_apply_plain_backdrop(floor_c, dark_room)
 	var wall_style := RoomToonMaterial.wall_style_for_spec(spec)
 	var wall_i := 0
 	for wall_name in ["WallBack", "WallLeft"]:
@@ -1270,11 +1337,59 @@ func _apply_theme(spec: Dictionary) -> void:
 		wall_i += 1
 
 
+func _apply_room_footprint(hx: float, hz: float) -> void:
+	## Seviye başına harita boyutu — zemin, duvar mesh/collider hizası
+	var floor_w := hx * 2.0
+	var floor_d := hz * 2.0
+	var floor_body := $World.get_node_or_null("GarageFloor") as StaticBody3D
+	if floor_body != null:
+		var mesh_n := floor_body.get_node_or_null("Mesh") as MeshInstance3D
+		if mesh_n != null:
+			var bm := mesh_n.mesh as BoxMesh
+			if bm == null:
+				bm = BoxMesh.new()
+				mesh_n.mesh = bm
+			bm.size = Vector3(floor_w, 0.2, floor_d)
+		var col_n := floor_body.get_node_or_null("Collision") as CollisionShape3D
+		if col_n != null:
+			var bs := col_n.shape as BoxShape3D
+			if bs == null:
+				bs = BoxShape3D.new()
+				col_n.shape = bs
+			bs.size = Vector3(floor_w, 0.2, floor_d)
+
+	var wall_h := 3.2
+	var back := $World.get_node_or_null("WallBack") as MeshInstance3D
+	if back != null:
+		var wbm := BoxMesh.new()
+		wbm.size = Vector3(floor_w + 0.5, wall_h, 0.28)
+		back.mesh = wbm
+		back.transform = Transform3D.IDENTITY
+		back.position = Vector3(0.0, wall_h * 0.5, -hz - 0.14)
+
+	var left := $World.get_node_or_null("WallLeft") as MeshInstance3D
+	if left != null:
+		var lbm := BoxMesh.new()
+		lbm.size = Vector3(0.28, wall_h, floor_d + 0.5)
+		left.mesh = lbm
+		left.transform = Transform3D.IDENTITY
+		left.position = Vector3(-hx - 0.14, wall_h * 0.5, 0.0)
+
+	var world: Node3D = $World as Node3D
+	if world == null:
+		return
+	var thick := 0.45
+	_add_wall_body(world, "WallColliderBack", Vector3(0, 1.5, -hz - 0.35), Vector3(floor_w + 0.8, 3.2, thick), false)
+	_add_wall_body(world, "WallColliderLeft", Vector3(-hx - 0.35, 1.5, 0), Vector3(thick, 3.2, floor_d + 0.8), false)
+	_add_wall_body(world, "WallColliderRight", Vector3(hx + 0.35, 1.5, 0), Vector3(thick, 3.2, floor_d + 0.8), true)
+	_add_wall_body(world, "WallColliderFront", Vector3(0, 1.5, hz + 0.35), Vector3(floor_w + 0.8, 3.2, thick), true)
+
+
 func _is_dark_level(spec: Dictionary) -> bool:
 	var id := String(spec.get("id", ""))
 	if id == "dark" or id.begins_with("dark_"):
 		return true
-	return int(spec.get("commission", {}).get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY
+	return (int(spec.get("commission", {}).get("rule", 0)) as CommissionData.Rule) == CommissionData.Rule.LOW_VISIBILITY
 
 
 func _apply_dark_room_lighting(on: bool) -> void:
@@ -1306,67 +1421,41 @@ func _apply_dark_room_lighting(on: bool) -> void:
 			env.ambient_light_color = Color(0.04, 0.05, 0.08)
 			env.ambient_light_energy = 0.12
 		else:
-			env_node.queue_free()
+			# Dark dışı: tema gökyüzü; dark: _apply_dark_room_lighting yönetir
+			_apply_plain_backdrop(Color(0.34, 0.36, 0.38), false)
 
 
-func _ensure_arcade_void() -> void:
-	var void_size := Vector3(90.0, 70.0, 90.0)
-	# Sadece duvarlar — zemin/tavan yok
-	var mesh := BeveledBoxMesh.create_walls(void_size, 0.28, 16)
-	if _arcade_void != null and is_instance_valid(_arcade_void):
-		_arcade_void.mesh = mesh
-		_arcade_void.position = Vector3(0.0, 12.0, 0.0)
-		if _arcade_void_mat == null:
-			_arcade_void_mat = _arcade_void.material_override as ShaderMaterial
+func _remove_arcade_void() -> void:
+	var existing := get_node_or_null("ArcadeTileVoid")
+	if existing != null:
+		existing.queue_free()
+
+
+func _apply_plain_backdrop(floor_c: Color, dark_room: bool) -> void:
+	## Gökyüzü yok — dış zemin tonu (oyun alanı dışı ile aynı)
+	_remove_arcade_void()
+	if dark_room:
 		return
-	_arcade_void = MeshInstance3D.new()
-	_arcade_void.name = "ArcadeTileVoid"
-	_arcade_void.mesh = mesh
-	_arcade_void.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_arcade_void.position = Vector3(0.0, 12.0, 0.0)
-	add_child(_arcade_void)
-	_arcade_void_mat = ShaderMaterial.new()
-	_arcade_void_mat.shader = ARCADE_VOID_SHADER
-	_arcade_void.material_override = _arcade_void_mat
-
-
-func _pastelize(c: Color, lift: float = 0.2) -> Color:
-	## Canlı ama aşırı neon olmayan ton — map başına sonra customize edilir.
-	var out := c.lightened(lift)
-	out.s = clampf(out.s * 1.15, 0.28, 0.85)
-	out.v = clampf(out.v, 0.42, 0.88)
-	return out
-
-
-## Arka plan void — pastel değil; doygun + parlak arcade.
-func _vividize(c: Color, sat_mul: float = 1.55, val_lift: float = 0.12) -> Color:
-	var out := c
-	out.s = clampf(out.s * sat_mul, 0.45, 1.0)
-	out.v = clampf(out.v + val_lift, 0.38, 0.98)
-	return out
-
-
-func _apply_arcade_void(theme: Color, accent_fallback: Color) -> void:
-	_ensure_arcade_void()
-	if _arcade_void_mat == null:
-		return
-	var pal: Dictionary = LevelData.arcade_palette(theme)
-	var a := _vividize(pal.get("color_a", theme) as Color, 1.65, 0.18)
-	var b := _vividize(pal.get("color_b", theme.lightened(0.15)) as Color, 1.7, 0.28)
-	var accent := _vividize(pal.get("color_accent", accent_fallback) as Color, 1.45, 0.2)
-	# Karolar arası net fark — pastel yıkama yok
-	b = a.lerp(b, 0.92)
-	b.v = clampf(b.v + 0.08, 0.45, 1.0)
-	accent.s = clampf(accent.s * 1.2, 0.55, 1.0)
-	accent.v = clampf(accent.v + 0.05, 0.55, 1.0)
-	_arcade_void_mat.set_shader_parameter("color_a", a)
-	_arcade_void_mat.set_shader_parameter("color_b", b)
-	_arcade_void_mat.set_shader_parameter("color_accent", accent)
-	_arcade_void_mat.set_shader_parameter("tile_world_size", 2.6)
-	_arcade_void_mat.set_shader_parameter("scroll_speed", float(pal.get("scroll_speed", 0.11)) * 1.35)
-	_arcade_void_mat.set_shader_parameter("diagonal_angle", 0.785398)
-	_arcade_void_mat.set_shader_parameter("pulse_amount", 0.018)
-	_arcade_void_mat.set_shader_parameter("accent_chance", float(pal.get("accent_chance", 0.08)) * 1.1)
+	var env_node := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if env_node == null:
+		env_node = WorldEnvironment.new()
+		env_node.name = "WorldEnvironment"
+		add_child(env_node)
+	var env := env_node.environment
+	if env == null:
+		env = Environment.new()
+		env_node.environment = env
+	var ground := Color(0.16, 0.15, 0.14)
+	if _room_layout != null and _room_layout.has_method("outside_ground_color"):
+		ground = _room_layout.outside_ground_color()
+	else:
+		ground = floor_c.darkened(0.45).lerp(Color(0.16, 0.15, 0.14), 0.55)
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = ground
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.62, 0.64, 0.66)
+	env.ambient_light_energy = 0.5
+	env.fog_enabled = false
 
 
 func _on_objective_changed(remaining: int, total: int) -> void:
@@ -1431,6 +1520,8 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 		get_tree().paused = false
 		process_mode = prev_mode
 		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.05)
+		# Bölümler arası — timer bitene kadar hareket yok
+		await _play_countdown_locked()
 
 	if _banner != null:
 		_banner.show_task(banner, col, subtitle, "")
@@ -1460,6 +1551,21 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 		_hint.text = _section_hint
 	_spawn_pop("Bölüm %d/%d" % [section_index + 1, section_count], col, 56)
 	_tutorial_section_busy = false
+
+
+func _play_countdown_locked() -> void:
+	if _player != null:
+		if _player.has_method("set_control_locked"):
+			_player.call("set_control_locked", true)
+		_player.set_process_unhandled_input(false)
+		_player.velocity = Vector3.ZERO
+	if _countdown_ui != null:
+		await _countdown_ui.play()
+	if _player != null:
+		if _player.has_method("set_control_locked"):
+			_player.call("set_control_locked", false)
+		if not _menu_open and not _level_failing:
+			_player.set_process_unhandled_input(true)
 
 
 func _on_level_cleared() -> void:
@@ -1532,16 +1638,71 @@ func _on_level_cleared() -> void:
 	if _combo != null:
 		_combo.reset()
 
-	if _result_ui != null:
+	_accumulate_world_run(result)
+	var world_finale := (not _daily_mode) and LevelData3D.is_world_finale(_level_index)
+
+	if _particles != null and _player != null:
+		_particles.burst(&"clean", _player.global_position + Vector3(0, 1.2, 0), 1.4)
+		_particles.burst(&"dispose", _player.global_position + Vector3(0.3, 1.0, 0), 1.0)
+	if _camera_rig != null:
+		_camera_rig.shake(0.6)
+
+	# Günlük: seviye sonucu. Kampanya: sadece dünya/bölüm sonunda özet.
+	if _daily_mode and _result_ui != null:
 		result["wallet_total"] = _wallet.get_balance() if _wallet != null else 0
-		_result_ui.present(result, compare, _daily_mode)
-		if _particles != null and _player != null:
-			_particles.burst(&"clean", _player.global_position + Vector3(0, 1.2, 0), 1.4)
-			_particles.burst(&"dispose", _player.global_position + Vector3(0.3, 1.0, 0), 1.0)
-		if _camera_rig != null:
-			_camera_rig.shake(0.6)
+		_result_ui.present(result, compare, true)
+	elif world_finale and _world_clear_ui != null:
+		var slot := LevelData3D.world_slot_for_level(_level_index)
+		var wcmp := DailyChallenge3D.save_world_result(slot, int(_world_run_stats.get("score", 0)))
+		_world_clear_ui.present(slot, _world_run_stats.duplicate(), wcmp)
+		_reset_world_run()
 	else:
+		# Ara seviye — hafif feedback, kayıtlar menüde
+		var earned_show := int(result.get("coins_earned", 0))
+		var sc := int(result.get("score", 0))
+		if bool(compare.get("is_new_best", false)):
+			_spawn_pop("🏆 %d" % sc, Color(1.0, 0.85, 0.35), 72)
+		elif earned_show > 0:
+			_spawn_pop("+%d🪙" % earned_show, Color(1.0, 0.85, 0.35), 64)
+		else:
+			_spawn_pop("Temiz!", Color(0.55, 1.0, 0.7), 64)
+		await get_tree().create_timer(0.55).timeout
 		_on_result_closed()
+
+
+func _reset_world_run() -> void:
+	_world_run_slot = -1
+	_world_run_stats = {}
+
+
+func _ensure_world_run(level_index: int) -> void:
+	var slot := LevelData3D.world_slot_for_level(level_index)
+	if slot != _world_run_slot:
+		_world_run_slot = slot
+		_world_run_stats = {
+			"score": 0,
+			"coins": 0,
+			"max_combo": 0,
+			"disposed": 0,
+			"boxes_carried": 0,
+			"mop_scrubs": 0,
+			"mistakes": 0,
+			"elapsed": 0.0,
+			"levels_cleared": 0,
+		}
+
+
+func _accumulate_world_run(result: Dictionary) -> void:
+	_ensure_world_run(_level_index)
+	_world_run_stats["score"] = int(_world_run_stats.get("score", 0)) + int(result.get("score", 0))
+	_world_run_stats["coins"] = int(_world_run_stats.get("coins", 0)) + int(result.get("coins_earned", 0))
+	_world_run_stats["max_combo"] = maxi(
+		int(_world_run_stats.get("max_combo", 0)), int(result.get("max_combo", 0))
+	)
+	_world_run_stats["disposed"] = int(_world_run_stats.get("disposed", 0)) + int(result.get("disposed", 0))
+	_world_run_stats["mistakes"] = int(_world_run_stats.get("mistakes", 0)) + int(result.get("mistakes", 0))
+	_world_run_stats["elapsed"] = float(_world_run_stats.get("elapsed", 0.0)) + float(result.get("elapsed", 0.0))
+	_world_run_stats["levels_cleared"] = int(_world_run_stats.get("levels_cleared", 0)) + 1
 
 
 func _on_result_closed() -> void:
@@ -1589,7 +1750,7 @@ func _ensure_wall_colliders() -> void:
 	_add_wall_body(world, "WallColliderFront", Vector3(0, 1.5, 6.7), Vector3(18.5, 3.2, 0.45), true)
 
 
-func _add_wall_body(parent: Node3D, wall_name: String, pos: Vector3, size: Vector3, invisible_visual: bool) -> void:
+func _add_wall_body(parent: Node3D, wall_name: String, pos: Vector3, size: Vector3, _invisible_visual: bool) -> void:
 	var body := parent.get_node_or_null(wall_name) as StaticBody3D
 	if body == null:
 		body = StaticBody3D.new()
@@ -1602,18 +1763,7 @@ func _add_wall_body(parent: Node3D, wall_name: String, pos: Vector3, size: Vecto
 		var box := BoxShape3D.new()
 		shape_node.shape = box
 		body.add_child(shape_node)
-		if invisible_visual:
-			var mesh_inst := MeshInstance3D.new()
-			mesh_inst.name = "InvisibleMesh"
-			var mesh := BoxMesh.new()
-			mesh_inst.mesh = mesh
-			var mat := StandardMaterial3D.new()
-			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			mat.albedo_color = Color(0.7, 0.85, 1.0, 0.0)
-			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-			mesh_inst.material_override = mat
-			mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			body.add_child(mesh_inst)
+		# Görsel yok — sadece collider (eski InvisibleMesh ortada gri kutu gibi görünebiliyordu)
 	body.position = pos
 	var col := body.get_node_or_null("Collision") as CollisionShape3D
 	if col == null:
@@ -1627,13 +1777,10 @@ func _add_wall_body(parent: Node3D, wall_name: String, pos: Vector3, size: Vecto
 			box_shape = BoxShape3D.new()
 			col.shape = box_shape
 		box_shape.size = size
+	# Eski InvisibleMesh kalıntısını temizle
 	var invis := body.get_node_or_null("InvisibleMesh") as MeshInstance3D
 	if invis != null:
-		var mesh := invis.mesh as BoxMesh
-		if mesh == null:
-			mesh = BoxMesh.new()
-			invis.mesh = mesh
-		mesh.size = size
+		invis.queue_free()
 
 
 func _setup_hud() -> void:
@@ -1895,6 +2042,7 @@ func _setup_menu() -> void:
 			return
 		start_level(idx)
 	)
+	_world_map.world_changed.connect(_on_menu_world_changed)
 
 	_menu = Control.new()
 	_menu.name = "LevelMenu"
@@ -1945,12 +2093,24 @@ func _setup_menu() -> void:
 	_menu_lives_label.text = "❤️ 3  ·  0/100 → +can"
 	_menu.add_child(_menu_lives_label)
 
+	_menu_scrap_label = Label.new()
+	_menu_scrap_label.name = "MenuScrapLabel"
+	_menu_scrap_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_menu_scrap_label.anchor_right = 1.0
+	_menu_scrap_label.offset_top = 102.0
+	_menu_scrap_label.offset_bottom = 124.0
+	_menu_scrap_label.add_theme_font_size_override("font_size", 16)
+	_menu_scrap_label.add_theme_color_override("font_color", Color(0.7, 0.78, 0.88))
+	_menu_scrap_label.text = "📦 Kayıp eşya 0/12"
+	_menu.add_child(_menu_scrap_label)
+	_refresh_menu_scrap_label()
+
 	var sub := Label.new()
 	sub.text = "3D harita  ·  Q/E seviye · W/S dünya · Space gir"
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.anchor_right = 1.0
-	sub.offset_top = 102.0
-	sub.offset_bottom = 124.0
+	sub.offset_top = 124.0
+	sub.offset_bottom = 146.0
 	sub.add_theme_font_size_override("font_size", 15)
 	sub.add_theme_color_override("font_color", Color(0.75, 0.88, 0.95))
 	_menu.add_child(sub)
@@ -1962,8 +2122,8 @@ func _setup_menu() -> void:
 	_hard_mode_btn.anchor_right = 0.5
 	_hard_mode_btn.offset_left = -200.0
 	_hard_mode_btn.offset_right = 200.0
-	_hard_mode_btn.offset_top = 128.0
-	_hard_mode_btn.offset_bottom = 160.0
+	_hard_mode_btn.offset_top = 150.0
+	_hard_mode_btn.offset_bottom = 182.0
 	_hard_mode_btn.pressed.connect(_toggle_hard_mode)
 	_menu.add_child(_hard_mode_btn)
 	_update_hard_mode_btn()
@@ -1975,8 +2135,8 @@ func _setup_menu() -> void:
 	_diff_btn.anchor_right = 0.5
 	_diff_btn.offset_left = -200.0
 	_diff_btn.offset_right = 200.0
-	_diff_btn.offset_top = 166.0
-	_diff_btn.offset_bottom = 198.0
+	_diff_btn.offset_top = 188.0
+	_diff_btn.offset_bottom = 220.0
 	_diff_btn.pressed.connect(_cycle_difficulty)
 	_menu.add_child(_diff_btn)
 	_update_diff_btn()
@@ -1988,8 +2148,8 @@ func _setup_menu() -> void:
 	daily_btn.anchor_right = 0.5
 	daily_btn.offset_left = -200.0
 	daily_btn.offset_right = 200.0
-	daily_btn.offset_top = 204.0
-	daily_btn.offset_bottom = 236.0
+	daily_btn.offset_top = 226.0
+	daily_btn.offset_bottom = 258.0
 	var d_lv := DailyChallenge3D.todays_level_index(LevelData3D.level_count())
 	daily_btn.text = "📅 %s" % DailyChallenge3D.challenge_title(d_lv)
 	daily_btn.modulate = Color(1.0, 0.8, 0.45)
@@ -2000,15 +2160,33 @@ func _setup_menu() -> void:
 	curse_info.name = "MenuCurseInfo"
 	curse_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	curse_info.anchor_right = 1.0
-	curse_info.offset_top = 242.0
-	curse_info.offset_bottom = 274.0
+	curse_info.offset_top = 264.0
+	curse_info.offset_bottom = 296.0
 	curse_info.add_theme_font_size_override("font_size", 13)
 	curse_info.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5))
 	curse_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_menu.add_child(curse_info)
 	_refresh_menu_curse_info(curse_info)
 
+	# Kayıtlar — seçili dünyanın rekorları (seviye sonu yerine burada)
+	_menu_records_label = Label.new()
+	_menu_records_label.name = "MenuRecordsLabel"
+	_menu_records_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_menu_records_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_menu_records_label.anchor_left = 0.0
+	_menu_records_label.anchor_right = 0.0
+	_menu_records_label.offset_left = 16.0
+	_menu_records_label.offset_right = 320.0
+	_menu_records_label.offset_top = 150.0
+	_menu_records_label.offset_bottom = 290.0
+	_menu_records_label.add_theme_font_size_override("font_size", 13)
+	_menu_records_label.add_theme_color_override("font_color", Color(0.75, 0.82, 0.9))
+	_menu_records_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_menu_records_label.text = "🏆 Kayıtlar"
+	_menu.add_child(_menu_records_label)
+
 	_world_map.setup(_highest_unlocked, -1)
+	_refresh_menu_records(0)
 
 
 func _rebuild_level_buttons() -> void:
@@ -2061,6 +2239,9 @@ func _show_menu(open: bool) -> void:
 			_rebuild_level_buttons()
 			_on_wallet_changed(_wallet.get_balance() if _wallet != null else 0)
 			_refresh_lives_hud()
+			_refresh_menu_scrap_label()
+			if _world_map != null:
+				_refresh_menu_records(_world_map.get_world_slot() if _world_map.has_method("get_world_slot") else 0)
 	# Oyun dünyası ↔ 3D harita
 	if has_node("World"):
 		$World.visible = not open
@@ -2079,14 +2260,14 @@ func _show_menu(open: bool) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-func _set_run_hud_visible(show: bool) -> void:
+func _set_run_hud_visible(hud_on: bool) -> void:
 	if _score_label != null:
-		_score_label.visible = show
+		_score_label.visible = hud_on
 	if _coin_label != null:
-		_coin_label.visible = show
+		_coin_label.visible = hud_on
 	if _lives_label != null:
-		_lives_label.visible = show
-	if show:
+		_lives_label.visible = hud_on
+	if hud_on:
 		_refresh_coin_hud()
 		_refresh_lives_hud()
 
@@ -2167,6 +2348,9 @@ func _on_vacuum_bag_changed(count: int, capacity: int) -> void:
 func _on_rinsed() -> void:
 	if _hint != null:
 		_hint.text = "Paspas temiz!"
+	if _scrap_director != null and _player != null and _player.has_method("is_speed_rushing") \
+			and bool(_player.call("is_speed_rushing")):
+		_scrap_director.try_secret("rush_rinse", _player.global_position)
 
 
 func _refresh_curse_hud() -> void:
@@ -2208,7 +2392,7 @@ func _update_diff_btn() -> void:
 func _cycle_difficulty() -> void:
 	if _map_advancing:
 		return
-	_difficulty = (_difficulty + 1) % 3
+	_difficulty = (((_difficulty as int) + 1) % 3) as DifficultyProfile3D.Tier
 	_update_diff_btn()
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.SWITCH, 1.05)
 
@@ -2253,7 +2437,30 @@ func _refresh_menu_curse_info(label: Label) -> void:
 	label.text = "Bugünün laneti:\n" + "\n".join(parts)
 
 
-func _on_item_disposed(_prop_id: String) -> void:
+func _on_carried_changed(holding: bool) -> void:
+	_refresh_hint()
+	if not holding or _player == null:
+		return
+	if not _player.has_method("get_held_prop"):
+		return
+	var prop = _player.call("get_held_prop")
+	if prop == null:
+		return
+	var pid := ""
+	if prop is ClutterProp:
+		pid = String((prop as ClutterProp).prop_id)
+	elif prop.get("prop_id") != null:
+		pid = String(prop.get("prop_id"))
+	if pid.find("box") < 0:
+		return
+	_ensure_world_run(_level_index)
+	var units := 1
+	if prop.has_method("get_stack_units"):
+		units = maxi(1, int(prop.call("get_stack_units")))
+	_world_run_stats["boxes_carried"] = int(_world_run_stats.get("boxes_carried", 0)) + units
+
+
+func _on_item_disposed(prop_id: String) -> void:
 	if _hint != null:
 		_hint.text = "Atıldı!  ·  devam"
 	if _spawner != null:
@@ -2262,6 +2469,120 @@ func _on_item_disposed(_prop_id: String) -> void:
 		_score.on_dispose()
 	_spawn_pop("+40", Color(0.55, 1.0, 0.65), 68)
 	_refresh_hint()
+	var pos := _player.global_position if _player != null else Vector3.ZERO
+	if _scrap_director != null:
+		_scrap_director.on_prop_cleaned(prop_id, pos)
+		if _player != null and _player.has_method("is_dancing") and bool(_player.call("is_dancing")):
+			_scrap_director.try_secret("dance_dispose", pos)
+	# Paspasla biten sıvı/leke
+	match prop_id:
+		"wet", "slime", "potion", "boss_slime":
+			_ensure_world_run(_level_index)
+			_world_run_stats["mop_scrubs"] = int(_world_run_stats.get("mop_scrubs", 0)) + 1
+
+
+func _on_secret_probe(secret_id: String, world_pos: Vector3) -> void:
+	if _scrap_director != null:
+		_scrap_director.try_secret(secret_id, world_pos)
+
+
+func _on_bag_emptied(_dumped: int, was_full: bool, world_pos: Vector3) -> void:
+	if was_full and _scrap_director != null:
+		_scrap_director.try_secret("empty_full_bag", world_pos)
+
+
+func _on_scrap_found(scrap_id: String, is_new: bool, world_pos: Vector3) -> void:
+	_save_progress()
+	_refresh_menu_scrap_label()
+	if _scrap_revealing:
+		return
+	_scrap_revealing = true
+	var info := ScrapCatalog.by_id(scrap_id)
+	var icon := String(info.get("icon", "📦"))
+	var accent := Color(0.55, 0.7, 0.9) if is_new else Color(0.55, 0.62, 0.7)
+	if _particles != null:
+		_particles.burst(&"clean", world_pos + Vector3(0, 0.45, 0), 0.55)
+	# 1) Elde tut + dön (carry)
+	var from_screen := get_viewport().get_visible_rect().size * 0.5
+	var start_yaw := 0.0
+	if _player != null and _player.has_method("play_scrap_hold"):
+		_player.set_process_unhandled_input(false)
+		_player.call("play_scrap_hold", icon, accent)
+		await _player.scrap_hold_ui_ready
+		var cam: Camera3D = null
+		if _camera_rig != null and _camera_rig.has_node("Camera3D"):
+			cam = _camera_rig.get_node("Camera3D") as Camera3D
+		if cam != null and _player.has_method("get_scrap_hold_screen_pos"):
+			from_screen = _player.call("get_scrap_hold_screen_pos", cam) as Vector2
+		if _player.has_method("get_scrap_spin_y"):
+			start_yaw = float(_player.call("get_scrap_spin_y"))
+	# 2) Kesintisiz UI geçişi — dönüş devam eder, pencere soft belirir
+	var resume_pause := get_tree().paused
+	get_tree().paused = true
+	var found := _scrap_collection.found_count() if _scrap_collection != null else 1
+	var total := ScrapCatalog.count()
+	if _scrap_reveal != null:
+		if not _scrap_reveal.seated.is_connected(_on_scrap_ui_seated):
+			_scrap_reveal.seated.connect(_on_scrap_ui_seated, CONNECT_ONE_SHOT)
+		# El, flight_started'da gizlenir (aynı karede uçuş kopyası görünür)
+		_scrap_reveal.present_seamless(scrap_id, found, total, is_new, from_screen, start_yaw)
+		await _scrap_reveal.closed
+	_finish_scrap_reveal(resume_pause)
+
+
+func _on_scrap_flight_started() -> void:
+	if _player != null and _player.has_method("set_scrap_hold_visible"):
+		_player.call("set_scrap_hold_visible", false)
+
+
+func _on_scrap_ui_seated() -> void:
+	# Item UI'ye oturdu — eldeki kopya kaybolur (map zaten temiz)
+	if _player != null:
+		if _player.has_method("set_scrap_hold_visible"):
+			_player.call("set_scrap_hold_visible", false)
+		if _player.has_method("clear_scrap_hold"):
+			_player.call("clear_scrap_hold")
+
+
+func _on_scrap_reveal_closed() -> void:
+	if _scrap_revealing and (_scrap_reveal == null or not _scrap_reveal.visible):
+		_finish_scrap_reveal(false)
+
+
+func _finish_scrap_reveal(resume_pause: bool = false) -> void:
+	_scrap_revealing = false
+	get_tree().paused = resume_pause
+	if _player != null:
+		if _player.has_method("clear_scrap_hold"):
+			_player.call("clear_scrap_hold")
+		if not _menu_open:
+			_player.set_process_unhandled_input(true)
+	_refresh_menu_scrap_label()
+
+
+func _on_scrap_collection_changed(_found: int, _total: int) -> void:
+	_refresh_menu_scrap_label()
+
+
+func _refresh_menu_scrap_label() -> void:
+	if _menu_scrap_label == null:
+		return
+	var found := _scrap_collection.found_count() if _scrap_collection != null else 0
+	var total := ScrapCatalog.count()
+	_menu_scrap_label.text = "📦 Kayıp eşya %d/%d" % [found, total]
+
+
+func _on_menu_world_changed(world_slot: int) -> void:
+	_refresh_menu_records(world_slot)
+
+
+func _refresh_menu_records(world_slot: int) -> void:
+	if _menu_records_label == null:
+		return
+	var icon := LevelData3D.world_icon(world_slot)
+	var title := LevelData3D.world_title(world_slot)
+	var body := DailyChallenge3D.world_records_summary(world_slot)
+	_menu_records_label.text = "🏆 %s %s\n%s" % [icon, title, body]
 
 
 func _on_prop_cleared() -> void:
@@ -2317,6 +2638,9 @@ func _on_junk_eaten(world_pos: Vector3) -> void:
 			_hint.text = "Afiyet! Şişiyorsun… (3. yemede power-up)"
 		else:
 			_hint.text = "Afiyet! Şişiyorsun… power-up'a %d abur cubur" % (_player.junk_powerup_every - prog)
+	if _scrap_director != null and _player != null and _player.has_method("is_dancing") \
+			and bool(_player.call("is_dancing")):
+		_scrap_director.try_secret("dance_junk", world_pos)
 
 
 func _on_junk_powerup(kind: StringName) -> void:
@@ -2360,7 +2684,7 @@ func _on_floor_scrubbed(world_pos: Vector3) -> void:
 		_hazards.notify_scrub_cleaned(world_pos)
 	if _hint != null:
 		_hint.text = "Zemin kaygan — dikkat!"
-	# Micro-shake clean fx_burst'ten gelir; ekstra confetti yok
+	# mop_scrubs: item_disposed (wet/slime/…) üzerinden — çift sayım yok
 
 
 func _on_hazard_slippery(_world_pos: Vector3) -> void:
@@ -2403,11 +2727,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Seviye seçim menüsü / fail / sonuç / kart — Esc ile ölü sahneye dönme
 	if _boot_on_title:
 		return
+	if _scrap_revealing:
+		return
 	if _menu_open:
 		return
 	if _level_failing:
 		return
 	if _result_ui != null and _result_ui.visible:
+		return
+	if _world_clear_ui != null and _world_clear_ui.visible:
+		return
+	if _countdown_ui != null and _countdown_ui.visible:
 		return
 	if _commission_card != null and _commission_card.visible:
 		return
@@ -2484,7 +2814,7 @@ func _toggle_game_pause() -> void:
 
 
 func _set_game_paused(on: bool) -> void:
-	if on and (_menu_open or _level_failing or _boot_on_title):
+	if on and (_menu_open or _level_failing or _boot_on_title or _scrap_revealing):
 		return
 	_game_paused = on
 	_ensure_pause_overlay()
@@ -2521,6 +2851,13 @@ func _load_progress() -> void:
 		_pending_life_coin_progress = clampi(
 			int(cfg.get_value("lives", "coin_progress", 0)), 0, Lives3D.COINS_PER_LIFE - 1
 		)
+		var scrap_var: Variant = cfg.get_value("scraps", "found", PackedStringArray())
+		if scrap_var is PackedStringArray:
+			_pending_scrap_ids = scrap_var
+		elif scrap_var is Array:
+			_pending_scrap_ids = PackedStringArray()
+			for x in scrap_var as Array:
+				_pending_scrap_ids.append(String(x))
 	else:
 		_pending_lives = Lives3D.START_LIVES
 		_pending_life_coin_progress = 0
@@ -2531,6 +2868,9 @@ func _load_progress() -> void:
 		_lives.set_state(_pending_lives, maxi(0, _pending_life_coin_progress))
 		_pending_lives = -1
 		_pending_life_coin_progress = -1
+	if _scrap_collection != null and not _pending_scrap_ids.is_empty():
+		_scrap_collection.load_ids(_pending_scrap_ids)
+		_pending_scrap_ids.clear()
 
 
 func _save_progress() -> void:
@@ -2553,4 +2893,10 @@ func _save_progress() -> void:
 		prog = maxi(0, _pending_life_coin_progress)
 	cfg.set_value("lives", "count", lives_n)
 	cfg.set_value("lives", "coin_progress", prog)
+	var scrap_ids: PackedStringArray = PackedStringArray()
+	if _scrap_collection != null:
+		scrap_ids = _scrap_collection.save_ids()
+	elif not _pending_scrap_ids.is_empty():
+		scrap_ids = _pending_scrap_ids
+	cfg.set_value("scraps", "found", scrap_ids)
 	cfg.save(_save_path)

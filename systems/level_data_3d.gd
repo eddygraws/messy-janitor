@@ -16,6 +16,10 @@ const CHAPTER_PROP_MULT_MAX := 2.0
 const SETPIECE_COUNT_CAP_MULT := 1.2 ## tv / painting / boss — oda şişmesin
 const SETPIECE_TYPES: Array[String] = ["tv", "tv_repair", "painting", "boss_slime"]
 
+## Oda süresi (RoomTimer) çarpanı — gametime uzatma ana anahtarı.
+const LEVEL_TIME_MULT := 1.55
+const LEVEL_TIME_FLOOR := 42.0 ## challenge/climax için minimum sn
+
 
 static func level_count() -> int:
 	return _all().size()
@@ -155,6 +159,15 @@ static func world_slot_for_level(level_index: int) -> int:
 	return 0
 
 
+## Bu seviye dünyanın / bölümün son seviyesi mi? (stat ekranı burada)
+static func is_world_finale(level_index: int) -> bool:
+	var slot := world_slot_for_level(level_index)
+	var indices := level_indices_for_world(slot)
+	if indices.is_empty():
+		return false
+	return indices[indices.size() - 1] == level_index
+
+
 static func is_level_unlocked(level_index: int, highest_unlocked: int) -> bool:
 	return (level_index + 1) <= highest_unlocked
 
@@ -234,7 +247,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 		match tier:
 			0:
 				props = _scale_props(focus, 0.45 * ch_prop_m)
-				time_lim = base_time + 12.0
+				time_lim = base_time + 18.0
 				subtitle = "Yeni: %s" % String(ch.get("new_mechanic", "öğren"))
 				intro = "Bu bölümün temeli: %s. Sakin başla." % String(ch.get("new_mechanic", "mekanik"))
 				hint = String(ch.get("hint_intro", ch.get("tutorial", "")))
@@ -245,7 +258,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				allow_junk = false
 			1:
 				props = _scale_props(focus, 0.7 * ch_prop_m)
-				time_lim = base_time + 6.0
+				time_lim = base_time + 10.0
 				subtitle = "Alıştırma · %s" % TIER_LABELS[tier]
 				intro = "Aynı mekaniği biraz daha yoğun tekrarla."
 				hint = String(ch.get("hint_filler", ch.get("tutorial", "")))
@@ -255,7 +268,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 					_scale_props(focus, 0.75 * ch_prop_m),
 					_scale_props(filler, 0.85 * ch_prop_m)
 				)
-				time_lim = base_time
+				time_lim = base_time + 4.0
 				subtitle = "Karışık pratik"
 				intro = "Önceki kirler de karışıyor — tempo tut."
 				hint = String(ch.get("hint_mixed", "Öncelik tut · alet değiştir"))
@@ -265,7 +278,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 					_scale_props(focus, 1.0 * ch_prop_m),
 					_scale_props(filler, 1.0 * ch_prop_m)
 				)
-				time_lim = maxf(28.0, base_time - 6.0)
+				time_lim = maxf(LEVEL_TIME_FLOOR, base_time - 2.0)
 				subtitle = "Zorluk artıyor"
 				intro = String(ch.get("challenge_intro", "Daha sıkı süre · daha çok kir."))
 				hint = String(ch.get("hint_challenge", ch.get("tutorial", "")))
@@ -276,7 +289,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				commission_desc = String(ch.get("challenge_desc", intro))
 			4:
 				props = _scale_props(climax, 1.0 * ch_prop_m)
-				time_lim = maxf(30.0, base_time - 4.0)
+				time_lim = maxf(LEVEL_TIME_FLOOR + 4.0, base_time)
 				subtitle = String(ch.get("climax_subtitle", "Bölüm doruğu"))
 				intro = String(ch.get("climax_intro", ch.get("intro", "Doruk turu.")))
 				hint = String(ch.get("hint_climax", ch.get("tutorial", "")))
@@ -290,6 +303,12 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				disable_micro = tier < int(ch.get("micro_from_tier", 1))
 				disable_pressure = tier < int(ch.get("pressure_from_tier", 2))
 				allow_junk = bool(ch.get("allow_junk", true)) and tier >= int(ch.get("junk_from_tier", 1))
+
+		# Global gametime çarpanı
+		if time_lim > 0.0:
+			time_lim = maxf(LEVEL_TIME_FLOOR * 0.85, time_lim * LEVEL_TIME_MULT)
+		if rule == CommissionData.Rule.TIME_LIMIT:
+			rule_param = time_lim
 
 		# Karanlık bölüm: tüm kademelerde fener konisi maskesi
 		if id_base == "dark":

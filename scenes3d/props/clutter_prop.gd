@@ -648,27 +648,47 @@ func _append_box_layers(count: int, start_y: float) -> void:
 	var pivot := get_node_or_null("Pivot") as Node3D
 	if pivot == null:
 		pivot = self
-	var base_mat: Material = null
-	for child in pivot.get_children():
-		if child is MeshInstance3D:
-			base_mat = (child as MeshInstance3D).material_override
-			break
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
 	for i in count:
+		var pick: Dictionary = PropCatalog3D.pick_box(rng, false)
+		var xform: Dictionary = PropCatalog3D.roll_box_xform(rng)
 		var mesh_inst := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(0.72, BOX_LAYER_H, 0.72)
-		mesh_inst.mesh = mesh
-		if base_mat != null:
-			mesh_inst.material_override = base_mat.duplicate() if base_mat is ShaderMaterial else base_mat
+		var custom: Mesh = pick.get("mesh") as Mesh
+		if custom != null:
+			mesh_inst.mesh = custom
+			var aabb := custom.get_aabb()
+			var sz := aabb.size
+			if sz.x > 0.001:
+				var uni := minf(0.72 / sz.x, minf(BOX_LAYER_H / sz.y, 0.72 / sz.z))
+				mesh_inst.scale = Vector3.ONE * uni
 		else:
-			mesh_inst.material_override = HitWobbleMaterial.create(
-				Color(0.62, 0.5, 0.34), 0.95, Color.BLACK, 0.0, 0.07)
+			var mesh := BoxMesh.new()
+			mesh.size = Vector3(0.72, BOX_LAYER_H, 0.72)
+			mesh_inst.mesh = mesh
+		var tex: Texture2D = pick.get("texture") as Texture2D
+		if tex != null:
+			mesh_inst.material_override = HitWobbleMaterial.create_textured(
+				tex, xform.get("tint", Color.WHITE) as Color, 0.94, 0.07
+			)
+		else:
+			var base_mat: Material = null
+			for child in pivot.get_children():
+				if child is MeshInstance3D:
+					base_mat = (child as MeshInstance3D).material_override
+					break
+			if base_mat != null:
+				mesh_inst.material_override = base_mat.duplicate() if base_mat is ShaderMaterial else base_mat
+			else:
+				mesh_inst.material_override = HitWobbleMaterial.create(
+					Color(0.62, 0.5, 0.34), 0.95, Color.BLACK, 0.0, 0.07)
 		mesh_inst.position = Vector3(
 			randf_range(-0.05, 0.05),
 			start_y + BOX_LAYER_H * 0.5 + float(i) * (BOX_LAYER_H * 0.92),
 			randf_range(-0.05, 0.05)
 		)
-		mesh_inst.rotation.y = randf_range(-0.1, 0.1)
+		var flip_x := PI if custom != null else 0.0
+		mesh_inst.rotation = Vector3(flip_x, randf_range(-0.1, 0.1), 0.0)
 		pivot.add_child(mesh_inst)
 		register_wobble_mesh(mesh_inst)
 
@@ -714,10 +734,10 @@ func begin_carry(holder: Node3D) -> bool:
 	_disable_collisions()
 	_world_parent = get_parent()
 	reparent(holder, false)
-	# Origin kutu tabanı — eller üstte, hold point'e yapışık
-	var hold_y := -get_stack_top_y() * 0.82
-	if hold_y > -0.2:
-		hold_y = -0.35
+	# Origin kutu tabanı — üst katman ellerin biraz altında
+	var hold_y := -get_stack_top_y() * 0.48
+	if hold_y > -0.15:
+		hold_y = -0.22
 	position = Vector3(0.0, hold_y, 0.0)
 	rotation = Vector3.ZERO
 	if _anim_root != null:
@@ -948,7 +968,7 @@ func clear_vis_mask() -> void:
 
 
 ## Kürek / paspas vuruşu — shader vertex wobble + kısa sarsıntı.
-func apply_hit(hit_pos: Vector3, hit_dir: Vector3, strength: float = 1.0, tool: String = "mop") -> void:
+func apply_hit(_hit_pos: Vector3, hit_dir: Vector3, strength: float = 1.0, tool: String = "mop") -> void:
 	if _destroying or _carried or _throwing:
 		return
 	if is_junk_food or repair_taps_needed > 0:

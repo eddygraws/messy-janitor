@@ -39,9 +39,9 @@ func _apply_full_rect() -> void:
 	var vp := get_viewport()
 	if vp != null:
 		var r := vp.get_visible_rect().size
-		custom_minimum_size = r
-		size = r
-		position = Vector2.ZERO
+		set_deferred("custom_minimum_size", r)
+		set_deferred("size", r)
+		set_deferred("position", Vector2.ZERO)
 
 
 func _build() -> void:

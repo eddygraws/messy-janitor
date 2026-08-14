@@ -21,6 +21,10 @@ signal status_message(text: String)
 signal junk_eaten(world_pos: Vector3)
 signal junk_powerup(kind: StringName) ## &"speed_rush" | &"scene_sweep"
 signal wrong_tool_used(needed: String)
+signal secret_probe(secret_id: String, world_pos: Vector3)
+signal bag_emptied(dumped: int, was_full: bool, world_pos: Vector3)
+signal scrap_hold_finished
+signal scrap_hold_ui_ready ## Elde tutuyor + dönüyor — UI geçişine hazır
 
 @export var move_speed: float = 6.4
 @export var carry_speed_mult: float = 0.68 ## Tek kutu — bilinçli yavaşlatma
@@ -103,7 +107,7 @@ const BUCKET_GROUP := &"BucketStation"
 ## Bakış yönüne göre sol-ön; kutuyu karakterin solunda taşır
 const HOLD_RIGHT := -0.30
 const HOLD_FORWARD := 0.52
-const HOLD_Y := -0.20
+const HOLD_Y := 0.42 ## Göğüs / el hizası — kutular alçak kalmasın
 
 enum ToolKind { MOP, BROOM, BRUSH, SPRAY, TWEEZERS }
 
@@ -172,6 +176,23 @@ var _vacuum_active: bool = false
 var _vacuum_hum_cd: float = 0.0
 var _vacuum_bag: int = 0
 var _vacuum_pulse_t: float = 0.0
+var _scrap_hold_root: Node3D
+var _scrap_holding: bool = false
+var _scrap_spin_y: float = 0.0
+var _scrap_spinning: bool = false
+var _control_locked: bool = false
+
+
+func set_control_locked(on: bool) -> void:
+	_control_locked = on
+	if on:
+		velocity = Vector3.ZERO
+		_bump_vel = Vector3.ZERO
+		_dash_time = 0.0
+
+
+func is_control_locked() -> bool:
+	return _control_locked
 
 
 func set_floor_slip(amount: float) -> void:
@@ -472,6 +493,26 @@ func _physics_process(delta: float) -> void:
 	_update_comedy_visuals(delta)
 	_update_janitor_anim()
 
+	# Countdown / bölüm arası — hareket ve etkileşim yok
+	if _control_locked:
+		velocity = Vector3.ZERO
+		_bump_vel = Vector3.ZERO
+		_dash_time = 0.0
+		move_and_slide()
+		_update_motion_signals()
+		return
+
+	# Kayıp eşya tutuş — hareket yok; elde sürekli dönüş
+	if _scrap_holding:
+		if _scrap_spinning and _scrap_hold_root != null and is_instance_valid(_scrap_hold_root):
+			_scrap_spin_y += delta * 4.2
+			_scrap_hold_root.rotation.y = _scrap_spin_y
+		velocity = Vector3.ZERO
+		_bump_vel = Vector3.ZERO
+		move_and_slide()
+		_update_motion_signals()
+		return
+
 	# Emir fail sendeleme
 	if _fail_stun > 0.0:
 		velocity.x = _bump_vel.x
@@ -516,6 +557,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _control_locked or _scrap_holding:
+		return
 	if event.is_action_pressed("dance"):
 		_toggle_dance()
 		return
@@ -802,6 +845,12 @@ func _find_prop_from(node: Node) -> ClutterProp:
 
 func _update_janitor_anim() -> void:
 	if _janitor == null or not _janitor.is_ready_visual():
+		return
+	if _scrap_holding:
+		if _janitor.has_method("force_loco"):
+			_janitor.call("force_loco", &"carry", 1.0)
+		elif _janitor.has_anim(&"carry"):
+			_janitor.play_loco(&"carry", 1.0)
 		return
 	if _janitor.is_oneshot():
 		return
@@ -1169,6 +1218,9 @@ func _try_interact() -> void:
 		var scrub := _find_scrub_target()
 		if scrub != null:
 			if not scrub.can_interact_with(get_tool_name()):
+				# Easter egg: küfe sprey
+				if active_tool == ToolKind.SPRAY and scrub.prop_id in ["mold", "hidden"]:
+					secret_probe.emit("spray_mold", scrub.global_position)
 				_wrong_tool(scrub.required_tool if not scrub.required_tool.is_empty() else "mop")
 				return
 			_mash_scrub(scrub)
@@ -1187,6 +1239,9 @@ func _try_interact() -> void:
 
 	# Tablo / TV tamir — herhangi alet (fırça L5+ önerilir)
 	if prop.is_repair_target():
+		# Easter egg: tabloya cımbız
+		if prop.is_painting and active_tool == ToolKind.TWEEZERS:
+			secret_probe.emit("tweezers_painting", prop.global_position)
 		var done := prop.apply_repair_tap()
 		_swing_cooldown = 0.12
 		_snap_face(prop.global_position - global_position)
@@ -1623,6 +1678,7 @@ func _add_vacuum_bag(amount: int = 1) -> void:
 func _empty_vacuum_bag(zone: Node3D) -> void:
 	if _vacuum_bag <= 0:
 		return
+	var was_full := _vacuum_bag >= vacuum_bag_capacity
 	var dumped := _vacuum_bag
 	_vacuum_bag = 0
 	_refresh_vacuum_bag_visual()
@@ -1636,6 +1692,7 @@ func _empty_vacuum_bag(zone: Node3D) -> void:
 	fx_burst.emit(&"clean", at + Vector3(0.2, 0.1, 0), 0.9)
 	status_message.emit("Torba boşaltıldı (−%d)" % dumped)
 	_squash = Vector3(1.1, 0.9, 1.1)
+	bag_emptied.emit(dumped, was_full, at)
 
 
 func get_vacuum_bag_fill() -> float:
@@ -1867,14 +1924,14 @@ func _refresh_vacuum_tool_visual() -> void:
 	_ensure_vacuum_visuals()
 	if _vacuum_rig == null:
 		return
-	var show := active_tool == ToolKind.BROOM and unlocked_tool_count >= 2
-	_vacuum_rig.visible = show
-	if not show:
+	var show_vac := active_tool == ToolKind.BROOM and unlocked_tool_count >= 2
+	_vacuum_rig.visible = show_vac
+	if not show_vac:
 		if _vacuum_sector != null:
 			_vacuum_sector.visible = false
 		if _vacuum_sector_rim != null:
 			_vacuum_sector_rim.visible = false
-	if show:
+	if show_vac:
 		var pulse := 1.0 + (0.03 if _vacuum_active else 0.0) * sin(Time.get_ticks_msec() * 0.035)
 		_vacuum_rig.scale = Vector3.ONE * pulse
 		_refresh_vacuum_bag_visual()
@@ -1957,10 +2014,10 @@ func _aim_vacuum_sector() -> void:
 	if _vacuum_sector_rim != null:
 		_vacuum_sector_rim.visible = true
 	var origin := Vector3(global_position.x, 0.0, global_position.z)
-	var basis := Basis.looking_at(fwd, Vector3.UP)
-	_vacuum_sector.global_transform = Transform3D(basis, origin)
+	var look_basis := Basis.looking_at(fwd, Vector3.UP)
+	_vacuum_sector.global_transform = Transform3D(look_basis, origin)
 	if _vacuum_sector_rim != null:
-		_vacuum_sector_rim.global_transform = Transform3D(basis, origin)
+		_vacuum_sector_rim.global_transform = Transform3D(look_basis, origin)
 	# Nabız — doluyken kırmızımsı
 	var pulse := 0.18 + 0.08 * absf(sin(_vacuum_pulse_t * 5.5))
 	if _vacuum_sector_mat != null:
@@ -2178,8 +2235,145 @@ func get_aim_direction() -> Vector3:
 	return _aim_direction()
 
 
+func is_dancing() -> bool:
+	return _dancing
+
+
+func is_speed_rushing() -> bool:
+	return _speed_rush_t > 0.0
+
+
+func is_scrap_holding() -> bool:
+	return _scrap_holding
+
+
+## Elde tut (carry) + akıcı dönüş; kısa süre sonra UI geçişine hazır.
+func play_scrap_hold(icon: String = "📦", accent: Color = Color(0.55, 0.65, 0.78)) -> void:
+	if _scrap_holding:
+		_clear_scrap_hold()
+	_scrap_holding = true
+	_scrap_spinning = true
+	_scrap_spin_y = 0.0
+	_rinsing = false
+	if _dancing:
+		_dancing = false
+		dance_changed.emit(false)
+	_release_vacuum()
+	_squash = Vector3(1.12, 0.92, 1.12)
+	_hop_y = 0.12
+	_place_hold_point()
+	_ensure_scrap_hold_visual(icon, accent)
+	if _janitor != null and _janitor.is_ready_visual():
+		if _janitor.has_method("force_loco"):
+			_janitor.call("force_loco", &"carry", 1.0)
+		elif _janitor.has_anim(&"carry"):
+			_janitor.play_loco(&"carry", 1.0)
+	_play_sfx(PrototypeSfx.Kind.TASK_OK, 1.0)
+	var root := _scrap_hold_root
+	if root == null:
+		_scrap_holding = false
+		_scrap_spinning = false
+		scrap_hold_ui_ready.emit()
+		scrap_hold_finished.emit()
+		return
+	root.visible = true
+	root.scale = Vector3(0.15, 0.15, 0.15)
+	root.position = Vector3.ZERO
+	root.rotation = Vector3.ZERO
+	var tw := create_tween()
+	tw.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	# Büyü + dönerek elde tut
+	tw.tween_property(root, "scale", Vector3(1.25, 1.25, 1.25), 0.35)\
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(0.35)
+	tw.tween_callback(func() -> void:
+		scrap_hold_ui_ready.emit()
+	)
+
+
+func get_scrap_hold_screen_pos(cam: Camera3D) -> Vector2:
+	if cam == null:
+		return Vector2.ZERO
+	var gp := global_position + Vector3(0, 1.1, 0)
+	if _hold_point != null and is_instance_valid(_hold_point):
+		gp = _hold_point.global_position
+	elif _scrap_hold_root != null and is_instance_valid(_scrap_hold_root):
+		gp = _scrap_hold_root.global_position
+	if cam.is_position_behind(gp):
+		return get_viewport().get_visible_rect().size * 0.5
+	return cam.unproject_position(gp)
+
+
+func get_scrap_spin_y() -> float:
+	return _scrap_spin_y
+
+
+func set_scrap_hold_visible(on: bool) -> void:
+	if _scrap_hold_root != null and is_instance_valid(_scrap_hold_root):
+		_scrap_hold_root.visible = on
+
+
+func clear_scrap_hold() -> void:
+	_clear_scrap_hold()
+
+
+func _ensure_scrap_hold_visual(icon: String, accent: Color) -> void:
+	if _scrap_hold_root != null and is_instance_valid(_scrap_hold_root):
+		_scrap_hold_root.queue_free()
+		_scrap_hold_root = null
+	_scrap_hold_root = Node3D.new()
+	_scrap_hold_root.name = "ScrapHold"
+	# Carry pozu: elde / hold point
+	if _hold_point != null and is_instance_valid(_hold_point):
+		_hold_point.add_child(_scrap_hold_root)
+	else:
+		add_child(_scrap_hold_root)
+
+	var box := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.32, 0.22, 0.38)
+	box.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = accent.darkened(0.15)
+	mat.emission_enabled = true
+	mat.emission = accent
+	mat.emission_energy_multiplier = 0.55
+	box.material_override = mat
+	_scrap_hold_root.add_child(box)
+
+	var tape := MeshInstance3D.new()
+	var strip := BoxMesh.new()
+	strip.size = Vector3(0.34, 0.05, 0.1)
+	tape.mesh = strip
+	tape.position = Vector3(0, 0.02, 0)
+	var tmat := StandardMaterial3D.new()
+	tmat.albedo_color = Color(0.78, 0.58, 0.28)
+	tape.material_override = tmat
+	_scrap_hold_root.add_child(tape)
+
+	var lab := Label3D.new()
+	lab.text = icon
+	lab.font_size = 64
+	lab.pixel_size = 0.014
+	lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lab.position = Vector3(0, 0.28, 0)
+	_scrap_hold_root.add_child(lab)
+
+
+func _clear_scrap_hold() -> void:
+	_scrap_holding = false
+	_scrap_spinning = false
+	if _scrap_hold_root != null and is_instance_valid(_scrap_hold_root):
+		_scrap_hold_root.queue_free()
+	_scrap_hold_root = null
+
+
 func is_holding() -> bool:
 	return _held != null
+
+
+func get_held_prop() -> ClutterProp:
+	return _held
 
 
 func get_mop_dirt() -> float:

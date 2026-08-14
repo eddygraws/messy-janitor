@@ -207,7 +207,7 @@ func _generate_endless_room(index: int) -> Node2D:
 
 
 func _endless_unlocked(index: int) -> int:
-	return clampi(1 + index / 2, 1, 5)
+	return clampi(1 + int(index / 2.0), 1, 5)
 
 
 func _apply_endless_difficulty(index: int) -> void:

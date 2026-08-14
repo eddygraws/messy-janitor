@@ -121,6 +121,13 @@ func play_loco(anim_name: StringName, custom_speed: float = 1.0) -> void:
 	_lock_model_xz()
 
 
+## Oneshot'ı kesip loco oynat (scrap reveal / zorla pose).
+func force_loco(anim_name: StringName, custom_speed: float = 1.0) -> void:
+	_oneshot_gen += 1
+	_oneshot = false
+	play_loco(anim_name, custom_speed)
+
+
 ## Dash — oneshot: hareket bitsa bile anim bitene kadar kesilmez.
 ## custom_speed < 0 → uzunluğu doğal / hafif sıkıştırılmış oynat.
 func play_dash(custom_speed: float = -1.0) -> void:
@@ -156,7 +163,7 @@ func _play_oneshot(anim_key: StringName, speed: float) -> void:
 	_ap.speed_scale = speed
 	_ap.play(_anim_path(anim_key))
 	_lock_model_xz()
-	var cb := func(finished_name: StringName) -> void:
+	var cb := func(_finished_name: StringName) -> void:
 		if gen != _oneshot_gen:
 			return
 		_oneshot = false
@@ -182,6 +189,7 @@ func _spawn_model() -> bool:
 	add_child(_model)
 	_model.rotation = Vector3(0.0, yaw_offset, 0.0)
 	_strip_imported_lights_and_cameras(_model)
+	_strip_orphan_world_meshes(_model)
 
 	_skeleton = _find_skeleton(_model)
 	_ensure_anim_player()
@@ -205,6 +213,35 @@ func _strip_imported_lights_and_cameras(root: Node) -> void:
 	for n in to_free:
 		n.get_parent().remove_child(n)
 		n.free()
+
+
+## Skin'siz / skeleton dışı Cube mesh'ler dünya orijininde gri kutu olarak kalır.
+func _strip_orphan_world_meshes(root: Node) -> void:
+	var to_free: Array[Node] = []
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D:
+			var mi := n as MeshInstance3D
+			var under_skel := _is_descendant_of_skeleton(mi)
+			var skinned := mi.skin != null or not mi.skeleton.is_empty()
+			if not under_skel and not skinned:
+				to_free.append(mi)
+		for c in n.get_children():
+			stack.append(c)
+	for n in to_free:
+		if is_instance_valid(n) and n.get_parent() != null:
+			n.get_parent().remove_child(n)
+			n.free()
+
+
+func _is_descendant_of_skeleton(node: Node) -> bool:
+	var p := node.get_parent()
+	while p != null:
+		if p is Skeleton3D:
+			return true
+		p = p.get_parent()
+	return false
 
 
 func _ensure_anim_player() -> void:

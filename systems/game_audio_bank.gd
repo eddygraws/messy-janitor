@@ -67,7 +67,7 @@ static func _music_file(layer: int, pcm: PackedByteArray) -> AudioStreamWAV:
 		if loaded != null:
 			loaded.loop_mode = AudioStreamWAV.LOOP_FORWARD
 			loaded.loop_begin = 0
-			loaded.loop_end = int(loaded.data.size() / 2)
+			loaded.loop_end = int(loaded.data.size() / 2.0)
 			return loaded
 	_save_wav_file(path, pcm, 22050)
 	return _pcm_to_stream(pcm, 22050, true)
@@ -82,7 +82,7 @@ static func _pcm_to_stream(pcm: PackedByteArray, rate: int, loop: bool) -> Audio
 	if loop:
 		s.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		s.loop_begin = 0
-		s.loop_end = int(pcm.size() / 2)
+		s.loop_end = int(pcm.size() / 2.0)
 	return s
 
 

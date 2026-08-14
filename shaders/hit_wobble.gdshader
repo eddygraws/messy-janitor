@@ -4,6 +4,8 @@ render_mode diffuse_lambert, specular_disabled;
 // Toon lighting + hit wobble. Outline ayrı next_pass (mesh_outline.gdshader).
 
 uniform vec4 albedo_color : source_color = vec4(0.22, 0.21, 0.2, 1.0);
+uniform sampler2D albedo_tex : source_color, hint_default_white;
+uniform bool use_albedo_tex = false;
 uniform float roughness : hint_range(0.0, 1.0) = 0.88;
 uniform vec3 emission_color : source_color = vec3(0.0, 0.0, 0.0);
 uniform float emission_energy : hint_range(0.0, 3.0) = 0.0;
@@ -37,11 +39,15 @@ void vertex() {
 }
 
 void fragment() {
-	ALBEDO = albedo_color.rgb;
+	vec4 alb = albedo_color;
+	if (use_albedo_tex) {
+		alb *= texture(albedo_tex, UV);
+	}
+	ALBEDO = alb.rgb;
 	ROUGHNESS = roughness;
 	METALLIC = 0.0;
 	// Ambient fill — toon'da düz alanlar boğulmasın
-	EMISSION = albedo_color.rgb * ambient_boost;
+	EMISSION = alb.rgb * ambient_boost;
 	if (emission_energy > 0.001) {
 		EMISSION += emission_color * emission_energy;
 	}

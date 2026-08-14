@@ -10,7 +10,6 @@ const PATH_SLIME := "res://textures/stains/slime_stain.png"
 
 signal objective_changed(remaining: int, total: int)
 signal level_cleared
-signal reinforcement_spawned(count: int)
 signal section_advanced(section_index: int, section_count: int, section: Dictionary)
 signal prop_cleared
 
@@ -29,12 +28,17 @@ var _tempo: TempoPhaseDirector
 var _sections: Array = []
 var _section_index: int = 0
 var _painting_spawn_i: int = 0
+var _layout: RoomLayout3D
 
 
 func _ready() -> void:
 	_rng.randomize()
 	if spawn_on_ready:
 		load_level(0)
+
+
+func bind_room_layout(layout: RoomLayout3D) -> void:
+	_layout = layout
 
 
 func bind_tempo(tempo: TempoPhaseDirector) -> void:
@@ -64,6 +68,15 @@ func load_level(index: int) -> Dictionary:
 	return spec
 
 
+## Layout/footprint apply_spec'ten sonra çağır; index + scale burada.
+func begin_level(index: int) -> Dictionary:
+	_level_index = index
+	var spec: Dictionary = LevelData3D.get_level(index)
+	if not bool(spec.get("tutorial_level", false)):
+		spec = LevelData3D.apply_runtime_prop_scale(spec, prop_difficulty_mult)
+	return spec
+
+
 func populate_from_spec(spec: Dictionary) -> void:
 	_cleared = false
 	_level_spec = spec.duplicate(true)
@@ -76,11 +89,11 @@ func populate_from_spec(spec: Dictionary) -> void:
 
 	var stations: Array = spec.get("stations", ["trash", "bucket"]) as Array
 	if "trash" in stations:
-		_add_trash_bin(Vector3(0.0, 0.0, 5.8))
+		_add_trash_bin(_station_pos("trash"))
 	if "bucket" in stations:
-		_add_bucket_station(Vector3(-3.6, 0.0, 5.6))
+		_add_bucket_station(_station_pos("bucket"))
 	if "drain" in stations:
-		_add_drain(Vector3(3.6, 0.0, 5.8))
+		_add_drain(_station_pos("drain"))
 
 	_reset_placed_anchors()
 	var props: Array = _props_for_current_section()
@@ -272,33 +285,62 @@ func _clear_children() -> void:
 		c.queue_free()
 
 
+func _station_pos(kind: String) -> Vector3:
+	if _layout != null:
+		match kind:
+			"trash":
+				return _layout.station_trash()
+			"bucket":
+				return _layout.station_bucket()
+			"drain":
+				return _layout.station_drain()
+	match kind:
+		"trash":
+			return RoomLayout3D.station_trash_default()
+		"bucket":
+			return RoomLayout3D.station_bucket_default()
+		"drain":
+			return RoomLayout3D.station_drain_default()
+	return Vector3.ZERO
+
+
 func _reset_placed_anchors() -> void:
-	_placed = [
-		Vector3(0, 0, 5.8), Vector3(-3.6, 0, 5.6), Vector3(3.6, 0, 5.8), Vector3(0, 0, 2.0)
-	]
-	_placed_clear = [1.45, 1.45, 1.45, 1.7]
+	_placed.clear()
+	_placed_clear.clear()
+	if _layout != null:
+		for a in _layout.get_blocked_anchors():
+			_placed.append(a.get("pos", Vector3.ZERO) as Vector3)
+			_placed_clear.append(float(a.get("clear", 1.2)))
+	else:
+		_placed = [
+			RoomLayout3D.station_trash_default(),
+			RoomLayout3D.station_bucket_default(),
+			RoomLayout3D.station_drain_default(),
+			Vector3(0, 0, 2.0),
+		]
+		_placed_clear = [1.5, 1.45, 1.45, 1.7]
 
 
 func _clearance_for(type: String) -> float:
 	match type:
 		"wet":
-			return 3.2
+			return 2.6
 		"slime":
-			return 3.35
+			return 2.7
 		"potion":
-			return 3.05
+			return 2.55
 		"boss_slime":
-			return 4.2
+			return 3.4
 		"box":
-			return 1.1
+			return 1.05
 		"tv", "tv_repair":
-			return 1.45
+			return 1.35
 		"painting":
 			return 0.85
 		"crumb", "tiny", "mold", "hidden", "crust", "dust":
-			return 0.75
+			return 0.7
 		_:
-			return 1.05
+			return 1.0
 
 
 func _commit_placed(pos: Vector3, clear_r: float) -> void:
@@ -307,10 +349,17 @@ func _commit_placed(pos: Vector3, clear_r: float) -> void:
 
 
 func _free_pos(clear_r: float = 1.05) -> Vector3:
-	var best := Vector3.ZERO
+	var best := Vector3(999.0, 0.0, 999.0)
 	var best_pen := INF
-	for _try in 90:
-		var p := Vector3(_rng.randf_range(-6.6, 6.6), 0.0, _rng.randf_range(-4.2, 3.4))
+	for _try in 100:
+		var p: Vector3
+		if _layout != null:
+			p = _layout.random_spawn_point(_rng)
+		else:
+			p = Vector3(_rng.randf_range(-6.6, 6.6), 0.0, _rng.randf_range(-4.2, 3.4))
+		# Oyuncu spawn / merkez koridor çekirdeği
+		if Vector2(p.x, p.z - 2.0).length() < 1.15:
+			continue
 		var pen := 0.0
 		var ok := true
 		for i in _placed.size():
@@ -324,9 +373,10 @@ func _free_pos(clear_r: float = 1.05) -> Vector3:
 		if pen < best_pen:
 			best_pen = pen
 			best = p
-	# Sığmazsa en az çakışanı koy (nadiren)
-	if best_pen < INF:
+	if best_pen < INF and best.length_squared() > 0.5:
 		return best
+	if _layout != null:
+		return _layout.random_spawn_point(_rng)
 	return Vector3(_rng.randf_range(-4.5, 4.5), 0.0, _rng.randf_range(-2.5, 2.0))
 
 
@@ -336,10 +386,14 @@ func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
 			if fallen:
 				_add_single_box(pos, Vector3(0.3, 0.2, 0.4), true)
 			else:
-				var mn := int(_level_spec.get("box_stack_min", 1))
-				var mx := int(_level_spec.get("box_stack_max", 3))
-				mx = maxi(mn, mx)
-				_add_box_stack(pos, _rng.randi_range(mn, mx), _rng.randf_range(-0.4, 0.4))
+				# Ara sıra tek yıkık koli (asset varsa katalog da tercih eder)
+				if _rng.randf() < 0.14:
+					_add_single_box(pos, Vector3.ZERO, true)
+				else:
+					var mn := int(_level_spec.get("box_stack_min", 1))
+					var mx := int(_level_spec.get("box_stack_max", 3))
+					mx = maxi(mn, mx)
+					_add_box_stack(pos, _rng.randi_range(mn, mx), _rng.randf_range(-PI, PI))
 		"tv":
 			_add_broken_tv(pos, _rng.randf_range(-1.0, 1.0), _rng.randf() > 0.65)
 		"tv_repair":
@@ -575,7 +629,7 @@ func _load_stain_tex(path: String) -> Texture2D:
 	return load(path) as Texture2D
 
 
-func _add_box_stack(pos: Vector3, count: int, yaw: float, scale: Vector3 = Vector3.ONE) -> void:
+func _add_box_stack(pos: Vector3, count: int, yaw: float, mesh_scale: Vector3 = Vector3.ONE) -> void:
 	var root := ClutterPropScript.new()
 	root.name = "BoxStack"
 	root.prop_id = "box_stack"
@@ -589,7 +643,7 @@ func _add_box_stack(pos: Vector3, count: int, yaw: float, scale: Vector3 = Vecto
 	root.react_distance = 2.8
 	root.position = pos
 	root.rotation.y = yaw
-	root.scale = scale
+	root.scale = mesh_scale
 	root.set_meta("objective", true)
 	root.set_meta("deliver_to", "trash")
 	root.set_meta("immune_mop", true)
@@ -605,27 +659,40 @@ func _add_box_stack(pos: Vector3, count: int, yaw: float, scale: Vector3 = Vecto
 	body.collision_mask = 0
 	pivot.add_child(body)
 
-	var mat: ShaderMaterial = HitWobbleMaterial.create(Color(0.62, 0.5, 0.34), 0.95, Color.BLACK, 0.0, 0.07)
 	var box_h := ClutterProp.BOX_LAYER_H
+	var max_extent := 0.36
 	for i in count:
+		var pick: Dictionary = PropCatalog3D.pick_box(_rng, false)
+		var xform: Dictionary = PropCatalog3D.roll_box_xform(_rng)
 		var mesh_inst := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(0.72, box_h, 0.72)
-		mesh_inst.mesh = mesh
-		mesh_inst.material_override = mat.duplicate() as ShaderMaterial
+		var layer_mesh := _make_box_layer_mesh(pick, xform, box_h)
+		mesh_inst.mesh = layer_mesh
+		mesh_inst.material_override = _make_box_material(pick, xform)
+		_fit_prop_mesh(mesh_inst, Vector3(0.72, box_h, 0.72), pick.get("mesh") != null)
+		var sj: Vector3 = xform.get("size_jitter", Vector3.ONE)
+		var off: Vector3 = xform.get("offset", Vector3.ZERO)
 		mesh_inst.position = Vector3(
-			_rng.randf_range(-0.04, 0.04),
-			box_h * 0.5 + i * (box_h * 0.92),
-			_rng.randf_range(-0.04, 0.04)
+			off.x + _rng.randf_range(-0.03, 0.03),
+			box_h * 0.5 * sj.y + i * (box_h * 0.92),
+			off.z + _rng.randf_range(-0.03, 0.03)
 		)
-		mesh_inst.rotation.y = _rng.randf_range(-0.08, 0.08)
+		# GLB/OBJ kutular Blender’dan ters geliyor — stack’te 180° düzelt
+		var flip_x := PI if pick.get("mesh") != null else 0.0
+		mesh_inst.rotation = Vector3(
+			flip_x + float(xform.get("tilt_x", 0.0)),
+			float(xform.get("yaw", 0.0)) * 0.15 + _rng.randf_range(-0.1, 0.1),
+			float(xform.get("tilt_z", 0.0))
+		)
+		var s := float(xform.get("scale", 1.0))
+		mesh_inst.scale *= Vector3(s * sj.x, s * sj.y, s * sj.z)
+		max_extent = maxf(max_extent, 0.36 * mesh_inst.scale.x)
 		pivot.add_child(mesh_inst)
 		root.register_wobble_mesh(mesh_inst)
 
 	# Tek ayak izi — mesh tabanına yakın (görsel ↔ bump)
 	var shape := CollisionShape3D.new()
 	var cyl := CylinderShape3D.new()
-	cyl.radius = 0.34
+	cyl.radius = max_extent
 	cyl.height = maxf(0.45, box_h * float(count) * 0.85)
 	shape.shape = cyl
 	shape.position = Vector3(0.0, cyl.height * 0.5, 0.0)
@@ -659,23 +726,80 @@ func _add_single_box(pos: Vector3, rot: Vector3, fallen: bool = false) -> void:
 	body.collision_mask = 0
 	pivot.add_child(body)
 
+	var pick: Dictionary = PropCatalog3D.pick_box(_rng, fallen)
+	var xform: Dictionary = PropCatalog3D.roll_box_xform(_rng)
 	var mesh_inst := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.78, 0.48, 0.78)
-	mesh_inst.mesh = mesh
-	mesh_inst.material_override = HitWobbleMaterial.create(
-		Color(0.52, 0.42, 0.3) if fallen else Color(0.62, 0.5, 0.34), 0.95, Color.BLACK, 0.0, 0.08)
-	mesh_inst.position = Vector3(0, 0.24 if not fallen else 0.2, 0)
+	var box_h := 0.48 if fallen else ClutterProp.BOX_LAYER_H
+	mesh_inst.mesh = _make_box_layer_mesh(pick, xform, box_h, 0.78)
+	mesh_inst.material_override = _make_box_material(pick, xform, fallen)
+	_fit_prop_mesh(mesh_inst, Vector3(0.78, box_h, 0.78), pick.get("mesh") != null)
+	var s := float(xform.get("scale", 1.0))
+	var sj: Vector3 = xform.get("size_jitter", Vector3.ONE)
+	mesh_inst.position = Vector3(0, (0.2 if fallen else 0.24) * sj.y, 0)
+	mesh_inst.scale *= Vector3(s * sj.x, s * sj.y, s * sj.z)
+	if pick.get("mesh") != null and not fallen and not bool(pick.get("fallen", false)):
+		mesh_inst.rotation.x += PI
 	pivot.add_child(mesh_inst)
 	root.register_wobble_mesh(mesh_inst)
-	pivot.rotation = rot
+
+	if fallen or bool(pick.get("fallen", false)):
+		pivot.rotation = Vector3(
+			deg_to_rad(_rng.randf_range(70.0, 95.0)),
+			float(xform.get("yaw", 0.0)),
+			deg_to_rad(_rng.randf_range(-18.0, 18.0))
+		)
+	else:
+		pivot.rotation = rot
+		pivot.rotation.y += float(xform.get("yaw", 0.0)) * 0.35
 
 	var shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
-	box_shape.size = mesh.size * 0.9
+	box_shape.size = Vector3(0.72, box_h, 0.72) * mesh_inst.scale * 0.9
 	shape.shape = box_shape
 	shape.position = mesh_inst.position
 	body.add_child(shape)
+
+
+func _make_box_layer_mesh(
+	pick: Dictionary,
+	xform: Dictionary,
+	box_h: float,
+	base_xz: float = 0.72,
+) -> Mesh:
+	var custom: Mesh = pick.get("mesh") as Mesh
+	if custom != null:
+		return custom
+	var mesh := BoxMesh.new()
+	var sj: Vector3 = xform.get("size_jitter", Vector3.ONE)
+	mesh.size = Vector3(base_xz * sj.x, box_h * sj.y, base_xz * sj.z)
+	return mesh
+
+
+func _make_box_material(
+	pick: Dictionary,
+	xform: Dictionary,
+	fallen: bool = false,
+) -> ShaderMaterial:
+	var tex: Texture2D = pick.get("texture") as Texture2D
+	var tint: Color = xform.get("tint", Color.WHITE)
+	if fallen:
+		tint = tint.darkened(0.08)
+	if tex != null:
+		return HitWobbleMaterial.create_textured(tex, tint, 0.94, 0.07)
+	var base := Color(0.52, 0.42, 0.3) if fallen else Color(0.62, 0.5, 0.34)
+	return HitWobbleMaterial.create(base * tint, 0.95, Color.BLACK, 0.0, 0.07)
+
+
+## Blender OBJ/GLB ölçüleri oyun kutusu AABB’sine sığdır (sadece scale).
+func _fit_prop_mesh(mi: MeshInstance3D, target: Vector3, is_custom: bool) -> void:
+	if mi == null or mi.mesh == null or not is_custom:
+		return
+	var aabb := mi.mesh.get_aabb()
+	var sz := aabb.size
+	if sz.x < 0.001 or sz.y < 0.001 or sz.z < 0.001:
+		return
+	var uni := minf(target.x / sz.x, minf(target.y / sz.y, target.z / sz.z))
+	mi.scale = Vector3.ONE * uni
 
 
 func _add_broken_tv(pos: Vector3, yaw: float, on_side: bool = false) -> void:
@@ -986,11 +1110,13 @@ func _add_crooked_painting(force_wall: String = "") -> void:
 	pivot.add_child(tag)
 
 	# Odaya doğru yerleştir (duvarın iç yüzü)
+	var hx := _layout.half_x() if _layout != null else 8.5
+	var hz := _layout.half_z() if _layout != null else 6.0
 	if on_back:
-		root.position = Vector3(_rng.randf_range(-4.5, 4.5), 1.85, -6.15)
+		root.position = Vector3(_rng.randf_range(-hx * 0.55, hx * 0.55), 1.85, -hz + 0.35)
 		root.rotation.y = 0.0
 	else:
-		root.position = Vector3(-8.35, 1.85, _rng.randf_range(-3.2, 3.2))
+		root.position = Vector3(-hx + 0.35, 1.85, _rng.randf_range(-hz * 0.55, hz * 0.55))
 		root.rotation.y = deg_to_rad(-90.0)
 
 	add_child(root)

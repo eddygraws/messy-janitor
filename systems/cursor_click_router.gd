@@ -342,13 +342,13 @@ func _query_cleanables(pos: Vector2) -> Array[CleanableObject]:
 
 # Panik VE Riskli Temizlik modunda hitbox merkeze doğru daralır -> isabet zorlaşır.
 func _scaled_hitbox(rect: Rect2) -> Rect2:
-	var scale := _hitbox_scale
+	var hit_scale := _hitbox_scale
 	if _risk != null:
-		scale = minf(scale, _risk.get_hitbox_scale())
-	if scale >= 0.999:
+		hit_scale = minf(hit_scale, _risk.get_hitbox_scale())
+	if hit_scale >= 0.999:
 		return rect
 	var center := rect.get_center()
-	var size := rect.size * scale
+	var size := rect.size * hit_scale
 	return Rect2(center - size * 0.5, size)
 
 

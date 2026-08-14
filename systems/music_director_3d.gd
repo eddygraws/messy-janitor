@@ -370,10 +370,10 @@ func get_phase() -> int:
 	return _phase
 
 
-func _apply_pitch(scale: float) -> void:
-	_pitch_current = scale
+func _apply_pitch(pitch: float) -> void:
+	_pitch_current = pitch
 	for p in _layers:
-		p.pitch_scale = scale
+		p.pitch_scale = pitch
 
 
 func _build_loop(layer: int) -> AudioStreamWAV:

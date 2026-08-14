@@ -9,12 +9,39 @@ signal world_changed(world_slot: int)
 signal advance_finished(level_index: int)
 
 const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
+const CURVE_SHADER := preload("res://shaders/map_world_curve.gdshader")
+const PATH_CURVE_SHADER := preload("res://shaders/map_path_curve.gdshader")
+const OUTLINE_SHADER := preload("res://shaders/mesh_outline.gdshader")
 
 const PATH_SPACING := 3.2
 const NODE_Y := 0.18
 const WALK_SPEED := 5.2 ## birimler / sn — node arası yürüyüş
 const NODE_PEDESTAL_R := 0.28
 const NODE_GEM_R := 0.20
+const CURVE_STRENGTH := 0.016
+const CURVE_MAX_DROP := 16.0
+
+## Asset paths — senin dosya isimlerinle eşleşir
+const PATH_MAP_BG := "res://assets/map/forest/map_bg_forest.png"
+const PATH_MAP_HORIZON := "res://assets/map/forest/map_horizon_forest.png"
+const PATH_MAP_GROUND := "res://assets/map/forest/map_ground_forest.png"
+const PATH_TREE := [
+	"res://assets/props/foliage/tree_plane_a.png",
+	"res://assets/props/foliage/tree_plane_b.png",
+	"res://assets/props/foliage/tree_plane_c.png",
+]
+const PATH_BUSH := [
+	"res://assets/props/foliage/bush_plane_a.png",
+	"res://assets/props/foliage/bush_plane_b.png",
+]
+const PATH_ROCK := [
+	"res://assets/props/rocks/rock_a.png",
+	"res://assets/props/rocks/rock_b.png",
+]
+const PATH_BOX := [
+	"res://assets/props/boxes/box_cardboard_a.png",
+	"res://assets/props/boxes/box_cardboard_b.png",
+]
 
 var _highest_unlocked: int = 1
 var _world_slot: int = 0
@@ -28,10 +55,14 @@ var _auto_advancing: bool = false
 var _wallet_coins: int = 0
 
 var _ground: MeshInstance3D
-var _ground_mat: StandardMaterial3D
+var _ground_mat: ShaderMaterial
+var _horizon: MeshInstance3D
+var _horizon_mat: StandardMaterial3D
 var _hills_root: Node3D
 var _decor_root: Node3D
+var _foliage_root: Node3D
 var _path_mesh: MeshInstance3D
+var _path_mat: ShaderMaterial
 var _nodes_root: Node3D
 var _pawn: Node3D
 var _janitor: JanitorVisual
@@ -51,10 +82,14 @@ var _move_tween: Tween
 var _bounce_tween: Tween
 var _walking: bool = false
 var _game_camera: Camera3D
+var _curve_mats: Array[ShaderMaterial] = []
+var _cliff: MeshInstance3D
+var _decor_rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	_decor_rng.randomize()
 	_sfx = AudioStreamPlayer.new()
 	_sfx.bus = &"Master"
 	_sfx.volume_db = -6.0
@@ -201,42 +236,75 @@ func _default_world_for_progress() -> int:
 
 
 func _build_world() -> void:
+	_curve_mats.clear()
+
 	_sun = DirectionalLight3D.new()
 	_sun.light_energy = 1.05
 	_sun.shadow_enabled = true
-	_sun.rotation_degrees = Vector3(-48, 35, 0)
+	_sun.rotation_degrees = Vector3(-52, 28, 0)
 	add_child(_sun)
 
+	# Subdivided plane — vertex curve için gerekli
 	_ground = MeshInstance3D.new()
-	var ground_mesh := BoxMesh.new()
-	ground_mesh.size = Vector3(42, 0.25, 22)
+	_ground.name = "Ground"
+	var ground_mesh := PlaneMesh.new()
+	ground_mesh.size = Vector2(56, 36)
+	ground_mesh.subdivide_width = 48
+	ground_mesh.subdivide_depth = 32
 	_ground.mesh = ground_mesh
-	_ground_mat = StandardMaterial3D.new()
-	_ground_mat.albedo_color = Color(0.22, 0.48, 0.26)
-	_ground_mat.roughness = 0.92
+	_ground_mat = _make_curve_mat(Color(0.22, 0.48, 0.26), PATH_MAP_GROUND, 8.0, false)
 	_ground.material_override = _ground_mat
-	_ground.position = Vector3(0, -0.12, 0)
+	_ground.position = Vector3(0, 0.0, 0)
 	add_child(_ground)
+
+	# Kenar uçurum şeridi (eğri zeminle birlikte aşağı düşer)
+	_cliff = MeshInstance3D.new()
+	_cliff.name = "CliffRim"
+	var cliff_mesh := PlaneMesh.new()
+	cliff_mesh.size = Vector2(58, 10)
+	cliff_mesh.subdivide_width = 40
+	cliff_mesh.subdivide_depth = 8
+	_cliff.mesh = cliff_mesh
+	var cliff_mat := _make_curve_mat(Color(0.35, 0.28, 0.18), "", 1.0, false)
+	_cliff.material_override = cliff_mat
+	_cliff.position = Vector3(0, -0.4, -14.0)
+	_cliff.rotation_degrees.x = -18.0
+	add_child(_cliff)
 
 	_hills_root = Node3D.new()
 	_hills_root.name = "Hills"
 	add_child(_hills_root)
-	for i in 6:
+	for i in 7:
 		var hill := MeshInstance3D.new()
 		var hm := SphereMesh.new()
-		hm.radius = 2.2 + float(i % 3) * 0.4
-		hm.height = hm.radius * 1.1
+		hm.radius = 2.0 + float(i % 3) * 0.45
+		hm.height = hm.radius * 1.05
+		hm.radial_segments = 16
+		hm.rings = 8
 		hill.mesh = hm
-		hill.material_override = StandardMaterial3D.new()
-		hill.position = Vector3(-16.0 + float(i) * 6.5, -0.8, -7.5 - float(i % 2) * 1.5)
+		var hmat := _make_curve_mat(Color(0.18, 0.4, 0.22), "", 1.0, true)
+		hill.material_override = hmat
+		hill.position = Vector3(-18.0 + float(i) * 6.0, -0.6, -8.0 - float(i % 2) * 1.8)
 		_hills_root.add_child(hill)
+
+	_build_horizon()
 
 	_decor_root = Node3D.new()
 	_decor_root.name = "ThemeDecor"
 	add_child(_decor_root)
 
+	_foliage_root = Node3D.new()
+	_foliage_root.name = "Foliage"
+	add_child(_foliage_root)
+
 	_path_mesh = MeshInstance3D.new()
 	_path_mesh.name = "PathRibbon"
+	_path_mat = ShaderMaterial.new()
+	_path_mat.shader = PATH_CURVE_SHADER
+	_path_mat.set_shader_parameter("curve_strength", CURVE_STRENGTH)
+	_path_mat.set_shader_parameter("curve_max_drop", CURVE_MAX_DROP)
+	_curve_mats.append(_path_mat)
+	_path_mesh.material_override = _path_mat
 	add_child(_path_mesh)
 
 	_nodes_root = Node3D.new()
@@ -267,18 +335,423 @@ func _build_world() -> void:
 
 	_camera = Camera3D.new()
 	_camera.name = "MapCamera"
-	_camera.fov = 42.0
+	_camera.fov = 38.0
 	_camera.current = false
 	_cam_env = Environment.new()
 	_cam_env.background_mode = Environment.BG_COLOR
-	_cam_env.background_color = Color(0.45, 0.72, 0.95)
+	_cam_env.background_color = Color(0.55, 0.78, 0.95)
 	_cam_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	_cam_env.ambient_light_color = Color(0.55, 0.65, 0.75)
-	_cam_env.ambient_light_energy = 0.6
+	_cam_env.ambient_light_color = Color(0.62, 0.72, 0.55)
+	_cam_env.ambient_light_energy = 0.65
+	_cam_env.fog_enabled = true
+	_cam_env.fog_light_color = Color(0.72, 0.85, 0.95)
+	_cam_env.fog_density = 0.012
+	_cam_env.fog_aerial_perspective = 0.35
 	_camera.environment = _cam_env
 	add_child(_camera)
 	_palette = _palette_for_world(0)
 	_apply_palette_visuals()
+	_rebuild_foliage()
+
+
+func _make_curve_mat(col: Color, tex_path: String = "", uv_scale: float = 6.0, with_outline: bool = true) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = CURVE_SHADER
+	mat.set_shader_parameter("albedo_color", col)
+	mat.set_shader_parameter("curve_strength", CURVE_STRENGTH)
+	mat.set_shader_parameter("curve_max_drop", CURVE_MAX_DROP)
+	mat.set_shader_parameter("uv_scale", uv_scale)
+	mat.set_shader_parameter("roughness", 0.92)
+	var tex := _try_load_tex(tex_path)
+	if tex != null:
+		mat.set_shader_parameter("albedo_tex", tex)
+		mat.set_shader_parameter("use_texture", true)
+	else:
+		mat.set_shader_parameter("use_texture", false)
+	if with_outline:
+		_attach_outline(mat, 0.028)
+	_curve_mats.append(mat)
+	return mat
+
+
+func _make_curve_mat_tex(col: Color, tex: Texture2D = null, uv_scale: float = 1.0) -> ShaderMaterial:
+	## Sadece zemin / cliff / tepe — prop’larda kullanma (UV kaybı).
+	var mat := ShaderMaterial.new()
+	mat.shader = CURVE_SHADER
+	mat.set_shader_parameter("albedo_color", col)
+	mat.set_shader_parameter("curve_strength", CURVE_STRENGTH)
+	mat.set_shader_parameter("curve_max_drop", CURVE_MAX_DROP)
+	mat.set_shader_parameter("uv_scale", uv_scale)
+	mat.set_shader_parameter("roughness", 0.92)
+	if tex != null:
+		mat.set_shader_parameter("albedo_tex", tex)
+		mat.set_shader_parameter("use_texture", true)
+	else:
+		mat.set_shader_parameter("use_texture", false)
+	_attach_outline(mat, 0.03)
+	_curve_mats.append(mat)
+	return mat
+
+
+## Prop material — StandardMaterial (curve shader sampler/UV sorununu bypass)
+func _make_prop_mat(col: Color, tex: Texture2D = null, outline_w: float = 0.03) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color.WHITE if tex != null else col
+	if tex != null:
+		m.albedo_texture = tex
+	m.roughness = 0.9
+	m.metallic = 0.0
+	_attach_outline(m, outline_w)
+	return m
+
+
+func _ensure_mesh_outline(mi: MeshInstance3D, width: float) -> void:
+	if mi == null:
+		return
+	if mi.material_override != null:
+		_attach_outline(mi.material_override, width)
+		return
+	if mi.mesh == null:
+		return
+	for si in mi.mesh.get_surface_count():
+		var mat := mi.get_active_material(si)
+		if mat == null:
+			mat = mi.mesh.surface_get_material(si)
+		if mat == null:
+			continue
+		var dup := mat.duplicate()
+		_attach_outline(dup, width)
+		mi.set_surface_override_material(si, dup)
+
+
+func _snap_node_to_ground(node: Node3D, ground_y: float = 0.0) -> void:
+	if node == null:
+		return
+	var aabb := AABB()
+	var first := true
+	var meshes: Array = []
+	if node is MeshInstance3D:
+		meshes.append(node)
+	meshes.append_array(node.find_children("*", "MeshInstance3D", true, false))
+	for n in meshes:
+		var mi := n as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		var a: AABB = mi.global_transform * mi.mesh.get_aabb()
+		if first:
+			aabb = a
+			first = false
+		else:
+			aabb = aabb.merge(a)
+	if first:
+		return
+	node.global_position.y += ground_y - aabb.position.y
+
+
+## GLB sahnesini koruyarak spawn (gömülü material kalır).
+func _try_spawn_packed_prop(
+	parent: Node3D,
+	pick: Dictionary,
+	pos: Vector3,
+	xform: Dictionary,
+	target_size: float,
+	flip_x: float = 0.0,
+) -> bool:
+	var packed: PackedScene = pick.get("scene") as PackedScene
+	if packed == null or parent == null:
+		return false
+	var root := packed.instantiate() as Node3D
+	if root == null:
+		return false
+	parent.add_child(root)
+	var meshes: Array[MeshInstance3D] = []
+	if root is MeshInstance3D:
+		meshes.append(root as MeshInstance3D)
+	for c in root.find_children("*", "MeshInstance3D", true, false):
+		meshes.append(c as MeshInstance3D)
+	var combined := AABB()
+	var first := true
+	var tex: Texture2D = pick.get("texture") as Texture2D
+	for mi in meshes:
+		if mi.mesh == null:
+			continue
+		var local_aabb: AABB = mi.transform * mi.mesh.get_aabb()
+		if first:
+			combined = local_aabb
+			first = false
+		else:
+			combined = combined.merge(local_aabb)
+		_ensure_mesh_outline(mi, 0.028)
+		# Gömülü albedo yoksa katalog texture’ı bas
+		var has_alb := false
+		if mi.material_override is BaseMaterial3D:
+			has_alb = (mi.material_override as BaseMaterial3D).albedo_texture != null
+		elif mi.mesh.get_surface_count() > 0:
+			var sm := mi.get_active_material(0)
+			if sm is BaseMaterial3D and (sm as BaseMaterial3D).albedo_texture != null:
+				has_alb = true
+		if not has_alb and tex != null:
+			mi.material_override = _make_prop_mat(Color.WHITE, tex, 0.028)
+	var max_dim := maxf(combined.size.x, maxf(combined.size.y, combined.size.z))
+	var sc_mul := 1.0
+	var raw_sc = xform.get("scale", 1.0)
+	if typeof(raw_sc) == TYPE_FLOAT or typeof(raw_sc) == TYPE_INT:
+		sc_mul = float(raw_sc)
+	elif typeof(raw_sc) == TYPE_VECTOR3:
+		sc_mul = ((raw_sc as Vector3).x + (raw_sc as Vector3).y + (raw_sc as Vector3).z) / 3.0
+	if max_dim > 0.001:
+		root.scale = Vector3.ONE * ((target_size / max_dim) * sc_mul)
+	root.rotation = Vector3(
+		flip_x + float(xform.get("tilt_x", 0.0)) * 0.35,
+		float(xform.get("yaw", 0.0)),
+		float(xform.get("tilt_z", 0.0)) * 0.35
+	)
+	root.position = Vector3(pos.x, 0.0, pos.z)
+	_snap_node_to_ground(root, 0.01)
+	return true
+
+
+func _attach_outline(mat: Material, width: float = 0.03) -> void:
+	if mat == null:
+		return
+	var outline := ShaderMaterial.new()
+	outline.shader = OUTLINE_SHADER
+	outline.set_shader_parameter("outline_color", Color(0.06, 0.04, 0.09, 1.0))
+	outline.set_shader_parameter("outline_width", width)
+	if mat is ShaderMaterial:
+		(mat as ShaderMaterial).next_pass = outline
+	elif mat is BaseMaterial3D:
+		(mat as BaseMaterial3D).next_pass = outline
+
+
+## Mesh tabanını ground_y’ye oturt (parent local).
+func _snap_mesh_to_ground(mi: MeshInstance3D, ground_y: float = 0.0) -> void:
+	if mi == null or mi.mesh == null:
+		return
+	# mesh AABB + node transform (scale/rot) → tabanı yere yapıştır
+	var mesh_aabb := mi.mesh.get_aabb()
+	var world_aabb := mi.transform * mesh_aabb
+	mi.position.y += ground_y - world_aabb.position.y
+
+
+func _try_load_tex(path: String) -> Texture2D:
+	if path.is_empty() or not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
+
+
+func _build_horizon() -> void:
+	## Ayrı ufuk katmanı — eğrilmez; sky + distant hills billboard
+	_horizon = MeshInstance3D.new()
+	_horizon.name = "HorizonSky"
+	var quad := QuadMesh.new()
+	quad.size = Vector2(90, 32)
+	_horizon.mesh = quad
+	_horizon_mat = StandardMaterial3D.new()
+	_horizon_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_horizon_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_horizon_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var bg := _try_load_tex(PATH_MAP_BG)
+	var sil := _try_load_tex(PATH_MAP_HORIZON)
+	if bg != null:
+		_horizon_mat.albedo_texture = bg
+		_horizon_mat.albedo_color = Color.WHITE
+	elif sil != null:
+		_horizon_mat.albedo_texture = sil
+		_horizon_mat.albedo_color = Color.WHITE
+	else:
+		_horizon_mat.albedo_color = Color(0.58, 0.8, 0.95, 1.0)
+	_horizon.material_override = _horizon_mat
+	# QuadMesh -Z bakar; kamera +Z'den -Z'ye bakıyor → ufuk önde
+	_horizon.position = Vector3(0, 8.5, -28.0)
+	add_child(_horizon)
+
+
+func _push_curve_cam() -> void:
+	if _camera == null:
+		return
+	var cam_pos := _camera.global_position
+	for mat in _curve_mats:
+		if mat != null:
+			mat.set_shader_parameter("curve_cam_pos", cam_pos)
+
+
+func _rebuild_foliage() -> void:
+	if _foliage_root == null:
+		return
+	for c in _foliage_root.get_children():
+		c.queue_free()
+	PropCatalog3D.refresh()
+	# Ağaçlar — path kenarı + arka plan
+	var tree_spots: Array[Vector3] = [
+		Vector3(-11.5, 0, 5.5), Vector3(-13.0, 0, 2.0), Vector3(-12.2, 0, -3.5),
+		Vector3(11.8, 0, 4.8), Vector3(13.2, 0, 0.5), Vector3(12.0, 0, -4.0),
+		Vector3(-8.5, 0, -7.5), Vector3(7.5, 0, -8.0), Vector3(0.0, 0, -9.0),
+		Vector3(-15.0, 0, -6.0), Vector3(15.0, 0, -5.5),
+	]
+	for i in tree_spots.size():
+		var tex := PropCatalog3D.pick_tree_tex(_decor_rng)
+		if tex == null:
+			_spawn_placeholder_tree(tree_spots[i], 1.8 + float(i % 3) * 0.35)
+		else:
+			var h := 2.2 + _decor_rng.randf_range(-0.25, 0.45)
+			var w := 1.45 + _decor_rng.randf_range(-0.15, 0.25)
+			_spawn_billboard(tex, tree_spots[i], Vector2(w, h))
+	var bush_spots: Array[Vector3] = [
+		Vector3(-6.5, 0, 4.2), Vector3(5.8, 0, 4.5), Vector3(-4.0, 0, -5.5),
+		Vector3(4.2, 0, -5.8), Vector3(-9.5, 0, 0.5), Vector3(9.2, 0, -1.0),
+		Vector3(-2.5, 0, 5.0), Vector3(2.8, 0, 5.2),
+	]
+	for i in bush_spots.size():
+		var btex := PropCatalog3D.pick_bush_tex(_decor_rng)
+		if btex == null:
+			_spawn_placeholder_bush(bush_spots[i])
+		else:
+			_spawn_billboard(
+				btex,
+				bush_spots[i],
+				Vector2(1.0 + _decor_rng.randf_range(-0.15, 0.25), 0.65 + _decor_rng.randf_range(-0.1, 0.2))
+			)
+	# Kayalar — düz mesh + katalog RNG
+	var rock_spots: Array[Vector3] = [
+		Vector3(-5.2, 0, 3.2), Vector3(6.4, 0, 3.0), Vector3(-7.8, 0, -2.2),
+		Vector3(8.0, 0, -2.8), Vector3(-3.0, 0, -4.5), Vector3(3.5, 0, -4.2),
+		Vector3(-10.5, 0, 3.5), Vector3(10.8, 0, 1.5),
+	]
+	for i in rock_spots.size():
+		var pick: Dictionary = PropCatalog3D.pick_rock(_decor_rng)
+		var xform: Dictionary = PropCatalog3D.roll_rock_xform(_decor_rng)
+		if pick.is_empty():
+			_spawn_placeholder_rock(rock_spots[i], 0.35 + float(i % 3) * 0.08)
+		else:
+			_spawn_catalog_rock(pick, rock_spots[i], xform)
+
+
+func _spawn_billboard(tex: Texture2D, pos: Vector3, size: Vector2) -> void:
+	var mi := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = size
+	mi.mesh = quad
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	mat.alpha_scissor_threshold = 0.35
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_texture = tex
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+	_attach_outline(mat, 0.035)
+	mi.material_override = mat
+	mi.position = pos + Vector3(0, size.y * 0.5, 0)
+	_foliage_root.add_child(mi)
+
+
+func _spawn_placeholder_tree(pos: Vector3, height: float) -> void:
+	var trunk := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.08
+	cyl.bottom_radius = 0.12
+	cyl.height = height * 0.45
+	trunk.mesh = cyl
+	trunk.material_override = _mat(Color(0.42, 0.28, 0.16))
+	trunk.position = pos + Vector3(0, cyl.height * 0.5, 0)
+	_foliage_root.add_child(trunk)
+	var crown := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = height * 0.28
+	sph.height = height * 0.5
+	crown.mesh = sph
+	crown.material_override = _mat(Color(0.25, 0.55, 0.28))
+	crown.position = pos + Vector3(0, height * 0.55, 0)
+	_foliage_root.add_child(crown)
+
+
+func _spawn_placeholder_bush(pos: Vector3) -> void:
+	var bush := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.45
+	sph.height = 0.55
+	bush.mesh = sph
+	bush.material_override = _mat(Color(0.28, 0.52, 0.26))
+	bush.position = pos + Vector3(0, 0.22, 0)
+	_foliage_root.add_child(bush)
+
+
+func _spawn_placeholder_rock(pos: Vector3, radius: float) -> void:
+	var rock := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = radius
+	sph.height = radius * 1.35
+	sph.radial_segments = 10
+	sph.rings = 6
+	rock.mesh = sph
+	rock.material_override = _make_prop_mat(Color(0.48, 0.46, 0.42))
+	rock.scale = Vector3(1.3, 0.65, 1.05)
+	rock.rotation_degrees = Vector3(8.0, _decor_rng.randf_range(0.0, 360.0), -6.0)
+	rock.position = Vector3(pos.x, 0.0, pos.z)
+	_foliage_root.add_child(rock)
+	_snap_mesh_to_ground(rock, 0.01)
+
+
+func _spawn_catalog_rock(pick: Dictionary, pos: Vector3, xform: Dictionary) -> void:
+	var target := 0.85
+	if _try_spawn_packed_prop(_foliage_root, pick, pos, xform, target):
+		return
+	var rock := MeshInstance3D.new()
+	var custom: Mesh = pick.get("mesh") as Mesh
+	var tex: Texture2D = pick.get("texture") as Texture2D
+	if tex == null and custom != null:
+		tex = _texture_from_mesh(custom)
+	if custom != null:
+		rock.mesh = custom
+	else:
+		var sph := SphereMesh.new()
+		sph.radius = 0.4
+		sph.height = 0.55
+		sph.radial_segments = 10
+		sph.rings = 6
+		rock.mesh = sph
+	var tint := Color.WHITE if tex != null else Color(0.48, 0.46, 0.42)
+	rock.material_override = _make_prop_mat(tint, tex, 0.028)
+	var sc: Vector3 = xform.get("scale", Vector3(1.2, 0.7, 1.1))
+	if custom != null:
+		var aabb := custom.get_aabb()
+		var sz := aabb.size
+		if sz.x > 0.001:
+			var uni := target / maxf(sz.x, maxf(sz.y, sz.z))
+			sc *= uni
+	rock.scale = sc
+	rock.rotation = Vector3(
+		float(xform.get("tilt_x", 0.0)) * 0.5,
+		float(xform.get("yaw", 0.0)),
+		float(xform.get("tilt_z", 0.0)) * 0.5
+	)
+	rock.position = Vector3(pos.x, 0.0, pos.z)
+	_foliage_root.add_child(rock)
+	_snap_mesh_to_ground(rock, 0.01)
+
+
+func _texture_from_mesh(mesh: Mesh) -> Texture2D:
+	if mesh == null:
+		return null
+	for si in mesh.get_surface_count():
+		var mat := mesh.surface_get_material(si)
+		if mat is StandardMaterial3D:
+			var t := (mat as StandardMaterial3D).albedo_texture
+			if t != null:
+				return t
+		if mat is BaseMaterial3D:
+			var t2 := (mat as BaseMaterial3D).albedo_texture
+			if t2 != null:
+				return t2
+		if mat is ShaderMaterial:
+			var sm := mat as ShaderMaterial
+			var t3 = sm.get_shader_parameter("albedo_texture")
+			if t3 is Texture2D:
+				return t3 as Texture2D
+			t3 = sm.get_shader_parameter("albedo_tex")
+			if t3 is Texture2D:
+				return t3 as Texture2D
+	return null
 
 
 func _build_hud() -> void:
@@ -383,6 +856,12 @@ func _process(_delta: float) -> void:
 	if not _active:
 		return
 	_update_camera()
+	_push_curve_cam()
+	if _horizon != null and _camera != null:
+		# Horizon kamerayı X'te takip eder; Z/Y sabit — eğrilmez
+		var hp := _horizon.global_position
+		hp.x = _camera.global_position.x
+		_horizon.global_position = hp
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -462,6 +941,10 @@ func _load_world(slot: int, prefer_level: int = -1) -> void:
 	_refresh_labels()
 
 
+func get_world_slot() -> int:
+	return _world_slot
+
+
 func _first_unlocked_cursor() -> int:
 	for i in _levels.size():
 		if LevelData3D.is_level_unlocked(_levels[i], _highest_unlocked):
@@ -531,10 +1014,6 @@ func _rebuild_path_mesh() -> void:
 	if _node_pos.size() < 2:
 		_path_mesh.mesh = null
 		return
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.vertex_color_use_as_albedo = true
-	mat.albedo_color = Color.WHITE
 	var path_on: Color = _palette.get("path", Color(0.95, 0.8, 0.35))
 	var path_off: Color = _palette.get("path_locked", Color(0.35, 0.38, 0.36))
 	var st := SurfaceTool.new()
@@ -546,7 +1025,13 @@ func _rebuild_path_mesh() -> void:
 		var col := path_on if unlocked_edge else path_off
 		_add_path_quad(st, a, b, 0.38, col)
 	_path_mesh.mesh = st.commit()
-	_path_mesh.material_override = mat
+	if _path_mat == null:
+		_path_mat = ShaderMaterial.new()
+		_path_mat.shader = PATH_CURVE_SHADER
+		_path_mat.set_shader_parameter("curve_strength", CURVE_STRENGTH)
+		_path_mat.set_shader_parameter("curve_max_drop", CURVE_MAX_DROP)
+		_curve_mats.append(_path_mat)
+	_path_mesh.material_override = _path_mat
 
 
 func _add_path_quad(st: SurfaceTool, a: Vector3, b: Vector3, half_w: float, col: Color) -> void:
@@ -816,30 +1301,32 @@ func _update_camera() -> void:
 	elif _cursor >= 0 and _cursor < _node_pos.size():
 		focus = _node_pos[_cursor]
 	elif not _node_pos.is_empty():
-		focus = _node_pos[int(_node_pos.size() / 2)]
-	var desired := focus + Vector3(0.0, 10.5, 13.5)
+		focus = _node_pos[int(_node_pos.size() * 0.5)]
+	# NSMB / AC tarzı: daha alçak, arkadan bakış — ufuk görünür
+	var desired := focus + Vector3(0.0, 7.2, 11.5)
 	_camera.global_position = _camera.global_position.lerp(desired, 0.14)
-	_camera.look_at(focus + Vector3(0, 0.85, 0), Vector3.UP)
+	_camera.look_at(focus + Vector3(0, 0.55, -1.5), Vector3.UP)
 
 
 func _palette_for_world(slot: int) -> Dictionary:
-	# Eğitim
+	# Eğitim / orman hub
 	if slot <= 0:
 		return {
 			"id": "tutorial",
-			"sky": Color(0.55, 0.7, 0.82),
-			"ambient": Color(0.6, 0.65, 0.7),
-			"ground": Color(0.34, 0.36, 0.38),
-			"hill": Color(0.28, 0.3, 0.32),
-			"path": Color(0.85, 0.72, 0.4),
-			"path_locked": Color(0.4, 0.4, 0.42),
-			"node": Color(0.75, 0.55, 0.3),
-			"node_clear": Color(0.4, 0.8, 0.5),
-			"node_boss": Color(0.9, 0.55, 0.25),
-			"node_locked": Color(0.42, 0.42, 0.45),
-			"pedestal": Color(0.5, 0.48, 0.44),
-			"accent": Color(0.72, 0.58, 0.32),
-			"sun": 1.05,
+			"sky": Color(0.58, 0.82, 0.95),
+			"ambient": Color(0.62, 0.75, 0.55),
+			"ground": Color(0.28, 0.52, 0.28),
+			"hill": Color(0.2, 0.42, 0.24),
+			"path": Color(0.92, 0.78, 0.42),
+			"path_locked": Color(0.42, 0.45, 0.38),
+			"node": Color(0.88, 0.42, 0.28),
+			"node_clear": Color(0.4, 0.85, 0.45),
+			"node_boss": Color(0.95, 0.55, 0.25),
+			"node_locked": Color(0.42, 0.45, 0.4),
+			"pedestal": Color(0.55, 0.48, 0.36),
+			"accent": Color(0.95, 0.85, 0.4),
+			"sun": 1.1,
+			"fog": Color(0.75, 0.88, 0.95),
 		}
 	var themes := {
 		"liquids": {
@@ -935,8 +1422,13 @@ func _palette_for_world(slot: int) -> Dictionary:
 func _apply_palette_visuals() -> void:
 	if _palette.is_empty():
 		return
+	var ground_c: Color = _palette.get("ground", Color(0.25, 0.4, 0.25))
 	if _ground_mat != null:
-		_ground_mat.albedo_color = _palette.get("ground", Color(0.25, 0.4, 0.25))
+		_ground_mat.set_shader_parameter("albedo_color", ground_c)
+	if _cliff != null and _cliff.material_override is ShaderMaterial:
+		(_cliff.material_override as ShaderMaterial).set_shader_parameter(
+			"albedo_color", ground_c.darkened(0.25).lerp(Color(0.4, 0.3, 0.18), 0.4)
+		)
 	if _hills_root != null:
 		var hill_c: Color = _palette.get("hill", Color(0.2, 0.35, 0.2))
 		var i := 0
@@ -944,15 +1436,21 @@ func _apply_palette_visuals() -> void:
 			var mi := c as MeshInstance3D
 			if mi == null:
 				continue
-			var mat := StandardMaterial3D.new()
-			mat.albedo_color = hill_c.darkened(0.04 * float(i % 3))
-			mat.roughness = 0.95
-			mi.material_override = mat
+			if mi.material_override is ShaderMaterial:
+				(mi.material_override as ShaderMaterial).set_shader_parameter(
+					"albedo_color", hill_c.darkened(0.04 * float(i % 3))
+				)
 			i += 1
 	if _cam_env != null:
-		_cam_env.background_color = _palette.get("sky", Color(0.45, 0.72, 0.95))
+		var sky_c: Color = _palette.get("sky", Color(0.45, 0.72, 0.95))
+		_cam_env.background_color = sky_c
 		_cam_env.ambient_light_color = _palette.get("ambient", Color(0.55, 0.65, 0.75))
 		_cam_env.ambient_light_energy = 0.55 if float(_palette.get("sun", 1.0)) > 0.7 else 0.35
+		_cam_env.fog_enabled = true
+		_cam_env.fog_light_color = _palette.get("fog", sky_c.lightened(0.15))
+		_cam_env.fog_density = 0.012
+	if _horizon_mat != null and _horizon_mat.albedo_texture == null:
+		_horizon_mat.albedo_color = _palette.get("sky", Color(0.58, 0.8, 0.95))
 	if _sun != null:
 		_sun.light_energy = float(_palette.get("sun", 1.0))
 		var accent: Color = _palette.get("accent", Color.WHITE)
@@ -967,6 +1465,7 @@ func _rebuild_theme_decor() -> void:
 		return
 	for c in _decor_root.get_children():
 		c.queue_free()
+	_rebuild_foliage()
 	var tid := String(_palette.get("id", "tutorial"))
 	var accent: Color = _palette.get("accent", Color(0.8, 0.7, 0.4))
 	match tid:
@@ -1021,22 +1520,23 @@ func _mat(col: Color, emit: float = 0.0) -> StandardMaterial3D:
 		m.emission_enabled = true
 		m.emission = col
 		m.emission_energy_multiplier = emit
+	_attach_outline(m, 0.026)
 	return m
 
 
-func _spawn_mesh(mesh: Mesh, pos: Vector3, col: Color, emit: float = 0.0, scale := Vector3.ONE) -> MeshInstance3D:
+func _spawn_mesh(mesh: Mesh, pos: Vector3, col: Color, emit: float = 0.0, mesh_scale := Vector3.ONE) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = _mat(col, emit)
 	mi.position = pos
-	mi.scale = scale
+	mi.scale = mesh_scale
 	_decor_root.add_child(mi)
 	return mi
 
 
-func _spawn_prop_label(text: String, pos: Vector3) -> void:
+func _spawn_prop_label(label_text: String, pos: Vector3) -> void:
 	var lab := Label3D.new()
-	lab.text = text
+	lab.text = label_text
 	lab.font_size = 96
 	lab.position = pos
 	lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -1046,14 +1546,57 @@ func _spawn_prop_label(text: String, pos: Vector3) -> void:
 
 func _spawn_box_props(col: Color) -> void:
 	var spots := [
-		Vector3(-9, 0.35, 4), Vector3(-8.2, 0.35, 4.6), Vector3(9, 0.35, -3),
-		Vector3(8.3, 0.7, -3.2), Vector3(-10, 0.35, -2), Vector3(10, 0.35, 2.5),
+		Vector3(-9, 0, 4), Vector3(-8.2, 0, 4.6), Vector3(9, 0, -3),
+		Vector3(8.3, 0, -3.2), Vector3(-10, 0, -2), Vector3(10, 0, 2.5),
+		Vector3(-6.5, 0, 5.2), Vector3(7.2, 0, 4.8),
 	]
 	for i in spots.size():
-		var box := BoxMesh.new()
-		box.size = Vector3(0.7, 0.7, 0.7) if i % 2 == 0 else Vector3(0.55, 0.55, 0.55)
-		var mi := _spawn_mesh(box, spots[i], col.darkened(0.08 * float(i % 3)))
-		mi.rotation_degrees.y = float(i) * 25.0
+		var prefer_fallen := i == 3 or _decor_rng.randf() < 0.2
+		var pick: Dictionary = PropCatalog3D.pick_box(_decor_rng, prefer_fallen)
+		var xform: Dictionary = PropCatalog3D.roll_box_xform(_decor_rng)
+		var base := 0.55 + _decor_rng.randf_range(0.0, 0.18)
+		var fallen := prefer_fallen or bool(pick.get("fallen", false))
+		var flip_x := 0.0 if fallen else PI
+		if _try_spawn_packed_prop(_decor_root, pick, spots[i], xform, base, flip_x):
+			continue
+		var sj: Vector3 = xform.get("size_jitter", Vector3.ONE)
+		var custom: Mesh = pick.get("mesh") as Mesh
+		var mi := MeshInstance3D.new()
+		if custom != null:
+			mi.mesh = custom
+		else:
+			var box := BoxMesh.new()
+			box.size = Vector3(base * sj.x, base * sj.y, base * sj.z)
+			mi.mesh = box
+		var tex: Texture2D = pick.get("texture") as Texture2D
+		if tex == null and custom != null:
+			tex = _texture_from_mesh(custom)
+		var tint: Color = xform.get("tint", Color.WHITE)
+		var albedo := (col.darkened(0.08 * float(i % 3)) * tint) if tex == null else Color.WHITE
+		mi.material_override = _make_prop_mat(albedo, tex, 0.028)
+		if custom != null:
+			var aabb := custom.get_aabb()
+			var sz := aabb.size
+			if sz.x > 0.001:
+				mi.scale = Vector3.ONE * (base / maxf(sz.x, maxf(sz.y, sz.z)))
+		else:
+			mi.scale = Vector3.ONE * float(xform.get("scale", 1.0))
+		var off: Vector3 = xform.get("offset", Vector3.ZERO)
+		mi.position = Vector3(spots[i].x + off.x, 0.0, spots[i].z + off.z)
+		if fallen:
+			mi.rotation = Vector3(
+				deg_to_rad(_decor_rng.randf_range(82.0, 92.0)),
+				float(xform.get("yaw", 0.0)),
+				deg_to_rad(_decor_rng.randf_range(-12.0, 12.0))
+			)
+		else:
+			mi.rotation = Vector3(
+				flip_x + float(xform.get("tilt_x", 0.0)) * 0.35,
+				float(xform.get("yaw", 0.0)),
+				float(xform.get("tilt_z", 0.0)) * 0.35
+			)
+		_decor_root.add_child(mi)
+		_snap_mesh_to_ground(mi, 0.01)
 
 
 func _spawn_puddles(col: Color) -> void:

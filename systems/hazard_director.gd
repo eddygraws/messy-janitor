@@ -104,11 +104,10 @@ func start_session(level_index: int, allow_mop: bool = true) -> void:
 		_furn_cd = 9999.0
 		_furn_phase = FurnPhase.IDLE
 		return
-	# İlk düşme / mobilya biraz geciksin
+	# İlk düşme biraz geciksin (raf/dolap spawn yok — etkileşimsiz kutu)
 	_fall_cd = fall_base_interval * _hazard_mercy_mult() * randf_range(0.55, 0.9)
-	_furn_cd = _furn_next_cd(0.7)
+	_furn_cd = 9999.0
 	_furn_phase = FurnPhase.IDLE
-	_spawn_furniture()
 
 
 ## Level 0→son: raf/dolap + düşen kutu hızlanır — yumuşak eğri (eski /9 max'ı çok erken).
@@ -337,12 +336,12 @@ func _hazard_mercy_mult() -> float:
 	return m
 
 
-func _furn_next_cd(scale: float = 1.0) -> float:
+func _furn_next_cd(cd_scale: float = 1.0) -> float:
 	var tempo_m := 1.0
 	if _tempo != null and _tempo.is_running():
 		# Faz hızı mobilyayı hafif etkiler (eski kadar sert değil)
 		tempo_m = 1.0 / sqrt(maxf(1.0, _tempo.get_spawn_rate_mult()))
-	return _eff_furn_interval * _hazard_mercy_mult() * tempo_m * scale * _rng.randf_range(0.9, 1.15)
+	return _eff_furn_interval * _hazard_mercy_mult() * tempo_m * cd_scale * _rng.randf_range(0.9, 1.15)
 
 
 func _begin_fall_warn() -> void:
@@ -456,18 +455,9 @@ func _clear_fall_warn() -> void:
 	_fall_warn = null
 
 
-func _tick_furniture(delta: float) -> void:
-	if _furniture.is_empty():
-		return
-	match _furn_phase:
-		FurnPhase.IDLE:
-			_furn_cd -= delta
-			if _furn_cd <= 0.0:
-				_furn_begin_warn()
-		FurnPhase.WARN:
-			_furn_tick_warn(delta)
-		FurnPhase.SLIDE:
-			_furn_tick_slide(delta)
+func _tick_furniture(_delta: float) -> void:
+	# RAF/DOLAP hazard kaldırıldı — etkileşimsiz ortadaki kutular yok
+	pass
 
 
 func _furn_begin_warn() -> void:

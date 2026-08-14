@@ -1,0 +1,9 @@
+# Kaya mesh albedo’ları:
+
+rock_a.obj / rock_a.glb
+rock_a_Cube.png          ← albedo (veya rock_a.png)
+
+rock_b.obj / rock_b.glb
+rock_b_Material.png      ← albedo (veya rock_b.png)
+
+Godot GLB gömülü texture’ı da okur.

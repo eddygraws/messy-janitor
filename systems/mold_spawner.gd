@@ -34,10 +34,10 @@ func _process(_delta: float) -> void:
 	# Climax'ta aktif küflerin yayılma hızını yükselt.
 	if _tempo == null:
 		return
-	var scale := lerpf(1.0, climax_spread_mult, _tempo.get_intensity())
+	var spread_scale := lerpf(1.0, climax_spread_mult, _tempo.get_intensity())
 	for node in get_tree().get_nodes_in_group("Cleanable"):
 		if node is CleanableObject and node.spreads and not node.is_cleaned():
-			node.spread_speed_scale = scale
+			node.spread_speed_scale = spread_scale
 
 
 func _connect_existing() -> void:

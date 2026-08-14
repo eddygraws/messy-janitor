@@ -30,7 +30,7 @@ static func build_room(index: int, unlocked: int) -> Node2D:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	room.add_child(label)
 
-	var count := clampi(3 + index / 2, 3, 8)
+	var count := clampi(3 + int(index / 2.0), 3, 8)
 	var placed: Array[Vector2] = []
 	var need_trashbin := false
 	var need_drain := false

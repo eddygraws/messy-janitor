@@ -1,0 +1,11 @@
+﻿# Orman harita arka planı — bu klasöre koy:
+
+map_bg_forest.png
+  Tam ufuk gökyüzü (+ uzak tepeler). Öneri: 1920x1080 veya daha geniş.
+  Eğrilmez; HorizonSky billboard olarak kullanılır.
+
+map_horizon_forest.png  (opsiyonel)
+  Alpha’lı silüet şeridi (ağaç/tepe hattı). bg yoksa buna düşer.
+
+map_ground_forest.png  (opsiyonel)
+  Zemin tile albedo. Yoksa düz yeşil renk + world-curve shader.
