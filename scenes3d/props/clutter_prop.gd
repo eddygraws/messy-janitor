@@ -155,11 +155,13 @@ func set_micro_task_highlight(on: bool, style: String = "correct") -> void:
 	if mark == null:
 		mark = get_node_or_null("TaskMark") as Label3D
 	var ring := get_node_or_null("TaskRing") as MeshInstance3D
+	# Eski nabız tween'i her zaman öldür — free edilmiş hedef + set_loops = Infinite loop hatası
+	if mark != null:
+		var tw: Variant = mark.get_meta("pulse_tween", null)
+		if tw is Tween and (tw as Tween).is_valid():
+			(tw as Tween).kill()
 	if not on:
 		if mark != null:
-			var tw: Variant = mark.get_meta("pulse_tween", null)
-			if tw is Tween and (tw as Tween).is_valid():
-				(tw as Tween).kill()
 			mark.queue_free()
 		if ring != null:
 			ring.queue_free()
@@ -214,9 +216,12 @@ func set_micro_task_highlight(on: bool, style: String = "correct") -> void:
 	ring.material_override = mat
 	ring.position = Vector3(0.0, 0.04, 0.0)
 	add_child(ring)
+	# set_parallel ile net adımlar — parallel() zinciri bazen 0 süreli loop üretir
 	var pulse := create_tween().set_loops()
+	pulse.set_parallel(true)
 	pulse.tween_property(mark, "scale", Vector3(1.2, 1.2, 1.2), 0.35)
-	pulse.parallel().tween_property(ring, "scale", Vector3(1.12, 1.0, 1.12), 0.35)
+	pulse.tween_property(ring, "scale", Vector3(1.12, 1.0, 1.12), 0.35)
+	pulse.set_parallel(false)
 	pulse.tween_property(mark, "scale", Vector3.ONE, 0.35)
 	pulse.parallel().tween_property(ring, "scale", Vector3.ONE, 0.35)
 	mark.set_meta("pulse_tween", pulse)
@@ -1017,10 +1022,11 @@ func _apply_hit_fx(hit_dir: Vector3, strength: float) -> void:
 		_play_hit_shake(hit_dir, strength)
 		if idle_style == IdleStyle.FLICKER or idle_style == IdleStyle.BUZZ:
 			_set_flicker_energy(minf(flicker_energy_max * 2.5, 1.4))
-			if _idle_tween != null and _idle_tween.is_valid():
-				_idle_tween.kill()
-			var t := create_tween()
-			t.tween_method(_set_flicker_energy, flicker_energy_max * 2.0, flicker_energy_min, 0.45)
+			if not _flicker_targets.is_empty():
+				if _idle_tween != null and _idle_tween.is_valid():
+					_idle_tween.kill()
+				var t := create_tween()
+				t.tween_method(_set_flicker_energy, flicker_energy_max * 2.0, flicker_energy_min, 0.45)
 
 	_register_hit(strength)
 
@@ -1191,8 +1197,12 @@ func _play_react() -> void:
 	react_triggered.emit()
 	if _react_tween != null and _react_tween.is_valid():
 		_react_tween.kill()
+	# FLICKER without registered surfaces would create an empty tween — fall back to sway.
+	var style := idle_style
+	if style == IdleStyle.FLICKER and _flicker_targets.is_empty():
+		style = IdleStyle.SWAY
 	_react_tween = create_tween().set_parallel(true)
-	match idle_style:
+	match style:
 		IdleStyle.SWAY, IdleStyle.NONE:
 			_react_tween.tween_property(_anim_root, "rotation:z", _base_rot.z + deg_to_rad(4.0), 0.08)
 			_react_tween.chain().tween_property(_anim_root, "rotation:z", _base_rot.z, 0.22)\

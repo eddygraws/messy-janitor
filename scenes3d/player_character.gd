@@ -149,12 +149,12 @@ var _potion_silence: float = 0.0
 var _potion_silence_cd: float = 0.0
 var _face_root: Node3D
 var _janitor: Node # JanitorVisual
-## Karanlık seviye: gerçek ışık değil — bakış konisi maskesi + soft cone görsel
+## Karanlık seviye: bakış sektörü maskesi (zemin dilimi) — gameplay menzili aynı parametrelerden
 var _flash_mask: Node3D
-var _flash_cone: MeshInstance3D
+var _flash_sector: MeshInstance3D
 var _flash_enabled: bool = false
-var _flash_range: float = 11.0
-var _flash_half_angle_deg: float = 48.0
+var _flash_range: float = 7.0
+var _flash_half_angle_deg: float = 34.0
 # Lanet / baseline
 var _base_carry_speed_mult: float = -1.0
 var _base_stack_falloff: float = -1.0
@@ -274,51 +274,25 @@ func _setup_flashlight() -> void:
 		var c := _flash_mask.get_child(0)
 		_flash_mask.remove_child(c)
 		c.free()
-	_flash_cone = MeshInstance3D.new()
-	_flash_cone.name = "Cone"
-	_flash_mask.add_child(_flash_cone)
-	# Görsel = gameplay menzili (önde, bakış yönünde)
-	var vis_range := _flash_range
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.05
-	cyl.bottom_radius = tan(deg_to_rad(_flash_half_angle_deg)) * vis_range
-	cyl.height = vis_range
-	cyl.radial_segments = 24
-	_flash_cone.mesh = cyl
-	# Silindir Y → -Z (Basis.looking_at ileri = -Z)
-	_flash_cone.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
-	_flash_cone.position = Vector3(0.0, 0.0, -vis_range * 0.5)
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.albedo_color = Color(0.35, 0.75, 1.0, 0.12)
-	mat.emission_enabled = true
-	mat.emission = Color(0.45, 0.85, 1.0)
-	mat.emission_energy_multiplier = 1.5
-	mat.no_depth_test = false
-	_flash_cone.material_override = mat
-	_flash_cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	# Zemin sektörü — tarama alanını net gösterir
-	var floor_sector := MeshInstance3D.new()
-	floor_sector.name = "FloorSector"
-	floor_sector.mesh = _build_flashlight_sector_mesh(_flash_range, _flash_half_angle_deg, 28)
+	# Tek görsel: zemin sektörü (geniş ağzı oyuncuya bakan 3D koni yok)
+	_flash_sector = MeshInstance3D.new()
+	_flash_sector.name = "FloorSector"
+	_flash_sector.mesh = _build_flashlight_sector_mesh(_flash_range, _flash_half_angle_deg, 28)
 	var fmat := StandardMaterial3D.new()
 	fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	fmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	fmat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	fmat.albedo_color = Color(0.35, 0.78, 1.0, 0.2)
+	fmat.albedo_color = Color(0.35, 0.78, 1.0, 0.22)
 	fmat.emission_enabled = true
 	fmat.emission = Color(0.4, 0.85, 1.0)
 	fmat.emission_energy_multiplier = 1.8
 	fmat.no_depth_test = true
-	floor_sector.material_override = fmat
-	floor_sector.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	floor_sector.position = Vector3(0.0, -0.82, 0.0) # göğüs origin → yere yakın
-	_flash_mask.add_child(floor_sector)
+	_flash_sector.material_override = fmat
+	_flash_sector.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_flash_sector.position = Vector3(0.0, -0.82, 0.0) # göğüs origin → yere yakın
+	_flash_mask.add_child(_flash_sector)
 
 	_flash_mask.visible = false
 	_flash_enabled = false
@@ -1240,7 +1214,7 @@ func _try_interact() -> void:
 	# Tablo / TV tamir — herhangi alet (fırça L5+ önerilir)
 	if prop.is_repair_target():
 		# Easter egg: tabloya cımbız
-		if prop.is_painting and active_tool == ToolKind.TWEEZERS:
+		if prop.is_painting and active_tool == ToolKind.BRUSH:
 			secret_probe.emit("tweezers_painting", prop.global_position)
 		var done := prop.apply_repair_tap()
 		_swing_cooldown = 0.12
@@ -1291,7 +1265,7 @@ func _try_interact() -> void:
 	var hit_dir := prop.global_position - global_position
 	var strength := mop_swing_strength
 	var cd := mop_swing_cooldown
-	if active_tool == ToolKind.BRUSH or active_tool == ToolKind.TWEEZERS:
+	if active_tool == ToolKind.BRUSH:
 		strength = brush_swing_strength
 		cd = brush_swing_cooldown
 	elif active_tool == ToolKind.BROOM:
@@ -1320,18 +1294,10 @@ func _try_interact() -> void:
 func _can_pick_prop(prop: ClutterProp) -> bool:
 	if prop == null:
 		return false
-	if prop.prop_id == "crumb" or prop.required_tool == "broom":
+	if prop.prop_id == "crumb" or prop.required_tool == "broom" or prop.prop_id == "tiny":
 		if active_tool != ToolKind.BROOM:
 			_wrong_tool("broom")
 			return false
-	if prop.prop_id == "tiny" or prop.required_tool == "tweezers":
-		if active_tool != ToolKind.TWEEZERS and not prop.can_carry:
-			pass
-		elif prop.required_tool == "tweezers" and active_tool != ToolKind.TWEEZERS:
-			# tiny carry: tweezers preferred; allow if no tool lock on carry-only
-			if not prop.required_tool.is_empty() and active_tool != ToolKind.TWEEZERS:
-				_wrong_tool("tweezers")
-				return false
 	return true
 
 

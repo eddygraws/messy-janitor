@@ -29,19 +29,16 @@ func _notification(what: int) -> void:
 
 
 func _apply_full_rect() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	## Tam ekran: sadece anchor; size set etme (karşıt anchor uyarısı)
+	set_anchors_preset(Control.PRESET_FULL_RECT)
 	offset_left = 0.0
 	offset_top = 0.0
 	offset_right = 0.0
 	offset_bottom = 0.0
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	grow_vertical = Control.GROW_DIRECTION_BOTH
-	var vp := get_viewport()
-	if vp != null:
-		var r := vp.get_visible_rect().size
-		set_deferred("custom_minimum_size", r)
-		set_deferred("size", r)
-		set_deferred("position", Vector2.ZERO)
+	custom_minimum_size = Vector2.ZERO
+	set_deferred("position", Vector2.ZERO)
 
 
 func _build() -> void:
@@ -53,29 +50,41 @@ func _build() -> void:
 	var bg := ColorRect.new()
 	bg.name = "BG"
 	bg.color = Color(0.05, 0.07, 0.09, 0.98)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.offset_left = 0.0
+	bg.offset_top = 0.0
+	bg.offset_right = 0.0
+	bg.offset_bottom = 0.0
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
 	# Hafif üst–alt gradient hissi
 	var top_wash := ColorRect.new()
 	top_wash.color = Color(0.18, 0.22, 0.16, 0.35)
-	top_wash.anchor_right = 1.0
+	top_wash.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top_wash.offset_left = 0.0
+	top_wash.offset_right = 0.0
+	top_wash.offset_top = 0.0
 	top_wash.offset_bottom = 220.0
 	top_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(top_wash)
 
 	var bottom_wash := ColorRect.new()
 	bottom_wash.color = Color(0.08, 0.1, 0.14, 0.55)
-	bottom_wash.anchor_top = 1.0
-	bottom_wash.anchor_bottom = 1.0
-	bottom_wash.anchor_right = 1.0
+	bottom_wash.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	bottom_wash.offset_left = 0.0
+	bottom_wash.offset_right = 0.0
 	bottom_wash.offset_top = -180.0
+	bottom_wash.offset_bottom = 0.0
 	bottom_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bottom_wash)
 
 	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.offset_left = 0.0
+	center.offset_top = 0.0
+	center.offset_right = 0.0
+	center.offset_bottom = 0.0
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(center)
 

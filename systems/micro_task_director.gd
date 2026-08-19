@@ -235,7 +235,7 @@ func _process(delta: float) -> void:
 
 func _update_stop_countdown(delta: float) -> void:
 	_stop_countdown -= delta
-	var shown := maxi(1, int(ceil(_stop_countdown)))
+	var shown := maxi(1, ceili(_stop_countdown))
 	if _stop_countdown <= 0.0:
 		_stop_countdown = -1.0
 		_stop_countdown_shown = -1
@@ -691,10 +691,11 @@ func _mark_target(prop: ClutterProp, on: bool, style: String = "correct") -> voi
 		if cb.get_object() == self:
 			prop.merged_into.disconnect(cb)
 	if on:
+		# Signal arg (host) comes first; bind args append after.
 		prop.merged_into.connect(_on_marked_merged.bind(prop, style))
 
 
-func _on_marked_merged(from: ClutterProp, style: String, host: ClutterProp) -> void:
+func _on_marked_merged(host: ClutterProp, from: ClutterProp, style: String) -> void:
 	if host == null or not is_instance_valid(host) or from == null or _active.is_empty():
 		return
 	for i in _targets.size():
@@ -750,7 +751,7 @@ func _pick_many(kind: String, max_count: int) -> Array[ClutterProp]:
 			return a.global_position.distance_squared_to(origin) < b.global_position.distance_squared_to(origin)
 		)
 		# En yakın %60'ı karıştır — tamamen rastgele uzak kutu seçilmesin
-		var near_n := maxi(1, int(ceil(float(all.size()) * 0.65)))
+		var near_n := maxi(1, ceili(float(all.size()) * 0.65))
 		var near: Array = all.slice(0, near_n)
 		near.shuffle()
 		all = near

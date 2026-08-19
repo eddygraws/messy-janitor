@@ -81,9 +81,9 @@ func _world_to_uv(world_pos: Vector2) -> Vector2:
 
 
 func _paint_uv(uv: Vector2, radius_norm: float, strength: float, sign: float) -> void:
-	var cx := int(uv.x * float(MASK_SIZE))
-	var cy := int(uv.y * float(MASK_SIZE))
-	var r := maxi(1, int(radius_norm * float(MASK_SIZE)))
+	var cx := floori(uv.x * float(MASK_SIZE))
+	var cy := floori(uv.y * float(MASK_SIZE))
+	var r := maxi(1, floori(radius_norm * float(MASK_SIZE)))
 	var r_sq := r * r
 	for y in range(maxi(0, cy - r), mini(MASK_SIZE, cy + r + 1)):
 		for x in range(maxi(0, cx - r), mini(MASK_SIZE, cx + r + 1)):

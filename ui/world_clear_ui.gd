@@ -207,8 +207,7 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 	modulate = Color(1, 1, 1, 0)
 
 	if _viewport != null:
-		var vs := get_viewport().get_visible_rect().size
-		_viewport.size = Vector2i(maxi(640, int(vs.x * 0.58)), maxi(480, int(vs.y)))
+		# stretch=true iken SubViewport.size elle değiştirilmez — container boyutlandırır
 		_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 
 	if _scene != null:
@@ -232,10 +231,41 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 
 	_add_stat_row("Puan", str(score), Color(0.55, 0.28, 0.12))
 	_add_stat_row("Kazanılan coin", "+%d 🪙" % coins, Color(0.75, 0.55, 0.12))
+	# Bölüm bölüm rozetler
+	var badge_rows: Array = summary.get("badges", []) as Array
+	if not badge_rows.is_empty():
+		_add_stat_row("— Rozetler —", "", Color(0.45, 0.38, 0.3))
+		for entry_v in badge_rows:
+			var entry: Dictionary = entry_v as Dictionary
+			var tier_n := int(entry.get("tier", 0)) + 1
+			var nm := String(entry.get("name", "Seviye"))
+			# Kısa isim: "Giriş" kısmını tut
+			var short_n := nm
+			var parts := nm.split(" · ")
+			if parts.size() >= 3:
+				short_n = "%d · %s" % [tier_n, parts[parts.size() - 1]]
+			elif parts.size() == 2:
+				short_n = parts[1]
+			var bic := String(entry.get("icon", "🥉"))
+			var blab := String(entry.get("label", "BRONZ"))
+			var el := float(entry.get("elapsed", 0.0))
+			_add_stat_row(
+				short_n,
+				"%s %s  (%.0fs)" % [bic, blab, el],
+				BadgeRating3D.color(int(entry.get("badge", 1)))
+			)
+	else:
+		var g := int(summary.get("gold", 0))
+		var s := int(summary.get("silver", 0))
+		var b := int(summary.get("bronze", 0))
+		_add_stat_row("Rozetler", "🥇%d  🥈%d  🥉%d" % [g, s, b], Color(0.75, 0.55, 0.15))
 	_add_stat_row("Taşınan koli", str(boxes), Color(0.35, 0.45, 0.55))
 	_add_stat_row("Paspaslanan", str(mop), Color(0.25, 0.5, 0.65))
 	_add_stat_row("Max combo", "x%d" % combo, Color(0.55, 0.35, 0.55))
 
+	var g2 := int(summary.get("gold", 0))
+	var s2 := int(summary.get("silver", 0))
+	var b2 := int(summary.get("bronze", 0))
 	var prev := int(compare.get("prev_best", 0))
 	var best := int(compare.get("world_best", score))
 	if bool(compare.get("is_new_best", false)):
@@ -245,13 +275,18 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 			_compare.text = "İlk dünya rekoru: %d" % score
 		_compare.add_theme_color_override("font_color", Color(0.75, 0.45, 0.1))
 	else:
-		_compare.text = "Rekor: %d" % best
+		_compare.text = "Rekor: %d   ·   🥇%d 🥈%d 🥉%d" % [best, g2, s2, b2]
 		_compare.add_theme_color_override("font_color", Color(0.4, 0.45, 0.55))
 
 	_footer.text = "%d seviye  ·  %.0fs  ·  hata %d" % [
 		levels, elapsed, int(summary.get("mistakes", 0))
 	]
-	_caption.text = "Becerilerin bir sonraki odaya yetiyor. Devam!"
+	if g2 >= levels and levels > 0:
+		_caption.text = "Tam altın tur! Bir sonraki dünyaya hazırsın."
+	elif g2 + s2 >= levels and levels > 0:
+		_caption.text = "Gümüş üstü tur — altın için biraz daha hızlı."
+	else:
+		_caption.text = "Becerilerin bir sonraki odaya yetiyor. Devam!"
 
 	PrototypeSfx.play(_sfx, PrototypeSfx.Kind.TASK_OK, 1.1)
 	if bool(compare.get("is_new_best", false)):
@@ -292,9 +327,3 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_SPACE or event.physical_keycode == KEY_SPACE:
 			get_viewport().set_input_as_handled()
 			_on_close()
-
-
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED and _viewport != null and visible:
-		var vs := get_viewport().get_visible_rect().size
-		_viewport.size = Vector2i(maxi(640, int(vs.x * 0.58)), maxi(480, int(vs.y)))

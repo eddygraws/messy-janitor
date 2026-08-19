@@ -118,6 +118,10 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 	var score := int(result.get("score", 0))
 	var grade := String(result.get("grade", "C"))
 	var gcol: Color = result.get("grade_color", Color.WHITE)
+	var badge := int(result.get("badge", 0))
+	if badge >= BadgeRating3D.Rank.BRONZE:
+		grade = "%s %s" % [BadgeRating3D.icon(badge), BadgeRating3D.label(badge)]
+		gcol = BadgeRating3D.color(badge)
 	_title.text = "GÜNLÜK SONUÇ" if daily else "SEVİYE SONUÇ"
 	_grade_label.text = grade
 	_grade_label.add_theme_color_override("font_color", gcol)
@@ -180,9 +184,9 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 			lines.append("❤️ can: %d%s" % [lives_n, extra])
 
 	_compare.text = "\n".join(lines)
-	_detail.text = "Combo x%d  ·  Temizlik %d  ·  Hata %d  ·  %.0fs" % [
+	_detail.text = "%s  ·  Combo x%d  ·  Hata %d  ·  %.0fs" % [
+		BadgeRating3D.short(int(result.get("badge", BadgeRating3D.Rank.BRONZE))),
 		int(result.get("max_combo", 0)),
-		int(result.get("disposed", 0)),
 		int(result.get("mistakes", 0)),
 		float(result.get("elapsed", 0.0)),
 	]

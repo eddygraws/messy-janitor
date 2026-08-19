@@ -60,8 +60,8 @@ static func _gen_floor(
 ) -> Image:
 	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
 	img.fill(main)
-	var tile := int(size / float(tiles))
-	var half := int(grout_px / 2.0)
+	var tile := floori(float(size) / float(tiles))
+	var half := floori(float(grout_px) * 0.5)
 	for i in tiles + 1:
 		var x := i * tile
 		img.fill_rect(Rect2i(x - half, 0, grout_px + 1, size), grout)
@@ -69,7 +69,7 @@ static func _gen_floor(
 		img.fill_rect(Rect2i(0, y - half, size, grout_px + 1), grout)
 	for ty in tiles:
 		for tx in tiles:
-			var variation := rng.randi_range(-6, 6) / 255.0
+			var variation := float(rng.randi_range(-6, 6)) / 255.0
 			var c := Color(
 				clampf(main.r + variation, 0.0, 1.0),
 				clampf(main.g + variation, 0.0, 1.0),
@@ -92,18 +92,18 @@ static func _gen_wall_brick(
 	grout_px: int,
 ) -> Image:
 	var cols := tiles
-	var rows := maxi(tiles + 1, int(tiles * 1.25))
-	var brick_w := int(size / float(cols))
-	var brick_h := int(size / float(rows))
-	var half := int(grout_px / 2.0)
+	var rows := maxi(tiles + 1, roundi(float(tiles) * 1.25))
+	var brick_w := floori(float(size) / float(cols))
+	var brick_h := floori(float(size) / float(rows))
+	var half := floori(float(grout_px) * 0.5)
 	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
 	img.fill(grout)
 	for row in rows + 1:
 		var y0 := (row % rows) * brick_h
-		var offset := int(brick_w / 2.0) if (row % 2) == 1 else 0
+		var offset := floori(float(brick_w) * 0.5) if (row % 2) == 1 else 0
 		for col in range(-1, cols + 1):
 			var x0 := col * brick_w + offset
-			var variation := rng.randi_range(-8, 8) / 255.0
+			var variation := float(rng.randi_range(-8, 8)) / 255.0
 			var c := Color(
 				clampf(main.r + variation, 0.0, 1.0),
 				clampf(main.g + variation, 0.0, 1.0),

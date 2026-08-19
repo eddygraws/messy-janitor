@@ -16,9 +16,9 @@ const CHAPTER_PROP_MULT_MAX := 2.0
 const SETPIECE_COUNT_CAP_MULT := 1.2 ## tv / painting / boss — oda şişmesin
 const SETPIECE_TYPES: Array[String] = ["tv", "tv_repair", "painting", "boss_slime"]
 
-## Oda süresi (RoomTimer) çarpanı — gametime uzatma ana anahtarı.
+## Oda par süresi (RoomTimer) — fail yok; gold/silver eşiği için referans.
 const LEVEL_TIME_MULT := 1.55
-const LEVEL_TIME_FLOOR := 42.0 ## challenge/climax için minimum sn
+const LEVEL_TIME_FLOOR := 42.0 ## challenge/climax için minimum par sn
 
 
 static func level_count() -> int:
@@ -81,7 +81,7 @@ static func is_tutorial_level(index: int) -> bool:
 
 static func unlocked_tools_for(index: int) -> int:
 	var info := get_level(index)
-	return clampi(int(info.get("unlocked_tools", 1)), 1, 5)
+	return clampi(int(info.get("unlocked_tools", 1)), 1, 4)
 
 
 static func dash_charges_for(index: int) -> int:
@@ -282,7 +282,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				subtitle = "Zorluk artıyor"
 				intro = String(ch.get("challenge_intro", "Daha sıkı süre · daha çok kir."))
 				hint = String(ch.get("hint_challenge", ch.get("tutorial", "")))
-				rule = int(ch.get("challenge_rule", CommissionData.Rule.TIME_LIMIT))
+				rule = int(ch.get("challenge_rule", CommissionData.Rule.TIME_LIMIT)) as CommissionData.Rule
 				rule_param = float(ch.get("challenge_param", time_lim))
 				if rule == CommissionData.Rule.TIME_LIMIT:
 					rule_param = time_lim
@@ -293,7 +293,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				subtitle = String(ch.get("climax_subtitle", "Bölüm doruğu"))
 				intro = String(ch.get("climax_intro", ch.get("intro", "Doruk turu.")))
 				hint = String(ch.get("hint_climax", ch.get("tutorial", "")))
-				rule = int(ch.get("climax_rule", ch.get("challenge_rule", CommissionData.Rule.TIME_LIMIT)))
+				rule = int(ch.get("climax_rule", ch.get("challenge_rule", CommissionData.Rule.TIME_LIMIT))) as CommissionData.Rule
 				rule_param = float(ch.get("climax_param", time_lim))
 				if rule == CommissionData.Rule.TIME_LIMIT:
 					rule_param = time_lim
@@ -338,12 +338,14 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 			"disable_pressure": disable_pressure,
 			"disable_curses": tier < 3 and chapter_num < 3,
 			"double_dash": bool(ch.get("double_dash", false)) and tier >= int(ch.get("dash_from_tier", 2)),
+			"ufo_abduction": bool(ch.get("ufo_abduction", false)),
+			"theme_id": id_base,
 			"chapter": chapter_num,
 			"tier": tier,
 			"chapter_prop_mult": ch_prop_m,
 			"box_stack_min": stack_range.x,
 			"box_stack_max": stack_range.y,
-			"commission": _commission(npc, icon, commission_title, commission_desc, rule, rule_param),
+			"commission": _commission(npc, icon, commission_title, commission_desc, rule as int, rule_param),
 			"props": props,
 		}
 		if is_boss:
@@ -694,45 +696,54 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"climax_intro": "Sprey + paspas + tablolar — çift dash kullan!",
 		},
 		{
-			"id": "tweezers",
-			"title": "Cımbız",
-			"npc": "Hayalet Ev Sahibi",
-			"icon": "🕯",
-			"new_mechanic": "cımbız + tiny",
-			"floor": Color(0.2, 0.2, 0.28),
-			"wall": Color(0.28, 0.28, 0.38),
-			"wall_style": "plaster",
-			"accent": Color(0.75, 0.85, 1.0),
-			"stations": ["trash", "bucket"],
-			"unlocked_tools": 5,
+			"id": "alien",
+			"title": "Uzaylı",
+			"npc": "Ajan Zorp",
+			"icon": "👽",
+			"new_mechanic": "UFO ışını — yakalanma = kayıp",
+			"floor": Color(0.12, 0.18, 0.14),
+			"wall": Color(0.18, 0.28, 0.2),
+			"wall_style": "cool",
+			"accent": Color(0.45, 1.0, 0.55),
+			"stations": ["trash", "bucket", "drain"],
+			"unlocked_tools": 4,
 			"double_dash": true,
 			"dash_from_tier": 0,
 			"base_time": 40.0,
 			"junk_from_tier": 1,
-			"hazards_from_tier": 1,
+			"hazards_from_tier": 2,
 			"micro_from_tier": 1,
 			"pressure_from_tier": 1,
-			"tutorial": "5=Cımbız · minik parçalar",
-			"hint_intro": "Yeni: Cımbız — tiny'leri topla / vur",
+			"ufo_abduction": true,
+			"tutorial": "UFO iner · ışından kaç (Shift) · aletler 1–4",
+			"hint_intro": "Ufolar iniyor — yeşil ışında kalma, yoksa kaçırılırsın!",
+			"hint_filler": "Işından dash ile çık · süpür / fırçala / sprey",
+			"hint_mixed": "Temizlik + UFO kaçınma",
+			"hint_challenge": "Çok UFO — ışınları izle",
+			"hint_climax": "Kaçırma yok · tüm kiri bitir!",
 			"focus_props": [
-				{"type": "tiny", "count": 5},
+				{"type": "wet", "count": 2},
+				{"type": "crumb", "count": 3},
 				{"type": "box", "count": 1},
 			],
 			"filler_props": [
+				{"type": "mold", "count": 2},
 				{"type": "crust", "count": 2},
-				{"type": "wet", "count": 1},
+				{"type": "slime", "count": 1},
 			],
 			"climax_props": [
-				{"type": "tiny", "count": 8},
-				{"type": "crust", "count": 3},
-				{"type": "wet", "count": 1},
+				{"type": "wet", "count": 2},
+				{"type": "crumb", "count": 4},
+				{"type": "mold", "count": 2},
+				{"type": "crust", "count": 2},
+				{"type": "slime", "count": 2},
 				{"type": "box", "count": 2},
 				{"type": "tv_repair", "count": 1},
 			],
-			"challenge_rule": CommissionData.Rule.FORBIDDEN,
-			"climax_rule": CommissionData.Rule.FORBIDDEN,
-			"climax_subtitle": "Hassas iş",
-			"climax_intro": "Tiny + tamir — yasak koliye dokunma!",
+			"challenge_rule": CommissionData.Rule.TIME_LIMIT,
+			"climax_rule": CommissionData.Rule.TIME_LIMIT,
+			"climax_subtitle": "Kaçırma gecesi",
+			"climax_intro": "Ufolar iniyor — ışından kaç, kirleri bitir!",
 		},
 		{
 			"id": "dark",
@@ -745,7 +756,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"wall_style": "cool",
 			"accent": Color(0.45, 0.85, 1.0),
 			"stations": ["trash", "bucket", "drain"],
-			"unlocked_tools": 5,
+			"unlocked_tools": 4,
 			"double_dash": true,
 			"dash_from_tier": 0,
 			"base_time": 40.0,
@@ -791,7 +802,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"wall_style": "ritual",
 			"accent": Color(0.95, 0.4, 0.85),
 			"stations": ["trash", "bucket", "drain"],
-			"unlocked_tools": 5,
+			"unlocked_tools": 4,
 			"double_dash": true,
 			"dash_from_tier": 0,
 			"base_time": 38.0,
@@ -802,7 +813,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"is_boss_room": true,
 			"boss_mode": "ritual_rush",
 			"boss_title": "SET-PIECE · CADI RİTÜELİ",
-			"tutorial": "İksire basma · tüm aletler",
+			"tutorial": "İksire basma · aletler 1–4",
 			"hint_intro": "İksir + balçık — riskli ama puanlı",
 			"focus_props": [
 				{"type": "potion", "count": 1},
@@ -839,7 +850,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"wall_style": "garage",
 			"accent": Color(1.0, 0.35, 0.4),
 			"stations": ["trash", "bucket", "drain"],
-			"unlocked_tools": 5,
+			"unlocked_tools": 4,
 			"double_dash": true,
 			"dash_from_tier": 0,
 			"base_time": 42.0,
@@ -850,7 +861,7 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"is_boss_room": true,
 			"boss_mode": "box_rain",
 			"boss_title": "BOSS · KUTU YAĞMURU",
-			"tutorial": "Tüm aletler · burger · kutu yağmuru",
+			"tutorial": "Aletler 1–4 · burger · kutu yağmuru",
 			"hint_intro": "Isınma — karışık ama henüz final değil",
 			"focus_props": [
 				{"type": "box", "count": 3},

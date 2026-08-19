@@ -50,7 +50,7 @@ func _process(_delta: float) -> void:
 	if _paused_for_card:
 		return
 	# LOW_VISIBILITY her kare güncellenir (süre kuralından bağımsız — eski bug: hiç güncellenmiyordu)
-	if int(_current.get("rule", 0)) == CommissionData.Rule.LOW_VISIBILITY:
+	if (int(_current.get("rule", 0)) as CommissionData.Rule) == CommissionData.Rule.LOW_VISIBILITY:
 		_update_low_visibility()
 	# Hard clock RoomTimer3D'de — burada soft countdown yok
 	_update_info()
@@ -93,7 +93,7 @@ func is_showing_card() -> bool:
 
 
 func _apply_rule() -> void:
-	var rule := int(_current.get("rule", CommissionData.Rule.NONE))
+	var rule: CommissionData.Rule = int(_current.get("rule", CommissionData.Rule.NONE)) as CommissionData.Rule
 	var param := float(_current.get("param", 0.0))
 	# TIME_LIMIT: soft timer yok — RoomTimer3D hard clock kullanır (flavor / HUD etiketi)
 	_time_active = false
@@ -152,7 +152,7 @@ func _tag_prop_low_vis(p: ClutterProp) -> void:
 func _update_low_visibility() -> void:
 	if _player == null or _spawner == null:
 		return
-	if int(_current.get("rule", 0)) != CommissionData.Rule.LOW_VISIBILITY:
+	if (int(_current.get("rule", 0)) as CommissionData.Rule) != CommissionData.Rule.LOW_VISIBILITY:
 		return
 	var origin: Vector3 = (_player as Node3D).global_position
 	var facing := Vector3(0.0, 0.0, -1.0)
@@ -165,10 +165,10 @@ func _update_low_visibility() -> void:
 		facing = Vector3(0.0, 0.0, -1.0)
 	facing = facing.normalized()
 
-	# Sadece fener konisi — büyük ayak dairesi yok
+	# Sadece fener sektörü — büyük ayak dairesi yok
 	var foot_r := 0.55
-	var beam_range := 11.0
-	var beam_cos := cos(deg_to_rad(48.0))
+	var beam_range := 7.0
+	var beam_cos := cos(deg_to_rad(34.0))
 	if _player.has_method("is_flashlight_on") and bool(_player.call("is_flashlight_on")):
 		if _player.has_method("get_flashlight_range"):
 			beam_range = float(_player.call("get_flashlight_range"))
@@ -218,12 +218,12 @@ func _on_time_up() -> void:
 func _update_info() -> void:
 	if _info == null:
 		return
-	var rule := int(_current.get("rule", CommissionData.Rule.NONE))
+	var rule: CommissionData.Rule = int(_current.get("rule", CommissionData.Rule.NONE)) as CommissionData.Rule
 	if rule == CommissionData.Rule.TIME_LIMIT:
-		_info.text = CommissionData.rule_label(rule)
-		_info.modulate = Color(1.0, 0.7, 0.55)
+		_info.text = "🥇 Altın / gümüş / bronz — hızlı bitir"
+		_info.modulate = Color(1.0, 0.85, 0.45)
 	elif rule != CommissionData.Rule.NONE:
-		_info.text = CommissionData.rule_label(rule)
+		_info.text = CommissionData.rule_label(rule as int)
 		_info.modulate = Color(1.0, 0.7, 0.55)
 	else:
 		var npc := String(_current.get("npc", ""))

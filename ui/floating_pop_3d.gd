@@ -7,14 +7,14 @@ extends Label3D
 static func spawn(
 	parent: Node,
 	world_pos: Vector3,
-	text: String,
+	pop_text: String,
 	color: Color = Color(1.0, 0.92, 0.45),
 	font_px: int = 64,
 ) -> void:
-	if parent == null or text.is_empty():
+	if parent == null or pop_text.is_empty():
 		return
 	var pop := FloatingPop3D.new()
-	pop.text = text
+	pop.text = pop_text
 	pop.font_size = font_px
 	pop.modulate = color
 	pop.outline_size = 10

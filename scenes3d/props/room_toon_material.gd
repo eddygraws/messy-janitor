@@ -45,6 +45,7 @@ const STYLE_BY_ID := {
 	"slime": "cool",
 	"brush": "ritual",
 	"spray": "cool",
+	"alien": "cool",
 	"tweezers": "plaster",
 	"dark": "cool",
 	"ritual": "ritual",

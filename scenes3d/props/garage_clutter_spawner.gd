@@ -418,7 +418,7 @@ func _spawn_prop(type: String, pos: Vector3, fallen: bool) -> void:
 		"wet":
 			_add_wet_stain(pos)
 		"tiny":
-			_add_blob(pos, "tiny", Color(0.9, 0.95, 1.0), 2, true, "trash", 0.35, false, "tweezers")
+			_add_blob(pos, "tiny", Color(0.55, 0.95, 0.45), 2, true, "trash", 0.35, false, "broom")
 		"hidden":
 			_add_blob(pos, "hidden", Color(0.15, 0.15, 0.2), 3, true, "", 0.7, true, "mop")
 		"boss_slime":
@@ -1017,6 +1017,7 @@ func _add_repair_tv(pos: Vector3, yaw: float) -> void:
 	screen.position = Vector3(0, 0.36, 0.24)
 	pivot.add_child(screen)
 	root.register_wobble_mesh(screen)
+	root.register_flicker_surface(screen)
 
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()

@@ -9,7 +9,7 @@ enum Rule { NONE, FORBIDDEN, TIME_LIMIT, LOW_VISIBILITY, HIGH_RISK }
 const RULE_LABELS := {
 	Rule.NONE: "",
 	Rule.FORBIDDEN: "⛔ Yasak bölgeye dokunma!",
-	Rule.TIME_LIMIT: "⏱ Süreye karşı!",
+	Rule.TIME_LIMIT: "🥇 Hızlı bitir — altın rozet!",
 	Rule.LOW_VISIBILITY: "🌑 Karanlık: fener konisiyle tara",
 	Rule.HIGH_RISK: "☠ Yüksek risk: yanlış alet acıtır",
 }
@@ -30,7 +30,7 @@ const COMMISSIONS: Array[Dictionary] = [
 	{
 		"npc": "Gargoyle Grimble", "icon": "🤢",
 		"title": "Midem Bulanıyor",
-		"desc": "Bu küf iğrenç! Yayılmadan hızlıca temizle, yoksa üstüne kusarım!",
+		"desc": "Bu küf iğrenç! Altın rozet için hızlı temizle — süre dolunca kayıp yok, ama rozet düşer.",
 		"rule": Rule.TIME_LIMIT, "param": 40.0,
 	},
 	{
@@ -48,7 +48,7 @@ const COMMISSIONS: Array[Dictionary] = [
 	{
 		"npc": "Gargoyle Grimble", "icon": "⏰",
 		"title": "Sabırsız Patron",
-		"desc": "Acelem var! 45 saniyede bu odayı pırıl pırıl istiyorum.",
+		"desc": "Acelem var! Altın için acele et — yavaş bitirirsen bronz/gümüş kalır, ama yine geçer.",
 		"rule": Rule.TIME_LIMIT, "param": 45.0,
 	},
 	{

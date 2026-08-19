@@ -18,6 +18,7 @@ const FOOTPRINTS: Dictionary = {
 	"slime": {"half_x": 8.0, "half_z": 6.6, "shape": "rect"},
 	"brush": {"half_x": 7.8, "half_z": 6.0, "shape": "compact"},
 	"spray": {"half_x": 9.0, "half_z": 6.8, "shape": "rect"},
+	"alien": {"half_x": 9.2, "half_z": 6.4, "shape": "rect"},
 	"tweezers": {"half_x": 8.2, "half_z": 5.8, "shape": "rect"},
 	"dark": {"half_x": 7.0, "half_z": 5.5, "shape": "compact"},
 	"ritual": {"half_x": 8.8, "half_z": 7.0, "shape": "deep"},
@@ -237,6 +238,9 @@ func _palette_for(theme_id: String, spec: Dictionary) -> Dictionary:
 			base["prop_a"] = Color(0.65, 0.4, 0.75)
 		"spray":
 			base["prop_a"] = Color(0.45, 0.7, 0.95)
+		"alien":
+			base["prop_a"] = Color(0.35, 0.75, 0.4)
+			base["prop_b"] = Color(0.2, 0.35, 0.25)
 		"tweezers":
 			base["prop_a"] = Color(0.85, 0.75, 0.45)
 		"dark":
@@ -289,7 +293,7 @@ func _fill_outside_void(col_a: Color, col_b: Color) -> void:
 	## Optimize: Multimesh + az sayıda unique prop. Gökyüzü görünmesin.
 	PropCatalog3D.refresh()
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(_theme_id) * 7919 + int(_half_x * 10.0) + int(_half_z * 17.0)
+	rng.seed = hash(_theme_id) * 7919 + roundi(_half_x * 10.0) + roundi(_half_z * 17.0)
 
 	var pad_near := 0.85
 	var pad_far := 22.0

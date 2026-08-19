@@ -1,45 +1,31 @@
 class_name RoomTimer3D
 extends Node
 
-## Seviye hard clock — combo/temizlikle uzar, hatayla kısalır; 0 = fail.
+## Seviye kronometresi — yukarı sayar; fail yok.
+## par_seconds = eski time_limit; rozet eşikleri için referans.
 
-signal time_changed(seconds_left: float)
-signal time_expired
-signal time_delta(amount: float)
+signal time_changed(elapsed: float)
 
-@export var clean_bonus: float = 1.5
-@export var combo_milestone_bonus: float = 4.0
-@export var mistake_penalty: float = 4.0
-@export var max_multiplier: float = 1.6
-
-var _seconds_left: float = 0.0
-var _base_seconds: float = 0.0
+var _elapsed: float = 0.0
+var _par_seconds: float = 0.0
 var _running: bool = false
 var _paused: bool = false
-var _expired: bool = false
 
 
 func _process(delta: float) -> void:
-	if not _running or _paused or _expired:
+	if not _running or _paused:
 		return
-	_seconds_left -= delta
-	if _seconds_left <= 0.0:
-		_seconds_left = 0.0
-		_running = false
-		_expired = true
-		time_changed.emit(0.0)
-		time_expired.emit()
-		return
-	time_changed.emit(_seconds_left)
+	_elapsed += delta
+	time_changed.emit(_elapsed)
 
 
+## seconds = rozet par süresi (eski hard clock limiti)
 func start(seconds: float) -> void:
-	_base_seconds = maxf(1.0, seconds)
-	_seconds_left = _base_seconds
+	_par_seconds = maxf(0.0, seconds)
+	_elapsed = 0.0
 	_running = true
 	_paused = false
-	_expired = false
-	time_changed.emit(_seconds_left)
+	time_changed.emit(_elapsed)
 
 
 func stop() -> void:
@@ -48,62 +34,57 @@ func stop() -> void:
 
 
 func pause() -> void:
-	if _running and not _expired:
+	if _running:
 		_paused = true
 
 
 func resume() -> void:
-	if not _expired and _seconds_left > 0.0:
+	if _paused:
 		_paused = false
 		_running = true
 
 
 func is_running() -> bool:
-	return _running and not _paused and not _expired
+	return _running and not _paused
 
 
 func is_expired() -> bool:
-	return _expired
+	return false
 
 
 func is_active() -> bool:
-	return (_running or _paused) and not _expired and _seconds_left > 0.0
+	return _running or _paused
 
 
 func get_seconds_left() -> float:
-	return _seconds_left
+	## Eski API: kalan süre yok — elapsed döner (HUD uyarlandı)
+	return _elapsed
+
+
+func get_elapsed() -> float:
+	return _elapsed
 
 
 func get_base_seconds() -> float:
-	return _base_seconds
+	return _par_seconds
 
 
-func add_time(seconds: float) -> void:
-	if _expired or seconds == 0.0:
-		return
-	if not _running and not _paused:
-		return
-	var cap := _base_seconds * max_multiplier
-	var before := _seconds_left
-	_seconds_left = clampf(_seconds_left + seconds, 0.0, cap)
-	if is_equal_approx(before, _seconds_left):
-		return
-	time_changed.emit(_seconds_left)
-	time_delta.emit(_seconds_left - before)
-	if _seconds_left <= 0.0:
-		_seconds_left = 0.0
-		_running = false
-		_expired = true
-		time_expired.emit()
+func get_par_seconds() -> float:
+	return _par_seconds
+
+
+func add_time(_seconds: float) -> void:
+	## Rozet modunda süre kazan/kaybet yok
+	pass
 
 
 func on_clean() -> void:
-	add_time(clean_bonus)
+	pass
 
 
 func on_combo_milestone() -> void:
-	add_time(combo_milestone_bonus)
+	pass
 
 
 func on_mistake() -> void:
-	add_time(-mistake_penalty)
+	pass

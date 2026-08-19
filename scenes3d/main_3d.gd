@@ -5,6 +5,7 @@ extends Node3D
 const WorldClearUIScript := preload("res://ui/world_clear_ui.gd")
 const LevelCountdownUIScript := preload("res://ui/level_countdown_ui.gd")
 const RoomLayoutScript := preload("res://scenes3d/props/room_layout_3d.gd")
+const UfoAbductionDirectorScript := preload("res://systems/ufo_abduction_director.gd")
 
 @onready var _player: PlayerCharacter3D = $World/PlayerCharacter
 @onready var _camera_rig: IsometricCameraRig = $IsometricCameraRig
@@ -34,12 +35,19 @@ var _ui_sfx: AudioStreamPlayer
 var _stress_label: Label
 var _combo_label: Label
 var _time_label: Label
+var _badge_hud: Control
+var _badge_medal_label: Label
+var _badge_time_label: Label
+var _badge_hint_label: Label
+var _hud_badge_rank: int = BadgeRating3D.Rank.NONE
+var _badge_pulse_tween: Tween
 var _heat_bar: ProgressBar
 var _heat_fill_style: StyleBoxFlat
 var _commission: CommissionDirector3D
 var _commission_card: CommissionCardUI
 var _commission_info: Label
 var _hazards: HazardDirector
+var _ufos: UfoAbductionDirector
 var _junk_rain: JunkRain3D
 var _curses: CurseDirector3D
 var _curse_label: Label
@@ -90,6 +98,8 @@ var _stop_vignette_active: bool = false
 var _vac_was_full: bool = false
 var _world_run_slot: int = -1
 var _world_run_stats: Dictionary = {}
+## level_index (str) → BadgeRating3D.Rank (best)
+var _level_badges: Dictionary = {}
 @export var task_fail_stress: float = 14.0
 @export var task_success_relief: float = 6.0
 
@@ -204,9 +214,8 @@ func _setup_tempo_and_tasks() -> void:
 	_room_timer.name = "RoomTimer3D"
 	add_child(_room_timer)
 	_room_timer.time_changed.connect(_on_room_time_changed)
-	_room_timer.time_expired.connect(_on_room_time_expired)
-	_room_timer.time_delta.connect(_on_room_time_delta)
-	_stress.mistake_registered.connect(_on_timer_mistake)
+	# Süre fail yok — kronometre + rozet
+	_stress.mistake_registered.connect(_on_stress_mistake_side)
 
 	_banner = TaskBanner.new()
 	_banner.name = "TaskBanner"
@@ -243,6 +252,11 @@ func _setup_tempo_and_tasks() -> void:
 	_hazards.furniture_shifted.connect(_on_hazard_furniture)
 	if _player != null:
 		_player.floor_scrubbed.connect(_on_floor_scrubbed)
+
+	_ufos = UfoAbductionDirectorScript.new() as UfoAbductionDirector
+	_ufos.name = "UfoAbductionDirector"
+	add_child(_ufos)
+	_ufos.player_abducted.connect(_on_player_abducted)
 
 	_junk_rain = JunkRain3D.new()
 	_junk_rain.name = "JunkRain3D"
@@ -362,9 +376,9 @@ func _update_phase_progress_hud() -> void:
 		if _spawner != null and _spawner.has_sections():
 			var s := _spawner.get_section_index() + 1
 			var n := _spawner.get_section_count()
-			_phase_hud.text = "TUTORIAL · Bölüm %d/%d  (%d%%)" % [s, n, int(ratio * 100.0)]
+			_phase_hud.text = "TUTORIAL · Bölüm %d/%d  (%d%%)" % [s, n, roundi(ratio * 100.0)]
 		else:
-			_phase_hud.text = "TUTORIAL · Sakin öğren  (%d%%)" % int(ratio * 100.0)
+			_phase_hud.text = "TUTORIAL · Sakin öğren  (%d%%)" % roundi(ratio * 100.0)
 		_phase_hud.modulate = Color(0.65, 0.95, 0.75)
 		return
 	var phase := _tempo.get_phase()
@@ -374,7 +388,7 @@ func _update_phase_progress_hud() -> void:
 			phase_name = "Hızlan"
 		TempoPhaseDirector.PHASE_FINALE:
 			phase_name = "Son Patlama"
-	_phase_hud.text = "FAZ %d · %s  (%d%%)" % [phase, phase_name, int(ratio * 100.0)]
+	_phase_hud.text = "FAZ %d · %s  (%d%%)" % [phase, phase_name, roundi(ratio * 100.0)]
 	# Vignette heat bar / stres üzerinden güncellenir (_on_stress_changed)
 
 
@@ -431,7 +445,10 @@ func start_level(index: int, daily: bool = false) -> void:
 	_set_time_label_visible(false)
 	if _junk_rain != null:
 		_junk_rain.stop_session()
+	if _ufos != null:
+		_ufos.stop_session()
 	if _player != null:
+		_player.scale = Vector3.ONE
 		var spawn := _room_layout.player_spawn() if _room_layout != null else RoomLayout3D.player_spawn_default()
 		_player.global_position = spawn
 		_player.velocity = Vector3.ZERO
@@ -441,6 +458,8 @@ func start_level(index: int, daily: bool = false) -> void:
 		_micro.stop_session()
 	if _hazards != null:
 		_hazards.stop_session()
+	if _ufos != null:
+		_ufos.stop_session()
 	if _curses != null:
 		_curses.revert_defaults(_stress, _player, _micro, _hazards)
 	if _spawner != null:
@@ -544,6 +563,15 @@ func start_level(index: int, daily: bool = false) -> void:
 		if not no_hazards:
 			_hazards.setup(_player, _stress, _spawner, $World as Node3D, _tempo)
 			_hazards.start_session(_level_index, mop_ok)
+	if _ufos != null:
+		if bool(spec.get("ufo_abduction", false)) and not is_tutorial:
+			var hx := _room_layout.half_x() if _room_layout != null else 5.8
+			var hz := _room_layout.half_z() if _room_layout != null else 3.8
+			_ufos.setup(_player, $World as Node3D, hx, hz)
+			var intensity := clampf(float(spec.get("tier", 0)) / 4.0, 0.0, 1.0)
+			_ufos.start_session(intensity)
+		else:
+			_ufos.stop_session()
 	if _junk_rain != null:
 		# Tutorial da allow_junk=true ise yağmur açık (abur cubur tutorial)
 		var no_junk := bool(spec.get("disable_junk", false)) \
@@ -619,8 +647,9 @@ func start_level(index: int, daily: bool = false) -> void:
 		await _apply_tutorial_section(_spawner.get_current_section(), 0, _spawner.get_section_count(), false)
 	else:
 		var limit := float(spec.get("time_limit", 0.0))
-		if limit > 0.0:
-			_start_room_timer(limit)
+		if limit <= 0.0:
+			limit = 48.0
+		_start_room_timer(limit)
 
 
 func _start_daily_challenge() -> void:
@@ -648,73 +677,121 @@ func _flash_boss_intro(title: String) -> void:
 
 
 func _on_commission_time_up() -> void:
-	# Soft commission timer kaldırıldı — hard fail RoomTimer3D
+	# Soft / hard süre fail kaldırıldı — rozet sistemi
 	pass
 
 
 func _start_room_timer(seconds: float) -> void:
-	if _room_timer == null or seconds <= 0.0:
+	if _room_timer == null:
 		return
-	_room_timer.start(seconds)
+	_hud_badge_rank = BadgeRating3D.Rank.NONE
+	_room_timer.start(maxf(seconds, 0.0))
 	_set_time_label_visible(true)
-	_on_room_time_changed(seconds)
+	_on_room_time_changed(0.0)
 
 
 func _set_time_label_visible(vis: bool) -> void:
+	if _badge_hud != null:
+		_badge_hud.visible = vis
 	if _time_label != null:
-		_time_label.visible = vis
+		_time_label.visible = false
 		if not vis:
 			_time_label.text = ""
+	if not vis:
+		_hud_badge_rank = BadgeRating3D.Rank.NONE
 
 
-func _on_room_time_changed(seconds_left: float) -> void:
-	# DUR geri sayımı / emir süresi köşe timer'ı eziyor
+func _on_room_time_changed(elapsed: float) -> void:
 	if _micro != null and (
 		_micro.is_stop_countdown_active()
 		or String(_micro.get_active_task_type()) == MicroTaskDirector.TASK_STOP
 	):
 		return
-	if _time_label == null:
+	if _room_timer == null or not _room_timer.is_active():
+		if elapsed <= 0.0:
+			_set_time_label_visible(false)
 		return
-	if not _room_timer.is_active() and seconds_left <= 0.0 and not _room_timer.is_expired():
+	_show_corner_stopwatch(elapsed)
+
+
+func _show_corner_stopwatch(elapsed: float) -> void:
+	if _badge_hud == null or _room_timer == null:
+		return
+	_badge_hud.visible = true
+	if _time_label != null:
 		_time_label.visible = false
-		return
-	_show_corner_timer_clock(seconds_left)
-
-
-func _show_corner_timer_clock(seconds_left: float) -> void:
-	if _time_label == null:
-		return
-	_time_label.visible = true
-	_time_label.add_theme_font_size_override("font_size", 64)
-	var total := int(ceil(seconds_left))
-	var mins := total / 60
+	var par := _room_timer.get_par_seconds()
+	var rank := BadgeRating3D.rank_from_elapsed(elapsed, par)
+	var total := ceili(elapsed)
+	var mins := floori(total / 60.0)
 	var secs := total % 60
-	_time_label.text = "%d:%02d" % [mins, secs]
-	if seconds_left <= 8.0:
-		_time_label.modulate = Color(1.0, 0.35, 0.3)
-	elif seconds_left <= 15.0:
-		_time_label.modulate = Color(1.0, 0.75, 0.35)
-	else:
-		_time_label.modulate = Color(0.95, 0.92, 0.55)
+	if _badge_time_label != null:
+		_badge_time_label.text = "%d:%02d" % [mins, secs]
+	if _badge_medal_label != null:
+		_badge_medal_label.text = BadgeRating3D.icon(rank)
+		_badge_medal_label.modulate = BadgeRating3D.color(rank)
+	if _badge_hint_label != null:
+		_badge_hint_label.text = _badge_drop_hint(elapsed, par, rank)
+		_badge_hint_label.modulate = BadgeRating3D.color(rank).lerp(Color.WHITE, 0.25)
+	# Madalya düşüşü — Moving Out tarzı anlık feedback
+	if _hud_badge_rank != BadgeRating3D.Rank.NONE and rank < _hud_badge_rank:
+		_pulse_badge_drop(rank)
+	_hud_badge_rank = rank
+
+
+func _badge_drop_hint(elapsed: float, par: float, rank: int) -> String:
+	var gold_t := BadgeRating3D.gold_threshold(par)
+	var silver_t := BadgeRating3D.silver_threshold(par)
+	match rank as BadgeRating3D.Rank:
+		BadgeRating3D.Rank.GOLD:
+			var left := maxf(0.0, gold_t - elapsed)
+			return "ALTIN  ·  🥈 %.0fs" % left
+		BadgeRating3D.Rank.SILVER:
+			var left2 := maxf(0.0, silver_t - elapsed)
+			return "GÜMÜŞ  ·  🥉 %.0fs" % left2
+		BadgeRating3D.Rank.BRONZE:
+			return "BRONZ"
+		_:
+			return ""
+
+
+func _pulse_badge_drop(new_rank: int) -> void:
+	if _badge_medal_label == null:
+		return
+	_spawn_pop(
+		"%s %s" % [BadgeRating3D.icon(new_rank), BadgeRating3D.label(new_rank)],
+		BadgeRating3D.color(new_rank),
+		68
+	)
+	if _camera_rig != null:
+		_camera_rig.shake(0.35)
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.15)
+	if _badge_pulse_tween != null and _badge_pulse_tween.is_valid():
+		_badge_pulse_tween.kill()
+	_badge_medal_label.scale = Vector2(1.4, 1.4)
+	_badge_pulse_tween = create_tween()
+	_badge_pulse_tween.tween_property(_badge_medal_label, "scale", Vector2.ONE, 0.28)\
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _update_corner_timer() -> void:
-	if _time_label == null or _micro == null:
+	if _micro == null:
 		return
 	if _micro.is_stop_countdown_active():
-		var n := maxi(1, int(ceil(_micro.get_stop_countdown_left())))
+		var n := maxi(1, ceili(_micro.get_stop_countdown_left()))
 		_show_corner_countdown(n)
 		return
 	if String(_micro.get_active_task_type()) == MicroTaskDirector.TASK_STOP:
-		_show_corner_countdown(maxi(0, int(ceil(_micro.get_task_time_left()))))
+		_show_corner_countdown(maxi(0, ceili(_micro.get_task_time_left())))
 		return
 	if _room_timer != null and _room_timer.is_active():
-		if not _time_label.visible:
-			_show_corner_timer_clock(_room_timer.get_seconds_left())
+		_show_corner_stopwatch(_room_timer.get_elapsed())
 
 
 func _show_corner_countdown(n: int) -> void:
+	# DUR uyarısı — rozet panelini geçici gizle, büyük sayı göster
+	if _badge_hud != null:
+		_badge_hud.visible = false
 	if _time_label == null:
 		return
 	_time_label.visible = true
@@ -735,20 +812,15 @@ func _on_stop_countdown_tick(seconds_left: int) -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK, 0.75 + 0.08 * float(4 - seconds_left))
 
 
-func _on_room_time_delta(amount: float) -> void:
-	if absf(amount) < 0.05:
-		return
-	var col := Color(0.55, 1.0, 0.65) if amount > 0.0 else Color(1.0, 0.45, 0.4)
-	var sign_s := "+" if amount > 0.0 else ""
-	_spawn_pop("%s%.1fs" % [sign_s, amount], col, 56)
+func _on_stress_mistake_side() -> void:
+	pass
 
 
-func _on_timer_mistake() -> void:
-	if _room_timer != null and _room_timer.is_active():
-		_room_timer.on_mistake()
+func _on_player_abducted() -> void:
+	_fail_level("👽 UFO KAÇIRDI!")
 
 
-func _on_room_time_expired() -> void:
+func _fail_level(title_text: String) -> void:
 	if _level_failing or _menu_open:
 		return
 	_level_failing = true
@@ -758,6 +830,8 @@ func _on_room_time_expired() -> void:
 		_micro.stop_session()
 	if _hazards != null:
 		_hazards.stop_session()
+	if _ufos != null:
+		_ufos.stop_session()
 	if _junk_rain != null:
 		_junk_rain.stop_session()
 	if _spawner != null:
@@ -768,20 +842,24 @@ func _on_room_time_expired() -> void:
 		_banner.flash_fail()
 	if _camera_rig != null:
 		_camera_rig.shake(2.4)
+	if _player != null:
+		_player.scale = Vector3.ONE
+		if _player.has_method("set_control_locked"):
+			_player.call("set_control_locked", true)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.75)
 	if _lives != null:
 		_lives.lose_life()
 		_save_progress()
 	if _hint != null:
 		var left := _lives.get_lives() if _lives != null else 0
-		_hint.text = "⏱ SÜRE DOLDU!  ·  can: %d" % left
-	_show_fail_overlay()
+		_hint.text = "%s  ·  can: %d" % [title_text, left]
+	_show_fail_overlay(title_text)
 
 
-func _show_fail_overlay() -> void:
+func _show_fail_overlay(title_text: String = "BAŞARISIZ!") -> void:
 	if _fail_overlay == null:
 		_ensure_fail_overlay()
-	_refresh_fail_overlay()
+	_refresh_fail_overlay(title_text)
 	if _fail_overlay != null:
 		_fail_overlay.visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -792,12 +870,15 @@ func _hide_fail_overlay() -> void:
 		_fail_overlay.visible = false
 
 
-func _refresh_fail_overlay() -> void:
+func _refresh_fail_overlay(title_text: String = "") -> void:
 	if _fail_overlay == null:
 		return
 	var left := _lives.get_lives() if _lives != null else 0
+	var title := _fail_overlay.get_node_or_null("Panel/VBox/FailTitle") as Label
 	var sub := _fail_overlay.get_node_or_null("Panel/VBox/FailSub") as Label
 	var retry := _fail_overlay.get_node_or_null("Panel/VBox/FailRetry") as Button
+	if title != null and not title_text.is_empty():
+		title.text = title_text
 	if sub != null:
 		if left > 0:
 			sub.text = "Kalan can: %d  ·  Tekrar dene veya menüye dön" % left
@@ -844,7 +925,8 @@ func _ensure_fail_overlay() -> void:
 	panel.add_child(vbox)
 
 	var title := Label.new()
-	title.text = "SÜRE DOLDU!"
+	title.name = "FailTitle"
+	title.text = "BAŞARISIZ!"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 36)
 	title.add_theme_color_override("font_color", Color(1.0, 0.4, 0.35))
@@ -1055,7 +1137,7 @@ func _on_task_failed(_task_type: String) -> void:
 func _on_stress_changed(current: float, maximum: float) -> void:
 	var ratio := current / maxf(maximum, 1.0)
 	if _stress_label != null:
-		var pct := int(ratio * 100.0)
+		var pct := roundi(ratio * 100.0)
 		_stress_label.text = "HEAT: %d%%" % pct
 		_stress_label.modulate = Color(1.0, lerpf(1.0, 0.35, ratio), lerpf(1.0, 0.35, ratio))
 	if _heat_bar != null:
@@ -1202,7 +1284,7 @@ func _spawn_level_bonus_coins(spec: Dictionary, is_tutorial: bool) -> void:
 		return
 	var count := int(spec.get("bonus_coins", -1))
 	if count < 0:
-		count = 2 + mini(2, int(_level_index / 12))
+		count = 2 + mini(2, floori(float(_level_index) / 12.0))
 		if bool(spec.get("allow_junk", false)) and is_tutorial:
 			count = 3
 	var world := $World as Node3D
@@ -1270,9 +1352,7 @@ func _on_heart_collected(world_pos: Vector3) -> void:
 
 func _on_combo_milestone(combo: int) -> void:
 	if _hint != null:
-		_hint.text = "🔥 Combo x%d — +süre!" % combo
-	if _room_timer != null and _room_timer.is_active():
-		_room_timer.on_combo_milestone()
+		_hint.text = "🔥 Combo x%d!" % combo
 	if _particles != null and _player != null:
 		_particles.burst(&"dance", _player.global_position, 1.3)
 	if _camera_rig != null:
@@ -1282,9 +1362,9 @@ func _on_combo_milestone(combo: int) -> void:
 
 
 func _on_task_cleared() -> void:
-	# DUR bitti → oda süresine dön
+	# DUR bitti → kronometreye dön
 	if _room_timer != null and _room_timer.is_active():
-		_show_corner_timer_clock(_room_timer.get_seconds_left())
+		_show_corner_stopwatch(_room_timer.get_elapsed())
 	# Tutorial tempo bölümünde emir aralarında öğretici şeridi geri getir
 	if not LevelData3D.is_tutorial_level(_level_index):
 		return
@@ -1540,12 +1620,11 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 		else:
 			_spawner.stop_pressure()
 
-	# Tempo bölümünde hard clock başlar; önceki bölümlerde kapalı
+	# Tempo bölümünde kronometre; yoksa par fallback
 	if section_limit > 0.0:
 		_start_room_timer(section_limit)
 	elif _room_timer != null and not _room_timer.is_active():
-		_room_timer.stop()
-		_set_time_label_visible(false)
+		_start_room_timer(48.0)
 
 	if _hint != null and not _section_hint.is_empty():
 		_hint.text = _section_hint
@@ -1585,6 +1664,8 @@ func _on_level_cleared() -> void:
 		_micro.stop_session()
 	if _hazards != null:
 		_hazards.stop_session()
+	if _ufos != null:
+		_ufos.stop_session()
 	if _curses != null:
 		_curses.revert_defaults(_stress, _player, _micro, _hazards)
 	if _spawner != null:
@@ -1606,7 +1687,31 @@ func _on_level_cleared() -> void:
 	var result: Dictionary = {}
 	if _score != null:
 		result = _score.finalize(stress_r, _daily_mode, _level_index)
+	# Rozet — kronometre elapsed + par
+	var elapsed := float(result.get("elapsed", 0.0))
+	var par := _room_timer.get_par_seconds() if _room_timer != null else float(LevelData3D.get_level(_level_index).get("time_limit", 48.0))
+	if _room_timer != null and _room_timer.get_elapsed() > 0.05:
+		elapsed = _room_timer.get_elapsed()
+		result["elapsed"] = elapsed
+	var badge := BadgeRating3D.rank_from_elapsed(elapsed, par)
+	result["badge"] = badge
+	result["badge_label"] = BadgeRating3D.label(badge)
+	result["badge_icon"] = BadgeRating3D.icon(badge)
+	_record_level_badge(_level_index, badge)
 	var earned := int(result.get("coins_earned", 0))
+	# Rozet coin bonus
+	var badge_bonus := 0
+	match badge as BadgeRating3D.Rank:
+		BadgeRating3D.Rank.GOLD:
+			badge_bonus = 8
+		BadgeRating3D.Rank.SILVER:
+			badge_bonus = 4
+		BadgeRating3D.Rank.BRONZE:
+			badge_bonus = 2
+	if badge_bonus > 0:
+		earned += badge_bonus
+		result["coins_earned"] = earned
+		result["coins_badge"] = badge_bonus
 	if _wallet != null and earned > 0:
 		_wallet.add(earned)
 		var gained := 0
@@ -1657,16 +1762,19 @@ func _on_level_cleared() -> void:
 		_world_clear_ui.present(slot, _world_run_stats.duplicate(), wcmp)
 		_reset_world_run()
 	else:
-		# Ara seviye — hafif feedback, kayıtlar menüde
+		# Ara seviye — rozet pop
+		var bicon := String(result.get("badge_icon", "🥉"))
+		var blab := String(result.get("badge_label", "BRONZ"))
 		var earned_show := int(result.get("coins_earned", 0))
 		var sc := int(result.get("score", 0))
+		_spawn_pop("%s %s" % [bicon, blab], BadgeRating3D.color(int(result.get("badge", 1))), 72)
 		if bool(compare.get("is_new_best", false)):
-			_spawn_pop("🏆 %d" % sc, Color(1.0, 0.85, 0.35), 72)
+			await get_tree().create_timer(0.25).timeout
+			_spawn_pop("🏆 %d" % sc, Color(1.0, 0.85, 0.35), 64)
 		elif earned_show > 0:
-			_spawn_pop("+%d🪙" % earned_show, Color(1.0, 0.85, 0.35), 64)
-		else:
-			_spawn_pop("Temiz!", Color(0.55, 1.0, 0.7), 64)
-		await get_tree().create_timer(0.55).timeout
+			await get_tree().create_timer(0.2).timeout
+			_spawn_pop("+%d🪙" % earned_show, Color(1.0, 0.85, 0.35), 56)
+		await get_tree().create_timer(0.65).timeout
 		_on_result_closed()
 
 
@@ -1689,6 +1797,10 @@ func _ensure_world_run(level_index: int) -> void:
 			"mistakes": 0,
 			"elapsed": 0.0,
 			"levels_cleared": 0,
+			"badges": [], ## [{level, name, badge, icon}]
+			"gold": 0,
+			"silver": 0,
+			"bronze": 0,
 		}
 
 
@@ -1703,6 +1815,35 @@ func _accumulate_world_run(result: Dictionary) -> void:
 	_world_run_stats["mistakes"] = int(_world_run_stats.get("mistakes", 0)) + int(result.get("mistakes", 0))
 	_world_run_stats["elapsed"] = float(_world_run_stats.get("elapsed", 0.0)) + float(result.get("elapsed", 0.0))
 	_world_run_stats["levels_cleared"] = int(_world_run_stats.get("levels_cleared", 0)) + 1
+	var badge := int(result.get("badge", BadgeRating3D.Rank.BRONZE))
+	match badge as BadgeRating3D.Rank:
+		BadgeRating3D.Rank.GOLD:
+			_world_run_stats["gold"] = int(_world_run_stats.get("gold", 0)) + 1
+		BadgeRating3D.Rank.SILVER:
+			_world_run_stats["silver"] = int(_world_run_stats.get("silver", 0)) + 1
+		_:
+			_world_run_stats["bronze"] = int(_world_run_stats.get("bronze", 0)) + 1
+	var info := LevelData3D.get_level(_level_index)
+	var badges: Array = _world_run_stats.get("badges", []) as Array
+	badges.append({
+		"level": _level_index,
+		"name": String(info.get("name", "Seviye")),
+		"tier": int(info.get("tier", 0)),
+		"badge": badge,
+		"icon": BadgeRating3D.icon(badge),
+		"label": BadgeRating3D.label(badge),
+		"elapsed": float(result.get("elapsed", 0.0)),
+	})
+	_world_run_stats["badges"] = badges
+
+
+func _record_level_badge(level_index: int, badge: int) -> void:
+	var key := str(level_index)
+	var prev := int(_level_badges.get(key, BadgeRating3D.Rank.NONE))
+	_level_badges[key] = BadgeRating3D.best(prev, badge)
+	_save_progress()
+	if _world_map != null and _world_map.has_method("set_level_badges"):
+		_world_map.call("set_level_badges", _level_badges)
 
 
 func _on_result_closed() -> void:
@@ -1932,7 +2073,73 @@ func _setup_hud() -> void:
 		_tool_bar_buttons.append(b)
 	_refresh_tool_bar()
 
-	# Büyük köşe timer — sağ alt
+	# Moving Out tarzı rozet + süre — sağ alt
+	_badge_hud = Control.new()
+	_badge_hud.name = "BadgeHud"
+	_badge_hud.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_badge_hud.anchor_left = 1.0
+	_badge_hud.anchor_right = 1.0
+	_badge_hud.anchor_top = 1.0
+	_badge_hud.anchor_bottom = 1.0
+	_badge_hud.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_badge_hud.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_badge_hud.offset_left = -340.0
+	_badge_hud.offset_right = -20.0
+	_badge_hud.offset_top = -168.0
+	_badge_hud.offset_bottom = -18.0
+	_badge_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_badge_hud.visible = false
+	ui.add_child(_badge_hud)
+
+	var badge_row := HBoxContainer.new()
+	badge_row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	badge_row.alignment = BoxContainer.ALIGNMENT_END
+	badge_row.add_theme_constant_override("separation", 12)
+	badge_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_badge_hud.add_child(badge_row)
+
+	var badge_col := VBoxContainer.new()
+	badge_col.alignment = BoxContainer.ALIGNMENT_END
+	badge_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	badge_col.add_theme_constant_override("separation", 2)
+	badge_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge_row.add_child(badge_col)
+
+	_badge_time_label = Label.new()
+	_badge_time_label.name = "BadgeTime"
+	_badge_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_badge_time_label.add_theme_font_size_override("font_size", 52)
+	_badge_time_label.add_theme_color_override("font_color", Color(0.98, 0.96, 0.9))
+	_badge_time_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.92))
+	_badge_time_label.add_theme_constant_override("outline_size", 12)
+	_badge_time_label.text = "0:00"
+	_badge_time_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge_col.add_child(_badge_time_label)
+
+	_badge_hint_label = Label.new()
+	_badge_hint_label.name = "BadgeHint"
+	_badge_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_badge_hint_label.add_theme_font_size_override("font_size", 16)
+	_badge_hint_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_badge_hint_label.add_theme_constant_override("outline_size", 6)
+	_badge_hint_label.text = "ALTIN"
+	_badge_hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge_col.add_child(_badge_hint_label)
+
+	_badge_medal_label = Label.new()
+	_badge_medal_label.name = "BadgeMedal"
+	_badge_medal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_badge_medal_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_badge_medal_label.custom_minimum_size = Vector2(88, 88)
+	_badge_medal_label.pivot_offset = Vector2(44, 44)
+	_badge_medal_label.add_theme_font_size_override("font_size", 64)
+	_badge_medal_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
+	_badge_medal_label.add_theme_constant_override("outline_size", 8)
+	_badge_medal_label.text = "🥇"
+	_badge_medal_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge_row.add_child(_badge_medal_label)
+
+	# DUR geri sayımı (geçici büyük sayı) — aynı köşe
 	_time_label = Label.new()
 	_time_label.name = "RoomTimeLabel"
 	_time_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -2186,6 +2393,7 @@ func _setup_menu() -> void:
 	_menu.add_child(_menu_records_label)
 
 	_world_map.setup(_highest_unlocked, -1)
+	_world_map.set_level_badges(_level_badges)
 	_refresh_menu_records(0)
 
 
@@ -2195,6 +2403,7 @@ func _rebuild_level_buttons() -> void:
 	# Menüye dönüşte mevcut level'e odaklan; yoksa bölümün ilk açık seviyesi
 	var prefer := _level_index if _level_index >= 0 else -1
 	_world_map.setup(_highest_unlocked, prefer)
+	_world_map.set_level_badges(_level_badges)
 
 
 func _show_menu(open: bool) -> void:
@@ -2217,6 +2426,8 @@ func _show_menu(open: bool) -> void:
 			_micro.stop_session()
 		if _hazards != null:
 			_hazards.stop_session()
+		if _ufos != null:
+			_ufos.stop_session()
 		if _curses != null:
 			_curses.revert_defaults(_stress, _player, _micro, _hazards)
 		if _spawner != null:
@@ -2295,7 +2506,7 @@ func _on_dance_changed(dancing: bool) -> void:
 func _on_mop_dirt_changed(ratio: float) -> void:
 	if _mop_label == null:
 		return
-	var pct := int(ratio * 100.0)
+	var pct := roundi(ratio * 100.0)
 	_mop_label.text = "Paspas kiri: %d%%  %s" % [pct, "→ kovada basılı tut" if pct > 0 else ""]
 	_mop_label.modulate = Color(1.0, lerpf(1.0, 0.55, ratio), lerpf(1.0, 0.4, ratio))
 
@@ -2858,6 +3069,10 @@ func _load_progress() -> void:
 			_pending_scrap_ids = PackedStringArray()
 			for x in scrap_var as Array:
 				_pending_scrap_ids.append(String(x))
+		_level_badges.clear()
+		if cfg.has_section("badges"):
+			for key in cfg.get_section_keys("badges"):
+				_level_badges[String(key)] = clampi(int(cfg.get_value("badges", key, 0)), 0, 3)
 	else:
 		_pending_lives = Lives3D.START_LIVES
 		_pending_life_coin_progress = 0
@@ -2899,4 +3114,8 @@ func _save_progress() -> void:
 	elif not _pending_scrap_ids.is_empty():
 		scrap_ids = _pending_scrap_ids
 	cfg.set_value("scraps", "found", scrap_ids)
+	if cfg.has_section("badges"):
+		cfg.erase_section("badges")
+	for k in _level_badges.keys():
+		cfg.set_value("badges", String(k), int(_level_badges[k]))
 	cfg.save(_save_path)

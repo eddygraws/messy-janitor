@@ -14,12 +14,15 @@ const PATH_CURVE_SHADER := preload("res://shaders/map_path_curve.gdshader")
 const OUTLINE_SHADER := preload("res://shaders/mesh_outline.gdshader")
 
 const PATH_SPACING := 3.2
-const NODE_Y := 0.18
 const WALK_SPEED := 5.2 ## birimler / sn — node arası yürüyüş
 const NODE_PEDESTAL_R := 0.28
 const NODE_GEM_R := 0.20
 const CURVE_STRENGTH := 0.016
 const CURVE_MAX_DROP := 16.0
+## Kamera ~11 birim geride; düz alan tüm ön alanı kapsamalı (ayak altında çukur olmasın)
+const CURVE_FLAT_RADIUS := 12.0
+const GROUND_Y := 0.12 ## Karakter ayaklarının hemen altı
+const NODE_Y := GROUND_Y + 0.07 ## Kaide merkezi (silindir height 0.14)
 
 ## Asset paths — senin dosya isimlerinle eşleşir
 const PATH_MAP_BG := "res://assets/map/forest/map_bg_forest.png"
@@ -46,6 +49,7 @@ const PATH_BOX := [
 var _highest_unlocked: int = 1
 var _world_slot: int = 0
 var _cursor: int = 0
+var _level_badges: Dictionary = {} ## level_index str → rank
 var _levels: Array[int] = []
 var _node_roots: Array[Node3D] = []
 var _node_pos: Array[Vector3] = []
@@ -224,6 +228,11 @@ func setup(highest_unlocked: int, prefer_level: int = -1) -> void:
 	_load_world(_world_slot, prefer_level)
 
 
+func set_level_badges(badges: Dictionary) -> void:
+	_level_badges = badges.duplicate()
+	_refresh_node_visuals()
+
+
 func set_highest_unlocked(n: int) -> void:
 	_highest_unlocked = maxi(1, n)
 	_refresh_node_visuals()
@@ -254,7 +263,7 @@ func _build_world() -> void:
 	_ground.mesh = ground_mesh
 	_ground_mat = _make_curve_mat(Color(0.22, 0.48, 0.26), PATH_MAP_GROUND, 8.0, false)
 	_ground.material_override = _ground_mat
-	_ground.position = Vector3(0, 0.0, 0)
+	_ground.position = Vector3(0, GROUND_Y, 0)
 	add_child(_ground)
 
 	# Kenar uçurum şeridi (eğri zeminle birlikte aşağı düşer)
@@ -267,7 +276,7 @@ func _build_world() -> void:
 	_cliff.mesh = cliff_mesh
 	var cliff_mat := _make_curve_mat(Color(0.35, 0.28, 0.18), "", 1.0, false)
 	_cliff.material_override = cliff_mat
-	_cliff.position = Vector3(0, -0.4, -14.0)
+	_cliff.position = Vector3(0, GROUND_Y - 0.45, -14.0)
 	_cliff.rotation_degrees.x = -18.0
 	add_child(_cliff)
 
@@ -284,7 +293,7 @@ func _build_world() -> void:
 		hill.mesh = hm
 		var hmat := _make_curve_mat(Color(0.18, 0.4, 0.22), "", 1.0, true)
 		hill.material_override = hmat
-		hill.position = Vector3(-18.0 + float(i) * 6.0, -0.6, -8.0 - float(i % 2) * 1.8)
+		hill.position = Vector3(-18.0 + float(i) * 6.0, GROUND_Y - 0.55, -8.0 - float(i % 2) * 1.8)
 		_hills_root.add_child(hill)
 
 	_build_horizon()
@@ -303,6 +312,7 @@ func _build_world() -> void:
 	_path_mat.shader = PATH_CURVE_SHADER
 	_path_mat.set_shader_parameter("curve_strength", CURVE_STRENGTH)
 	_path_mat.set_shader_parameter("curve_max_drop", CURVE_MAX_DROP)
+	_path_mat.set_shader_parameter("curve_flat_radius", CURVE_FLAT_RADIUS)
 	_curve_mats.append(_path_mat)
 	_path_mesh.material_override = _path_mat
 	add_child(_path_mesh)
@@ -360,6 +370,7 @@ func _make_curve_mat(col: Color, tex_path: String = "", uv_scale: float = 6.0, w
 	mat.set_shader_parameter("albedo_color", col)
 	mat.set_shader_parameter("curve_strength", CURVE_STRENGTH)
 	mat.set_shader_parameter("curve_max_drop", CURVE_MAX_DROP)
+	mat.set_shader_parameter("curve_flat_radius", CURVE_FLAT_RADIUS)
 	mat.set_shader_parameter("uv_scale", uv_scale)
 	mat.set_shader_parameter("roughness", 0.92)
 	var tex := _try_load_tex(tex_path)
@@ -381,6 +392,7 @@ func _make_curve_mat_tex(col: Color, tex: Texture2D = null, uv_scale: float = 1.
 	mat.set_shader_parameter("albedo_color", col)
 	mat.set_shader_parameter("curve_strength", CURVE_STRENGTH)
 	mat.set_shader_parameter("curve_max_drop", CURVE_MAX_DROP)
+	mat.set_shader_parameter("curve_flat_radius", CURVE_FLAT_RADIUS)
 	mat.set_shader_parameter("uv_scale", uv_scale)
 	mat.set_shader_parameter("roughness", 0.92)
 	if tex != null:
@@ -424,9 +436,11 @@ func _ensure_mesh_outline(mi: MeshInstance3D, width: float) -> void:
 		mi.set_surface_override_material(si, dup)
 
 
-func _snap_node_to_ground(node: Node3D, ground_y: float = 0.0) -> void:
+func _snap_node_to_ground(node: Node3D, ground_y: float = -1.0) -> void:
 	if node == null:
 		return
+	if ground_y < 0.0:
+		ground_y = GROUND_Y
 	var aabb := AABB()
 	var first := true
 	var meshes: Array = []
@@ -507,7 +521,7 @@ func _try_spawn_packed_prop(
 		float(xform.get("tilt_z", 0.0)) * 0.35
 	)
 	root.position = Vector3(pos.x, 0.0, pos.z)
-	_snap_node_to_ground(root, 0.01)
+	_snap_node_to_ground(root)
 	return true
 
 
@@ -525,9 +539,11 @@ func _attach_outline(mat: Material, width: float = 0.03) -> void:
 
 
 ## Mesh tabanını ground_y’ye oturt (parent local).
-func _snap_mesh_to_ground(mi: MeshInstance3D, ground_y: float = 0.0) -> void:
+func _snap_mesh_to_ground(mi: MeshInstance3D, ground_y: float = -1.0) -> void:
 	if mi == null or mi.mesh == null:
 		return
+	if ground_y < 0.0:
+		ground_y = GROUND_Y
 	# mesh AABB + node transform (scale/rot) → tabanı yere yapıştır
 	var mesh_aabb := mi.mesh.get_aabb()
 	var world_aabb := mi.transform * mesh_aabb
@@ -568,12 +584,16 @@ func _build_horizon() -> void:
 
 
 func _push_curve_cam() -> void:
-	if _camera == null:
-		return
-	var cam_pos := _camera.global_position
+	## Eğri merkezi = karakter/odak — kameraya göre düşerse zemin ayakların altında kalır
+	var focus := Vector3.ZERO
+	if _pawn != null:
+		focus = _pawn.global_position
+	elif _camera != null:
+		focus = _camera.global_position
 	for mat in _curve_mats:
 		if mat != null:
-			mat.set_shader_parameter("curve_cam_pos", cam_pos)
+			mat.set_shader_parameter("curve_cam_pos", focus)
+			mat.set_shader_parameter("curve_flat_radius", CURVE_FLAT_RADIUS)
 
 
 func _rebuild_foliage() -> void:
@@ -641,7 +661,7 @@ func _spawn_billboard(tex: Texture2D, pos: Vector3, size: Vector2) -> void:
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
 	_attach_outline(mat, 0.035)
 	mi.material_override = mat
-	mi.position = pos + Vector3(0, size.y * 0.5, 0)
+	mi.position = Vector3(pos.x, GROUND_Y + size.y * 0.5, pos.z)
 	_foliage_root.add_child(mi)
 
 
@@ -653,7 +673,7 @@ func _spawn_placeholder_tree(pos: Vector3, height: float) -> void:
 	cyl.height = height * 0.45
 	trunk.mesh = cyl
 	trunk.material_override = _mat(Color(0.42, 0.28, 0.16))
-	trunk.position = pos + Vector3(0, cyl.height * 0.5, 0)
+	trunk.position = Vector3(pos.x, GROUND_Y + cyl.height * 0.5, pos.z)
 	_foliage_root.add_child(trunk)
 	var crown := MeshInstance3D.new()
 	var sph := SphereMesh.new()
@@ -661,7 +681,7 @@ func _spawn_placeholder_tree(pos: Vector3, height: float) -> void:
 	sph.height = height * 0.5
 	crown.mesh = sph
 	crown.material_override = _mat(Color(0.25, 0.55, 0.28))
-	crown.position = pos + Vector3(0, height * 0.55, 0)
+	crown.position = Vector3(pos.x, GROUND_Y + height * 0.55, pos.z)
 	_foliage_root.add_child(crown)
 
 
@@ -672,7 +692,7 @@ func _spawn_placeholder_bush(pos: Vector3) -> void:
 	sph.height = 0.55
 	bush.mesh = sph
 	bush.material_override = _mat(Color(0.28, 0.52, 0.26))
-	bush.position = pos + Vector3(0, 0.22, 0)
+	bush.position = Vector3(pos.x, GROUND_Y + 0.22, pos.z)
 	_foliage_root.add_child(bush)
 
 
@@ -689,7 +709,7 @@ func _spawn_placeholder_rock(pos: Vector3, radius: float) -> void:
 	rock.rotation_degrees = Vector3(8.0, _decor_rng.randf_range(0.0, 360.0), -6.0)
 	rock.position = Vector3(pos.x, 0.0, pos.z)
 	_foliage_root.add_child(rock)
-	_snap_mesh_to_ground(rock, 0.01)
+	_snap_mesh_to_ground(rock)
 
 
 func _spawn_catalog_rock(pick: Dictionary, pos: Vector3, xform: Dictionary) -> void:
@@ -727,7 +747,7 @@ func _spawn_catalog_rock(pick: Dictionary, pos: Vector3, xform: Dictionary) -> v
 	)
 	rock.position = Vector3(pos.x, 0.0, pos.z)
 	_foliage_root.add_child(rock)
-	_snap_mesh_to_ground(rock, 0.01)
+	_snap_mesh_to_ground(rock)
 
 
 func _texture_from_mesh(mesh: Mesh) -> Texture2D:
@@ -1030,6 +1050,7 @@ func _rebuild_path_mesh() -> void:
 		_path_mat.shader = PATH_CURVE_SHADER
 		_path_mat.set_shader_parameter("curve_strength", CURVE_STRENGTH)
 		_path_mat.set_shader_parameter("curve_max_drop", CURVE_MAX_DROP)
+		_path_mat.set_shader_parameter("curve_flat_radius", CURVE_FLAT_RADIUS)
 		_curve_mats.append(_path_mat)
 	_path_mesh.material_override = _path_mat
 
@@ -1041,7 +1062,7 @@ func _add_path_quad(st: SurfaceTool, a: Vector3, b: Vector3, half_w: float, col:
 		return
 	dir = dir.normalized()
 	var side := Vector3(-dir.z, 0.0, dir.x) * half_w
-	var y := 0.02
+	var y := GROUND_Y + 0.03
 	var p0 := Vector3(a.x, y, a.z) - side
 	var p1 := Vector3(a.x, y, a.z) + side
 	var p2 := Vector3(b.x, y, b.z) + side
@@ -1093,8 +1114,11 @@ func _refresh_node_visuals() -> void:
 			gem.scale = Vector3.ONE * (1.22 if selected else 1.0)
 		var tag := root.get_node_or_null("Tag") as Label3D
 		if tag != null:
+			var best_b := int(_level_badges.get(str(li), BadgeRating3D.Rank.NONE))
 			if not unlocked:
 				tag.text = "🔒"
+			elif best_b >= BadgeRating3D.Rank.BRONZE:
+				tag.text = BadgeRating3D.icon(best_b)
 			elif cleared:
 				tag.text = "★"
 			elif is_boss:
@@ -1177,9 +1201,9 @@ func _move_cursor(dir: int) -> void:
 
 func _pawn_stand_pos(idx: int) -> Vector3:
 	if idx < 0 or idx >= _node_pos.size():
-		return Vector3.ZERO
+		return Vector3(0.0, GROUND_Y, 0.0)
 	var p: Vector3 = _node_pos[idx]
-	return Vector3(p.x, 0.0, p.z)
+	return Vector3(p.x, GROUND_Y, p.z)
 
 
 func _walk_pawn_to_cursor_async(animate: bool) -> void:
@@ -1377,6 +1401,14 @@ func _palette_for_world(slot: int) -> Dictionary:
 			"node_boss": Color(0.25, 0.65, 0.95), "pedestal": Color(0.3, 0.4, 0.5),
 			"accent": Color(0.4, 0.85, 1.0), "sun": 1.05,
 		},
+		"alien": {
+			"sky": Color(0.12, 0.22, 0.18), "ambient": Color(0.28, 0.45, 0.32),
+			"ground": Color(0.1, 0.16, 0.12), "hill": Color(0.08, 0.14, 0.1),
+			"path": Color(0.45, 1.0, 0.55), "path_locked": Color(0.25, 0.35, 0.28),
+			"node": Color(0.5, 1.0, 0.45), "node_clear": Color(0.7, 1.0, 0.55),
+			"node_boss": Color(0.85, 1.0, 0.3), "pedestal": Color(0.22, 0.32, 0.24),
+			"accent": Color(0.45, 1.0, 0.55), "sun": 0.9,
+		},
 		"tweezers": {
 			"sky": Color(0.4, 0.42, 0.58), "ambient": Color(0.45, 0.48, 0.62),
 			"ground": Color(0.18, 0.18, 0.26), "hill": Color(0.14, 0.14, 0.2),
@@ -1410,7 +1442,7 @@ func _palette_for_world(slot: int) -> Dictionary:
 			"accent": Color(1.0, 0.35, 0.4), "sun": 1.2,
 		},
 	}
-	var ids := ["liquids", "mold", "broom", "slime", "brush", "spray", "tweezers", "dark", "ritual", "finale"]
+	var ids := ["liquids", "mold", "broom", "slime", "brush", "spray", "alien", "dark", "ritual", "finale"]
 	var idx := clampi(slot - 1, 0, ids.size() - 1)
 	var tid: String = ids[idx]
 	var p: Dictionary = (themes[tid] as Dictionary).duplicate()
@@ -1494,6 +1526,9 @@ func _rebuild_theme_decor() -> void:
 			_spawn_cans(accent)
 			_spawn_mist(accent)
 			_spawn_prop_label("💧", Vector3(-7, 2.0, 3))
+		"alien":
+			_spawn_blobs(Color(0.4, 1.0, 0.5), 9)
+			_spawn_prop_label("👽", Vector3(5, 1.7, -3.5))
 		"tweezers":
 			_spawn_candles()
 			_spawn_prop_label("🕯", Vector3(5, 1.7, -3.5))
@@ -1596,7 +1631,7 @@ func _spawn_box_props(col: Color) -> void:
 				float(xform.get("tilt_z", 0.0)) * 0.35
 			)
 		_decor_root.add_child(mi)
-		_snap_mesh_to_ground(mi, 0.01)
+		_snap_mesh_to_ground(mi)
 
 
 func _spawn_puddles(col: Color) -> void:

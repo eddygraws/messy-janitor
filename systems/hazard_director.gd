@@ -47,6 +47,7 @@ var _base_slip_duration: float = -1.0
 var _slip_zones: Array[Dictionary] = [] # {node, center, radius, time}
 var _fall_cd: float = 0.0
 var _fall_warn: Node3D
+var _fall_warn_tween: Tween
 var _fall_center: Vector3 = Vector3.ZERO
 var _fall_timer: float = -1.0
 
@@ -400,12 +401,14 @@ func _begin_fall_warn() -> void:
 	)
 	box.position = Vector3(0.0, 3.2, 0.0)
 	zone.add_child(box)
-	var tw := zone.create_tween().set_loops()
-	tw.tween_property(box, "position:y", 3.05, 0.12)
-	tw.tween_property(box, "position:y", 3.35, 0.12)
 	var parent: Node = _world if _world != null else get_tree().current_scene
 	parent.add_child(zone)
 	_fall_warn = zone
+	if _fall_warn_tween != null and _fall_warn_tween.is_valid():
+		_fall_warn_tween.kill()
+	_fall_warn_tween = zone.create_tween().set_loops()
+	_fall_warn_tween.tween_property(box, "position:y", 3.05, 0.12)
+	_fall_warn_tween.tween_property(box, "position:y", 3.35, 0.12)
 
 
 func _resolve_fall() -> void:
@@ -414,6 +417,9 @@ func _resolve_fall() -> void:
 	if _fall_warn != null and is_instance_valid(_fall_warn):
 		impact = _fall_warn
 		_fall_warn = null
+		if _fall_warn_tween != null and _fall_warn_tween.is_valid():
+			_fall_warn_tween.kill()
+		_fall_warn_tween = null
 		for c in impact.get_children():
 			if c is Label3D or (c is MeshInstance3D and c.position.y < 0.5):
 				c.queue_free()
@@ -450,6 +456,9 @@ func _apply_fall_hit() -> void:
 	fall_impact.emit(hit, _fall_center)
 
 func _clear_fall_warn() -> void:
+	if _fall_warn_tween != null and _fall_warn_tween.is_valid():
+		_fall_warn_tween.kill()
+	_fall_warn_tween = null
 	if _fall_warn != null and is_instance_valid(_fall_warn):
 		_fall_warn.queue_free()
 	_fall_warn = null

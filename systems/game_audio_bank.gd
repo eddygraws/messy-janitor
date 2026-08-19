@@ -67,7 +67,7 @@ static func _music_file(layer: int, pcm: PackedByteArray) -> AudioStreamWAV:
 		if loaded != null:
 			loaded.loop_mode = AudioStreamWAV.LOOP_FORWARD
 			loaded.loop_begin = 0
-			loaded.loop_end = int(loaded.data.size() / 2.0)
+			loaded.loop_end = floori(float(loaded.data.size()) * 0.5)
 			return loaded
 	_save_wav_file(path, pcm, 22050)
 	return _pcm_to_stream(pcm, 22050, true)
@@ -82,7 +82,7 @@ static func _pcm_to_stream(pcm: PackedByteArray, rate: int, loop: bool) -> Audio
 	if loop:
 		s.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		s.loop_begin = 0
-		s.loop_end = int(pcm.size() / 2.0)
+		s.loop_end = floori(float(pcm.size()) * 0.5)
 	return s
 
 
@@ -238,7 +238,7 @@ static func _gen_music_layer(layer: int) -> PackedByteArray:
 	rng.seed = 42 + layer * 97
 	for i in count:
 		var t := float(i) / float(rate)
-		var beat_i := int(t / beat) % beats
+		var beat_i := floori(t / beat) % beats
 		var beat_pos := fmod(t, beat) / beat
 		var sample := 0.0
 		if layer == 0:
@@ -247,7 +247,7 @@ static func _gen_music_layer(layer: int) -> PackedByteArray:
 			if beat_i % 2 == 0:
 				sample += exp(-beat_pos * 16.0) * sin(t * lerpf(130.0, 40.0, beat_pos) * TAU) * 0.4
 		elif layer == 1:
-			var deg := scale_deg[(beat_i * 2 + int(beat_pos * 2.0)) % scale_deg.size()]
+			var deg := scale_deg[(beat_i * 2 + floori(beat_pos * 2.0)) % scale_deg.size()]
 			var freq := root * pow(2.0, float(deg) / 12.0)
 			var env := sin(beat_pos * PI) * 0.5
 			sample += sin(t * freq * TAU) * env * 0.26
