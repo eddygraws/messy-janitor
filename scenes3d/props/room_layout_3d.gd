@@ -312,6 +312,9 @@ func _fill_outside_void(col_a: Color, col_b: Color) -> void:
 			_spawn_crate(p, col)
 	# Uzak büyük yığınlar — ufuk / boşluğu kapatır (az mesh)
 	_spawn_horizon_mounds(rng, col_a, col_b)
+	var leaf_tint: Color = Color(0.32, 0.58, 0.18).lerp(col_a, 0.28)
+	var grass_tint: Color = Color(0.14, 0.58, 0.20).lerp(col_a, 0.22)
+	ForestVegetation.fill_level_outskirts(_decor_root, _half_x, _half_z, 0.0, rng, leaf_tint, grass_tint)
 
 
 func _scatter_outside_spots(

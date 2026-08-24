@@ -120,6 +120,29 @@ dance={
 
 3d/physics_engine="Jolt Physics"
 
+[shader_globals]
+
+wind_direction={
+"type": "vec3",
+"value": Vector3(0, 0, 1)
+}
+wind_noise={
+"type": "sampler2D",
+"value": "res://assets/vegetation/textures/noise.tres"
+}
+wind_scale={
+"type": "float",
+"value": 0.025
+}
+wind_speed={
+"type": "float",
+"value": 0.075
+}
+wind_strength={
+"type": "float",
+"value": 0.4
+}
+
 [plugins]
 
 ai_assistant_hub/options/debug_mode=0

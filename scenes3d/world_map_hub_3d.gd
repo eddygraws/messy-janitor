@@ -12,6 +12,7 @@ const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
 const CURVE_SHADER := preload("res://shaders/map_world_curve.gdshader")
 const PATH_CURVE_SHADER := preload("res://shaders/map_path_curve.gdshader")
 const OUTLINE_SHADER := preload("res://shaders/mesh_outline.gdshader")
+const EDGE_COMPOSITOR := preload("res://shaders/post_processing/edge_detection_compositor.gd")
 
 const PATH_SPACING := 3.2
 const WALK_SPEED := 5.2 ## birimler / sn — node arası yürüyüş
@@ -358,10 +359,21 @@ func _build_world() -> void:
 	_cam_env.fog_density = 0.012
 	_cam_env.fog_aerial_perspective = 0.35
 	_camera.environment = _cam_env
+	_apply_edge_look()
 	add_child(_camera)
 	_palette = _palette_for_world(0)
 	_apply_palette_visuals()
 	_rebuild_foliage()
+
+
+## Oyun kamerasındaki (main_3d) toon kenar/pixelize görünümünü harita kamerasına da uygular.
+## Viewport downscale paylaşımlı olduğundan burada sadece kenar (outline) compositor'ı gerekir.
+func _apply_edge_look() -> void:
+	if _camera == null:
+		return
+	var comp := Compositor.new()
+	comp.compositor_effects = [EDGE_COMPOSITOR.new()]
+	_camera.compositor = comp
 
 
 func _make_curve_mat(col: Color, tex_path: String = "", uv_scale: float = 6.0, with_outline: bool = true) -> ShaderMaterial:
@@ -602,36 +614,9 @@ func _rebuild_foliage() -> void:
 	for c in _foliage_root.get_children():
 		c.queue_free()
 	PropCatalog3D.refresh()
-	# Ağaçlar — path kenarı + arka plan
-	var tree_spots: Array[Vector3] = [
-		Vector3(-11.5, 0, 5.5), Vector3(-13.0, 0, 2.0), Vector3(-12.2, 0, -3.5),
-		Vector3(11.8, 0, 4.8), Vector3(13.2, 0, 0.5), Vector3(12.0, 0, -4.0),
-		Vector3(-8.5, 0, -7.5), Vector3(7.5, 0, -8.0), Vector3(0.0, 0, -9.0),
-		Vector3(-15.0, 0, -6.0), Vector3(15.0, 0, -5.5),
-	]
-	for i in tree_spots.size():
-		var tex := PropCatalog3D.pick_tree_tex(_decor_rng)
-		if tex == null:
-			_spawn_placeholder_tree(tree_spots[i], 1.8 + float(i % 3) * 0.35)
-		else:
-			var h := 2.2 + _decor_rng.randf_range(-0.25, 0.45)
-			var w := 1.45 + _decor_rng.randf_range(-0.15, 0.25)
-			_spawn_billboard(tex, tree_spots[i], Vector2(w, h))
-	var bush_spots: Array[Vector3] = [
-		Vector3(-6.5, 0, 4.2), Vector3(5.8, 0, 4.5), Vector3(-4.0, 0, -5.5),
-		Vector3(4.2, 0, -5.8), Vector3(-9.5, 0, 0.5), Vector3(9.2, 0, -1.0),
-		Vector3(-2.5, 0, 5.0), Vector3(2.8, 0, 5.2),
-	]
-	for i in bush_spots.size():
-		var btex := PropCatalog3D.pick_bush_tex(_decor_rng)
-		if btex == null:
-			_spawn_placeholder_bush(bush_spots[i])
-		else:
-			_spawn_billboard(
-				btex,
-				bush_spots[i],
-				Vector2(1.0 + _decor_rng.randf_range(-0.15, 0.25), 0.65 + _decor_rng.randf_range(-0.1, 0.2))
-			)
+	var leaf_tint: Color = _palette.get("hill", Color(0.22, 0.48, 0.22))
+	var grass_tint: Color = _palette.get("ground", Color(0.18, 0.52, 0.24)).lerp(Color(0.12, 0.62, 0.20), 0.45)
+	ForestVegetation.fill_world_map(_foliage_root, GROUND_Y, leaf_tint, grass_tint, _decor_rng)
 	# Kayalar — düz mesh + katalog RNG
 	var rock_spots: Array[Vector3] = [
 		Vector3(-5.2, 0, 3.2), Vector3(6.4, 0, 3.0), Vector3(-7.8, 0, -2.2),

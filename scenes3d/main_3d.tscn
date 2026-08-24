@@ -6,6 +6,7 @@
 [ext_resource type="Script" uid="uid://j0t6sxyvg480" path="res://scenes3d/props/garage_clutter_spawner.gd" id="4_clutter"]
 [ext_resource type="Material" uid="uid://cqf51byvxdg8i" path="res://materials/floor_toon_mat.tres" id="5_floor_toon"]
 [ext_resource type="Material" uid="uid://thbka63nb2ae" path="res://materials/walls/wall_brick_garage.tres" id="6_wall_toon"]
+[ext_resource type="Script" path="res://scenes3d/edge_detection_look.gd" id="7_edge"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_floor"]
 size = Vector3(18, 0.2, 13)
@@ -68,6 +69,10 @@ script = ExtResource("2_cam")
 
 [node name="Camera3D" type="Camera3D" parent="IsometricCameraRig" unique_id=635386653]
 fov = 46.0
+
+[node name="EdgeDetectionLook" type="Node" parent="IsometricCameraRig/Camera3D"]
+script = ExtResource("7_edge")
+start_pixel_index = 1
 
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=1987140865]
 transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 8, 14, 6)
