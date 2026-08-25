@@ -1402,22 +1402,26 @@ func _apply_theme(spec: Dictionary) -> void:
 	var dark_room := _is_dark_level(spec)
 	if _room_layout != null:
 		_room_layout.apply_spec(spec)
-		_apply_room_footprint(_room_layout.half_x(), _room_layout.half_z())
+		_apply_room_footprint(_room_layout.half_x(), _room_layout.half_z(), _is_outdoor_level(spec))
 	if _floor_mesh != null:
 		_floor_mesh.material_override = RoomToonMaterial.make_floor(floor_c, dark_room)
 		_floor_mesh.set_surface_override_material(0, null)
 	_apply_plain_backdrop(floor_c, dark_room)
+	var outdoor := _is_outdoor_level(spec)
 	var wall_style := RoomToonMaterial.wall_style_for_spec(spec)
 	var wall_i := 0
 	for wall_name in ["WallBack", "WallLeft"]:
 		var wall: MeshInstance3D = $World.get_node_or_null(wall_name) as MeshInstance3D
 		if wall == null:
 			continue
+		wall.visible = not outdoor
+		if outdoor:
+			continue
 		wall.material_override = RoomToonMaterial.make_wall(wall_c, dark_room, wall_style, wall_i)
 		wall_i += 1
 
 
-func _apply_room_footprint(hx: float, hz: float) -> void:
+func _apply_room_footprint(hx: float, hz: float, outdoor: bool = false) -> void:
 	## Seviye başına harita boyutu — zemin, duvar mesh/collider hizası
 	var floor_w := hx * 2.0
 	var floor_d := hz * 2.0
@@ -1446,6 +1450,7 @@ func _apply_room_footprint(hx: float, hz: float) -> void:
 		back.mesh = wbm
 		back.transform = Transform3D.IDENTITY
 		back.position = Vector3(0.0, wall_h * 0.5, -hz - 0.14)
+		back.visible = not outdoor
 
 	var left := $World.get_node_or_null("WallLeft") as MeshInstance3D
 	if left != null:
@@ -1454,6 +1459,7 @@ func _apply_room_footprint(hx: float, hz: float) -> void:
 		left.mesh = lbm
 		left.transform = Transform3D.IDENTITY
 		left.position = Vector3(-hx - 0.14, wall_h * 0.5, 0.0)
+		left.visible = not outdoor
 
 	var world: Node3D = $World as Node3D
 	if world == null:
@@ -1463,6 +1469,15 @@ func _apply_room_footprint(hx: float, hz: float) -> void:
 	_add_wall_body(world, "WallColliderLeft", Vector3(-hx - 0.35, 1.5, 0), Vector3(thick, 3.2, floor_d + 0.8), false)
 	_add_wall_body(world, "WallColliderRight", Vector3(hx + 0.35, 1.5, 0), Vector3(thick, 3.2, floor_d + 0.8), true)
 	_add_wall_body(world, "WallColliderFront", Vector3(0, 1.5, hz + 0.35), Vector3(floor_w + 0.8, 3.2, thick), true)
+
+
+func _is_outdoor_level(spec: Dictionary) -> bool:
+	if bool(spec.get("tutorial_level", false)):
+		return false
+	if spec.has("outdoor"):
+		return bool(spec.get("outdoor"))
+	var id := String(spec.get("theme_id", spec.get("id", "")))
+	return id == "slime" or id.begins_with("slime_")
 
 
 func _is_dark_level(spec: Dictionary) -> bool:

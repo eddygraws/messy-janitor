@@ -342,6 +342,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 			"theme_id": id_base,
 			"chapter": chapter_num,
 			"tier": tier,
+			"outdoor": bool(ch.get("outdoor", false)),
 			"chapter_prop_mult": ch_prop_m,
 			"box_stack_min": stack_range.x,
 			"box_stack_max": stack_range.y,
@@ -356,6 +357,7 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 		var intro_sections: Array = ch.get("intro_sections", []) as Array
 		if tier == 0 and not intro_sections.is_empty():
 			lvl["tutorial_level"] = true
+			lvl["outdoor"] = false
 			lvl["sections"] = intro_sections.duplicate(true)
 			lvl["props"] = []
 			lvl["name"] = "%d · %s · Tutorial" % [display_n, chapter_title]
@@ -580,7 +582,8 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"npc": "Gargoyle Grimble",
 			"icon": "🐌",
 			"new_mechanic": "paspas ovalama (slime)",
-			"floor": Color(0.14, 0.24, 0.22),
+			"outdoor": true,
+			"floor": Color(0.16, 0.28, 0.14),
 			"wall": Color(0.18, 0.3, 0.28),
 			"wall_style": "cool",
 			"accent": Color(0.35, 1.0, 0.72),

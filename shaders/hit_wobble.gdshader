@@ -4,7 +4,7 @@ render_mode diffuse_lambert, specular_disabled;
 // Toon lighting + hit wobble. Outline ayrı next_pass (mesh_outline.gdshader).
 
 uniform vec4 albedo_color : source_color = vec4(0.22, 0.21, 0.2, 1.0);
-uniform sampler2D albedo_tex : source_color, hint_default_white;
+uniform sampler2D albedo_tex : source_color, hint_default_white, filter_nearest;
 uniform bool use_albedo_tex = false;
 uniform float roughness : hint_range(0.0, 1.0) = 0.88;
 uniform vec3 emission_color : source_color = vec3(0.0, 0.0, 0.0);
@@ -23,7 +23,11 @@ uniform float rim_strength : hint_range(0.0, 1.5) = 0.35;
 uniform vec3 rim_color : source_color = vec3(1.0, 0.95, 0.85);
 uniform float ambient_boost : hint_range(0.0, 1.0) = 0.22;
 
+varying vec3 node_pos_view;
+varying float occlusion;
+
 void vertex() {
+	node_pos_view = NODE_POSITION_VIEW;
 	float age = TIME - hit_time;
 	if (age > 0.0 && hit_impulse > 0.001) {
 		float decay = exp(-age * 7.0) * hit_impulse;
@@ -53,16 +57,13 @@ void fragment() {
 	}
 	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.8);
 	EMISSION += rim_color * fresnel * rim_strength;
+	occlusion = round(COLOR.r * float(max(shade_bands, 2))) / float(max(shade_bands, 2));
+	LIGHT_VERTEX = node_pos_view;
 }
 
 void light() {
-	float ndotl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
-	// Soft half-Lambert → band
-	float hl = ndotl * 0.5 + 0.5;
-	float bands = float(max(shade_bands, 2));
-	float stepped = floor(hl * bands) / max(bands - 1.0, 1.0);
-	stepped = clamp(stepped, 0.0, 1.0);
-
-	vec3 shade = mix(shadow_tint, vec3(1.0), mix(1.0 - shadow_strength, 1.0, stepped));
-	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * ATTENUATION * shade;
+	float light = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	light = ceil(light * float(max(shade_bands, 2))) / float(max(shade_bands, 2));
+	vec3 shade = mix(shadow_tint, vec3(1.0), mix(1.0 - shadow_strength, 1.0, light));
+	DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * ATTENUATION * shade * occlusion;
 }

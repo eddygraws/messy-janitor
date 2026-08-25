@@ -4,7 +4,7 @@ shader_type spatial;
 render_mode diffuse_toon, specular_toon, cull_back;
 
 uniform vec4 albedo_color : source_color = vec4(0.34, 0.36, 0.38, 1.0);
-uniform sampler2D albedo_texture : source_color, hint_default_white, filter_linear_mipmap, repeat_enable;
+uniform sampler2D albedo_texture : source_color, hint_default_white, filter_nearest, repeat_enable;
 uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform bool use_normal_map = false;
 uniform vec2 uv_tiling = vec2(1.0, 1.0);

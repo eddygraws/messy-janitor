@@ -8,7 +8,7 @@ global uniform vec3 wind_direction;
 global uniform sampler2D wind_noise : filter_linear_mipmap;
 
 uniform vec4 grass_color : source_color;
-uniform sampler2D grass_alpha : source_color, filter_nearest;
+uniform sampler2D grass_alpha : source_color;
 uniform float grass_bend_amount = 1.0;
 uniform float sway_back : hint_range(0.0, 1.0, 0.01) = 1.0;
 uniform float light_steps = 3.0;
@@ -17,31 +17,40 @@ varying vec3 node_pos_view;
 varying vec3 node_pos_world;
 
 vec4 CalculateWind(vec4 uv, float speed, vec3 rotate_direction, float uv_scale, float mip_level){
+
+	// Scrolling Wind Noise
 	vec3 noise_texture = textureLod(wind_noise, (uv.xz * uv_scale) - (speed * wind_direction.xz), mip_level).rgb;
 	noise_texture = noise_texture * (1. + sway_back) - sway_back;
+
+	// Vertex Displacement
 	vec4 displace = vec4((noise_texture * rotate_direction) , 0.0);
 	return displace;
 }
 
 void vertex() {
+	// Varyings
 	node_pos_view = NODE_POSITION_VIEW;
 	node_pos_world = NODE_POSITION_WORLD;
 
+	// Wind Animation
 	vec4 world_pos = MODEL_MATRIX * vec4(VERTEX, 1.0);
 	float speed = TIME * wind_speed;
 	float displace_ammount = wind_strength * grass_bend_amount;
+	
+	vec4 direction = normalize(VIEW_MATRIX * vec4(wind_direction, 0.0)); //rotate the billboard in the direction of the wind
 
-	vec4 direction = normalize(VIEW_MATRIX * vec4(wind_direction, 0.0));
 	vec4 displace = CalculateWind(world_pos, speed, direction.xyz, wind_scale, 2.0);
 	float uv_mask = 1. - UV.y;
 	displace *= displace_ammount * uv_mask;
 
+	// Billboard
 	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
 			vec4(normalize(cross(vec3(0.0, 1.0, 0.0), MAIN_CAM_INV_VIEW_MATRIX[2].xyz)), 0.0),
 			vec4(0.0, 1.0, 0.0, 0.0),
 			vec4(normalize(cross(MAIN_CAM_INV_VIEW_MATRIX[0].xyz, vec3(0.0, 1.0, 0.0))), 0.0),
 			MODEL_MATRIX[3]);
 
+	// Billboard Keep Scale: Enabled
 	MODELVIEW_MATRIX = MODELVIEW_MATRIX * mat4(
 			vec4(length(MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0),
 			vec4(0.0, length(MODEL_MATRIX[1].xyz), 0.0, 0.0),
@@ -53,6 +62,7 @@ void vertex() {
 }
 
 void fragment() {
+	// Color Variation
 	float noise = texture(wind_noise, node_pos_world.xz * 0.04).r;
 	noise = (noise + 2.5) / 3.5;
 	noise = ceil(noise * 5.0) / 5.0;
@@ -68,5 +78,6 @@ void fragment() {
 
 void light(){
 	float light = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	light = ceil(light * light_steps) / light_steps;
 	DIFFUSE_LIGHT += light * (LIGHT_COLOR / PI) * ATTENUATION;
 }

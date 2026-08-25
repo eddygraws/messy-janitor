@@ -6,28 +6,44 @@ extends RefCounted
 
 const TREE_A_PATH := "res://assets/vegetation/meshes/tree.glb"
 const TREE_B_PATH := "res://assets/vegetation/meshes/tree3.glb"
+const TREE_A_LEAVES_MESH := "res://assets/vegetation/meshes/tree_leaves_cluster.res"
+const TREE_B_LEAVES_MESH := "res://assets/vegetation/meshes/tree3_leaves_cluster.res"
 const GRASS_MESH_PATH := "res://assets/vegetation/meshes/grass_plane_mesh.res"
 const TALL_GRASS_MESH_PATH := "res://assets/vegetation/meshes/grass_tall_mesh.res"
 const FLOWER_MESH_PATH := "res://assets/vegetation/meshes/flower.res"
 const NOISE_PATH := "res://assets/vegetation/textures/noise.tres"
+const PLANE_TREE_TEX_PATH := "res://assets/props/foliage/tree_plane_a_treetrunl.png"
 
 const GRASS_SHADER := preload("res://shaders/vegetation/grass_billboard.gdshader")
 const LEAVES_SHADER := preload("res://shaders/vegetation/tree_leaves.gdshader")
 const TRUNK_SHADER := preload("res://shaders/vegetation/trunk_shader.gdshader")
 const FLOWER_SHADER := preload("res://shaders/vegetation/flower.gdshader")
+const PLANE_TREE_SHADER := preload("res://shaders/vegetation/plane_tree.gdshader")
 const LEAF_ALPHA := preload("res://assets/vegetation/textures/leaf_alpha.png")
 const TREE_BARK := preload("res://assets/vegetation/textures/tree_bark.png")
 const GRASS_ROUND := preload("res://assets/vegetation/textures/grass_round.png")
 const GRASS_THIN := preload("res://assets/vegetation/textures/grass_thin.png")
 const FLOWER_TEX := preload("res://assets/vegetation/textures/flower.png")
+const LEAF_PARTICLE := preload("res://assets/vegetation/textures/leaf_particle.png")
 
 const LEAF_COLOR := Color(0.3647059, 0.65882355, 0.1764706)
 const GRASS_COLOR := Color(0.101960786, 0.6901961, 0.21176471)
 const TALL_GRASS_COLOR := Color(0.20546173, 0.77, 0.13090001)
+const BERM_COLOR := Color(0.18, 0.38, 0.16)
 
 const TREE_A_ROOT_SCALE := 1.285
 const TREE_B_TRUNK_SCALE := Vector3(1.5337995, 1.0, 1.4856852)
 const TREE_B_TRUNK_POS := Vector3(0.0, 1.0084579, 0.0)
+const TREE_A_CLUSTER_XFORM := Transform3D(
+	Vector3(0.93, 0.0, 0.0),
+	Vector3(0.0, 0.93, 0.0),
+	Vector3(0.0, 0.0, 0.93),
+	Vector3(0.003285408, 4.9916096, -0.81776524)
+)
+const TREE_B_CLUSTER_XFORM := Transform3D(Basis.IDENTITY, Vector3(0.0, 5.4666224, 0.0))
+
+const FLOWER_SC_MIN := 0.88
+const FLOWER_SC_MAX := 1.08
 
 static var _wind_ready: bool = false
 static var _trunk_mat_a: ShaderMaterial
@@ -37,6 +53,9 @@ static var _leaves_mat_b: ShaderMaterial
 static var _grass_mat: ShaderMaterial
 static var _tall_grass_mat: ShaderMaterial
 static var _flower_mat: ShaderMaterial
+static var _plane_tree_mat: ShaderMaterial
+static var _plane_tree_mesh: QuadMesh
+static var _plane_tree_tex: Texture2D
 
 
 static func ensure_wind() -> void:
@@ -64,7 +83,10 @@ static func fill_world_map(parent: Node3D, ground_y: float, _leaf_tint: Color, _
 		var p := tree_spots[i]
 		p.y = ground_y
 		var yaw := rng.randf() * TAU
-		spawn_tree(parent, p, yaw, i % 2)
+		if i % 3 == 0:
+			spawn_plane_tree(parent, p, rng.randf_range(4.6, 6.2))
+		else:
+			spawn_tree(parent, p, yaw, i % 2)
 
 	var grass_pts := _jitter_grid(rng, 22.0, 16.0, 0.42, ground_y, 2.15, 9.0)
 	_spawn_multimesh(parent, _grass_mesh(), _get_grass_mat(false), grass_pts, rng, 0.92, 1.08, Vector3.ONE)
@@ -73,7 +95,7 @@ static func fill_world_map(parent: Node3D, ground_y: float, _leaf_tint: Color, _
 	_spawn_multimesh(parent, _tall_grass_mesh(), _get_grass_mat(true), tall_pts, rng, 0.95, 1.1, Vector3.ONE)
 
 	var flower_pts := _jitter_grid(rng, 10.0, 8.0, 2.4, ground_y, 2.6, 6.0)
-	_spawn_multimesh(parent, _flower_mesh(), _get_flower_mat(), flower_pts, rng, 2.85, 3.15, Vector3.ONE)
+	_spawn_multimesh(parent, _flower_mesh(), _get_flower_mat(), flower_pts, rng, FLOWER_SC_MIN, FLOWER_SC_MAX, Vector3.ONE)
 
 
 static func fill_level_outskirts(
@@ -86,14 +108,19 @@ static func fill_level_outskirts(
 	_grass_tint: Color,
 ) -> void:
 	ensure_wind()
-	var tree_n := 10
+	fill_play_boundary(parent, half_x, half_z, ground_y, rng)
+
+	var tree_n := 8
 	for i in tree_n:
 		var ang := float(i) / float(tree_n) * TAU + rng.randf_range(-0.12, 0.12)
-		var dist := maxf(half_x, half_z) + rng.randf_range(4.2, 8.0)
+		var dist := maxf(half_x, half_z) + rng.randf_range(6.5, 10.5)
 		var p := Vector3(cos(ang) * dist, ground_y, sin(ang) * dist)
 		if absf(p.x) < half_x + 2.4 and absf(p.z) < half_z + 2.4:
 			p *= 1.35
-		spawn_tree(parent, p, rng.randf() * TAU, i % 2)
+		if i % 2 == 0:
+			spawn_plane_tree(parent, p, rng.randf_range(5.4, 7.4))
+		else:
+			spawn_tree(parent, p, rng.randf() * TAU, i % 2)
 
 	var grass_pts := _outside_band_points(rng, half_x, half_z, 0.55, 9.5, 2800, ground_y)
 	_spawn_multimesh(parent, _grass_mesh(), _get_grass_mat(false), grass_pts, rng, 0.92, 1.08, Vector3.ONE)
@@ -102,14 +129,53 @@ static func fill_level_outskirts(
 	_spawn_multimesh(parent, _tall_grass_mesh(), _get_grass_mat(true), tall_pts, rng, 0.95, 1.12, Vector3.ONE)
 
 	var flower_pts := _outside_band_points(rng, half_x, half_z, 1.0, 6.0, 36, ground_y)
-	_spawn_multimesh(parent, _flower_mesh(), _get_flower_mat(), flower_pts, rng, 2.85, 3.15, Vector3.ONE)
+	_spawn_multimesh(parent, _flower_mesh(), _get_flower_mat(), flower_pts, rng, FLOWER_SC_MIN, FLOWER_SC_MAX, Vector3.ONE)
+
+
+static func fill_play_boundary(
+	parent: Node3D,
+	half_x: float,
+	half_z: float,
+	ground_y: float,
+	rng: RandomNumberGenerator,
+) -> void:
+	_spawn_edge_berms(parent, half_x, half_z, ground_y)
+	## Arka kenar (kamera uzağı) — eski duvarın yerine çam sırası
+	_spawn_plane_line(
+		parent, rng, ground_y,
+		Vector3(-half_x, 0.0, -half_z - 1.2),
+		Vector3(half_x, 0.0, -half_z - 1.2),
+		1.28, 5.2, 6.8, 0.22
+	)
+	## Sol / sağ
+	_spawn_plane_line(
+		parent, rng, ground_y,
+		Vector3(-half_x - 1.15, 0.0, -half_z),
+		Vector3(-half_x - 1.15, 0.0, half_z),
+		1.55, 4.6, 6.2, 0.18
+	)
+	_spawn_plane_line(
+		parent, rng, ground_y,
+		Vector3(half_x + 1.15, 0.0, -half_z),
+		Vector3(half_x + 1.15, 0.0, half_z),
+		1.55, 4.6, 6.2, 0.18
+	)
+	## Ön kenar — kamerayı kapatmasın, alçak çalı hissi
+	_spawn_plane_line(
+		parent, rng, ground_y,
+		Vector3(-half_x * 0.72, 0.0, half_z + 1.35),
+		Vector3(half_x * 0.72, 0.0, half_z + 1.35),
+		2.15, 2.8, 3.8, 0.12
+	)
+	var hedge_grass := _rect_edge_points(rng, half_x, half_z, 0.35, 1.65, 0.38, ground_y)
+	_spawn_multimesh(parent, _tall_grass_mesh(), _get_grass_mat(true), hedge_grass, rng, 1.05, 1.28, Vector3.ONE)
 
 
 static func spawn_tree(parent: Node3D, pos: Vector3, yaw: float, variant: int) -> Node3D:
 	var path := TREE_B_PATH if variant == 1 else TREE_A_PATH
 	var packed := load(path) as PackedScene
 	if packed == null:
-		return null
+		return spawn_plane_tree(parent, pos, 5.4)
 	var inst := packed.instantiate() as Node3D
 	if inst == null:
 		return null
@@ -117,7 +183,28 @@ static func spawn_tree(parent: Node3D, pos: Vector3, yaw: float, variant: int) -
 	inst.transform = Transform3D(Basis.from_euler(Vector3(0.0, yaw, 0.0)).scaled(Vector3.ONE * root_sc), pos)
 	parent.add_child(inst)
 	_apply_tree_materials(inst, variant)
+	_add_leaf_cluster(inst, variant)
+	_add_falling_leaves(inst)
 	return inst
+
+
+static func spawn_plane_tree(parent: Node3D, pos: Vector3, height: float) -> Node3D:
+	var mesh := _get_plane_tree_mesh()
+	var mat := _get_plane_tree_mat()
+	if mesh == null or mat == null:
+		return null
+	var root := Node3D.new()
+	root.name = "PlaneTree"
+	root.position = pos
+	var sc := height / 5.6
+	root.scale = Vector3(sc, sc, sc)
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(mi)
+	parent.add_child(root)
+	return root
 
 
 static func _apply_tree_materials(n: Node, variant: int) -> void:
@@ -136,6 +223,63 @@ static func _apply_tree_materials(n: Node, variant: int) -> void:
 			mi.material_override = null
 	for c in n.get_children():
 		_apply_tree_materials(c, variant)
+
+
+static func _add_leaf_cluster(tree: Node3D, variant: int) -> void:
+	var mesh := load(TREE_B_LEAVES_MESH if variant == 1 else TREE_A_LEAVES_MESH) as Mesh
+	if mesh == null:
+		return
+	var mi := MeshInstance3D.new()
+	mi.name = "leaves_cluster"
+	mi.mesh = mesh
+	## DemoForest leaves2/leaves4 — sadece gölge hacmi; görünür taç billboard shader.
+	var shadow_mat := StandardMaterial3D.new()
+	shadow_mat.albedo_color = LEAF_COLOR
+	mi.material_override = shadow_mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	mi.transform = TREE_B_CLUSTER_XFORM if variant == 1 else TREE_A_CLUSTER_XFORM
+	tree.add_child(mi)
+
+
+static func _add_falling_leaves(tree: Node3D) -> void:
+	var particles := GPUParticles3D.new()
+	particles.name = "FallingLeaves"
+	particles.amount = 5
+	particles.lifetime = 10.0
+	particles.preprocess = 5.0
+	particles.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	particles.position = Vector3(0.0, 5.85, 0.0)
+	var proc := ParticleProcessMaterial.new()
+	proc.particle_flag_rotate_y = true
+	proc.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	proc.emission_sphere_radius = 1.0
+	proc.emission_shape_scale = Vector3(3.0, 3.0, 3.0)
+	proc.direction = Vector3(0.0, 0.0, 1.0)
+	proc.spread = 10.0
+	proc.initial_velocity_min = 0.5
+	proc.initial_velocity_max = 1.5
+	proc.angular_velocity_min = 150.0
+	proc.angular_velocity_max = 200.0
+	proc.gravity = Vector3(0.0, -0.3, 0.0)
+	proc.scale_min = 0.5
+	proc.scale_max = 0.65
+	particles.process_material = proc
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.45, 0.45)
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	mat.alpha_scissor_threshold = 0.5
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_color = LEAF_COLOR
+	mat.albedo_texture = LEAF_PARTICLE
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	mat.billboard_keep_scale = true
+	quad.material = mat
+	particles.draw_pass_1 = quad
+	tree.add_child(particles)
 
 
 static func _get_leaves_mat(variant: int) -> ShaderMaterial:
@@ -211,6 +355,32 @@ static func _get_flower_mat() -> ShaderMaterial:
 	return _flower_mat
 
 
+static func _get_plane_tree_tex() -> Texture2D:
+	if _plane_tree_tex == null and ResourceLoader.exists(PLANE_TREE_TEX_PATH):
+		_plane_tree_tex = load(PLANE_TREE_TEX_PATH) as Texture2D
+	return _plane_tree_tex
+
+
+static func _get_plane_tree_mat() -> ShaderMaterial:
+	if _plane_tree_mat == null:
+		var tex := _get_plane_tree_tex()
+		if tex == null:
+			return null
+		_plane_tree_mat = ShaderMaterial.new()
+		_plane_tree_mat.shader = PLANE_TREE_SHADER
+		_plane_tree_mat.set_shader_parameter("albedo_tex", tex)
+		_plane_tree_mat.set_shader_parameter("cut", 0.08)
+	return _plane_tree_mat
+
+
+static func _get_plane_tree_mesh() -> QuadMesh:
+	if _plane_tree_mesh == null:
+		_plane_tree_mesh = QuadMesh.new()
+		_plane_tree_mesh.size = Vector2(4.2, 5.6)
+		_plane_tree_mesh.center_offset = Vector3(0.0, 2.8, 0.0)
+	return _plane_tree_mesh
+
+
 static func _grass_mesh() -> Mesh:
 	var mesh := load(GRASS_MESH_PATH) as Mesh
 	return mesh if mesh != null else _fallback_quad(Vector2(0.55, 0.7))
@@ -231,6 +401,64 @@ static func _fallback_quad(size: Vector2) -> QuadMesh:
 	q.size = size
 	q.center_offset = Vector3(0.0, size.y * 0.5, 0.0)
 	return q
+
+
+static func _spawn_plane_line(
+	parent: Node3D,
+	rng: RandomNumberGenerator,
+	ground_y: float,
+	a: Vector3,
+	b: Vector3,
+	spacing: float,
+	h_min: float,
+	h_max: float,
+	jitter: float,
+) -> void:
+	var delta := b - a
+	var length := delta.length()
+	if length < 0.01:
+		return
+	var dir := delta / length
+	var n := maxi(2, int(round(length / spacing)))
+	for i in n + 1:
+		var t := float(i) / float(n)
+		var p := a.lerp(b, t)
+		p.x += rng.randf_range(-jitter, jitter)
+		p.z += rng.randf_range(-jitter, jitter)
+		p.y = ground_y
+		spawn_plane_tree(parent, p, rng.randf_range(h_min, h_max))
+		if rng.randf() < 0.35:
+			var side := Vector3(-dir.z, 0.0, dir.x) * rng.randf_range(0.55, 1.15)
+			if rng.randf() < 0.5:
+				side = -side
+			spawn_plane_tree(parent, p + side, rng.randf_range(h_min * 0.78, h_max * 0.92))
+
+
+static func _spawn_edge_berms(parent: Node3D, half_x: float, half_z: float, ground_y: float) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = BERM_COLOR
+	mat.roughness = 0.95
+	var sizes: Array[Vector3] = [
+		Vector3(half_x * 2.15, 0.22, 0.55),
+		Vector3(half_x * 2.15, 0.22, 0.55),
+		Vector3(0.55, 0.22, half_z * 2.15),
+		Vector3(0.55, 0.22, half_z * 2.15),
+	]
+	var positions: Array[Vector3] = [
+		Vector3(0.0, ground_y + 0.02, -half_z - 0.28),
+		Vector3(0.0, ground_y + 0.02, half_z + 0.28),
+		Vector3(-half_x - 0.28, ground_y + 0.02, 0.0),
+		Vector3(half_x + 0.28, ground_y + 0.02, 0.0),
+	]
+	for i in sizes.size():
+		var box := BoxMesh.new()
+		box.size = sizes[i]
+		var mi := MeshInstance3D.new()
+		mi.mesh = box
+		mi.position = positions[i]
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mi)
 
 
 static func _spawn_multimesh(
@@ -315,4 +543,31 @@ static func _outside_band_points(
 		if absf(p.x) <= half_x + pad_near * 0.25 and absf(p.z) <= half_z + pad_near * 0.25:
 			continue
 		out.append(p)
+	return out
+
+
+static func _rect_edge_points(
+	rng: RandomNumberGenerator,
+	half_x: float,
+	half_z: float,
+	pad_near: float,
+	pad_far: float,
+	spacing: float,
+	ground_y: float,
+) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	var x := -half_x - pad_far
+	while x <= half_x + pad_far:
+		var z_back := -1.0 * (half_z + rng.randf_range(pad_near, pad_far))
+		var z_front := 1.0 * (half_z + rng.randf_range(pad_near, pad_far))
+		out.append(Vector3(x + rng.randf_range(-0.18, 0.18), ground_y, z_back))
+		out.append(Vector3(x + rng.randf_range(-0.18, 0.18), ground_y, z_front))
+		x += spacing
+	var z := -half_z - pad_far
+	while z <= half_z + pad_far:
+		var x_left := -1.0 * (half_x + rng.randf_range(pad_near, pad_far))
+		var x_right := 1.0 * (half_x + rng.randf_range(pad_near, pad_far))
+		out.append(Vector3(x_left, ground_y, z + rng.randf_range(-0.18, 0.18)))
+		out.append(Vector3(x_right, ground_y, z + rng.randf_range(-0.18, 0.18)))
+		z += spacing
 	return out

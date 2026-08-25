@@ -3,7 +3,7 @@ class_name EdgeDetectionCompositor
 extends CompositorEffect
 
 ## Vegetation tutorial'daki depth outline compute shader'ı.
-## Janitor 3D kamerasına EdgeDetectionLook ile bağlanır.
+## Tutorial depth outline. Pixelize compositor ayrı; kenar orada blok çözünürlüğünde.
 
 const SHADER_PATH := "res://shaders/post_processing/edge_detection_shader.glsl"
 

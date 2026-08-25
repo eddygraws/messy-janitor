@@ -12,7 +12,6 @@ const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
 const CURVE_SHADER := preload("res://shaders/map_world_curve.gdshader")
 const PATH_CURVE_SHADER := preload("res://shaders/map_path_curve.gdshader")
 const OUTLINE_SHADER := preload("res://shaders/mesh_outline.gdshader")
-const EDGE_COMPOSITOR := preload("res://shaders/post_processing/edge_detection_compositor.gd")
 
 const PATH_SPACING := 3.2
 const WALK_SPEED := 5.2 ## birimler / sn — node arası yürüyüş
@@ -359,21 +358,11 @@ func _build_world() -> void:
 	_cam_env.fog_density = 0.012
 	_cam_env.fog_aerial_perspective = 0.35
 	_camera.environment = _cam_env
-	_apply_edge_look()
 	add_child(_camera)
+	PixelLook.bind_camera(_camera)
 	_palette = _palette_for_world(0)
 	_apply_palette_visuals()
 	_rebuild_foliage()
-
-
-## Oyun kamerasındaki (main_3d) toon kenar/pixelize görünümünü harita kamerasına da uygular.
-## Viewport downscale paylaşımlı olduğundan burada sadece kenar (outline) compositor'ı gerekir.
-func _apply_edge_look() -> void:
-	if _camera == null:
-		return
-	var comp := Compositor.new()
-	comp.compositor_effects = [EDGE_COMPOSITOR.new()]
-	_camera.compositor = comp
 
 
 func _make_curve_mat(col: Color, tex_path: String = "", uv_scale: float = 6.0, with_outline: bool = true) -> ShaderMaterial:

@@ -34,6 +34,7 @@ var _half_x: float = 8.5
 var _half_z: float = 6.0
 var _shape: String = "rect"
 var _spawn_zones: Array[Rect2] = []
+var _outdoor: bool = false
 
 
 func _ready() -> void:
@@ -93,6 +94,7 @@ static func player_spawn_default() -> Vector3:
 
 func apply_spec(spec: Dictionary) -> void:
 	_theme_id = _theme_key(spec)
+	_outdoor = _outdoor_from_spec(spec)
 	_palette = _palette_for(_theme_id, spec)
 	_apply_footprint_defaults(_theme_id)
 	# LevelData override
@@ -107,6 +109,18 @@ func apply_spec(spec: Dictionary) -> void:
 	_rebuild_theme_decor()
 	footprint_changed.emit(_half_x, _half_z)
 	layout_applied.emit(_theme_id)
+
+
+func is_outdoor() -> bool:
+	return _outdoor
+
+
+func _outdoor_from_spec(spec: Dictionary) -> bool:
+	if bool(spec.get("tutorial_level", false)):
+		return false
+	if spec.has("outdoor"):
+		return bool(spec.get("outdoor"))
+	return _theme_id == "slime"
 
 
 func get_theme_id() -> String:
@@ -286,6 +300,8 @@ func outside_ground_color() -> Color:
 
 
 func _outside_ground_color(col: Color) -> Color:
+	if _outdoor:
+		return col.darkened(0.28).lerp(Color(0.14, 0.28, 0.12), 0.72)
 	return col.darkened(0.42).lerp(Color(0.16, 0.15, 0.14), 0.55)
 
 
@@ -298,10 +314,13 @@ func _fill_outside_void(col_a: Color, col_b: Color) -> void:
 	var pad_near := 0.85
 	var pad_far := 22.0
 	var spots := _scatter_outside_spots(rng, pad_near, pad_far, 72)
-	# Multimesh: kaya + kutu (2 draw call)
 	_spawn_outskirt_multimesh_rocks(spots, rng, 38)
+	if _outdoor:
+		var leaf_tint: Color = Color(0.32, 0.58, 0.18).lerp(col_a, 0.28)
+		var grass_tint: Color = Color(0.14, 0.58, 0.20).lerp(col_a, 0.22)
+		ForestVegetation.fill_level_outskirts(_decor_root, _half_x, _half_z, 0.0, rng, leaf_tint, grass_tint)
+		return
 	_spawn_outskirt_multimesh_boxes(spots, rng, 28, col_a)
-	# Az sayıda “hero” prop — duvara yakın çeşitlilik
 	var near_spots := _scatter_outside_spots(rng, pad_near, 3.8, 14)
 	for i in near_spots.size():
 		var p: Vector3 = near_spots[i]
@@ -310,11 +329,7 @@ func _fill_outside_void(col_a: Color, col_b: Color) -> void:
 			_spawn_barrel(p, col)
 		else:
 			_spawn_crate(p, col)
-	# Uzak büyük yığınlar — ufuk / boşluğu kapatır (az mesh)
 	_spawn_horizon_mounds(rng, col_a, col_b)
-	var leaf_tint: Color = Color(0.32, 0.58, 0.18).lerp(col_a, 0.28)
-	var grass_tint: Color = Color(0.14, 0.58, 0.20).lerp(col_a, 0.22)
-	ForestVegetation.fill_level_outskirts(_decor_root, _half_x, _half_z, 0.0, rng, leaf_tint, grass_tint)
 
 
 func _scatter_outside_spots(
@@ -473,24 +488,12 @@ func _outside_depth(p: Vector3) -> float:
 	return maxf(dx, dz)
 
 
-func _mat(col: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	m.roughness = 0.88
-	var outline := ShaderMaterial.new()
-	outline.shader = preload("res://shaders/mesh_outline.gdshader")
-	outline.set_shader_parameter("outline_color", Color(0.06, 0.04, 0.09, 1.0))
-	outline.set_shader_parameter("outline_width", 0.022)
-	m.next_pass = outline
-	return m
+func _mat(col: Color) -> ShaderMaterial:
+	return PixelArtMaterial.create_color(col)
 
 
-func _mat_tex(col: Color, tex: Texture2D) -> StandardMaterial3D:
-	var m := _mat(col)
-	if tex != null:
-		m.albedo_texture = tex
-		m.albedo_color = Color.WHITE
-	return m
+func _mat_tex(col: Color, tex: Texture2D) -> ShaderMaterial:
+	return PixelArtMaterial.create_textured(tex, col)
 
 
 func _spawn_barrel(pos: Vector3, col: Color, _unused: bool = false) -> void:
