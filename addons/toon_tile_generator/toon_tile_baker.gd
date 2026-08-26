@@ -98,6 +98,7 @@ static func _gen_wall_brick(
 	var half := int(grout_px / 2.0)
 	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
 	img.fill(grout)
+	var wrap_offsets: Array[int] = [-size, 0, size]
 	for row in rows + 1:
 		var y0 := (row % rows) * brick_h
 		var offset := int(brick_w / 2.0) if (row % 2) == 1 else 0
@@ -109,11 +110,11 @@ static func _gen_wall_brick(
 				clampf(main.g + variation, 0.0, 1.0),
 				clampf(main.b + variation, 0.0, 1.0)
 			)
-			for ox in [-size, 0, size]:
-				var ix0 := x0 + half + ox
-				var iy0 := y0 + half
-				var ix1 := x0 + brick_w - half + ox
-				var iy1 := y0 + brick_h - half
+			for ox in wrap_offsets:
+				var ix0: int = x0 + half + ox
+				var iy0: int = y0 + half
+				var ix1: int = x0 + brick_w - half + ox
+				var iy1: int = y0 + brick_h - half
 				var cx0 := clampi(ix0, 0, size)
 				var cx1 := clampi(ix1, 0, size)
 				var cy0 := clampi(iy0, 0, size)
@@ -148,14 +149,15 @@ static func _apply_stains(img: Image, rng: RandomNumberGenerator, stain: Color, 
 	var acc := PackedFloat32Array()
 	acc.resize(size * size)
 	acc.fill(0.0)
+	var wrap_offsets: Array[int] = [-size, 0, size]
 	for y in range(0, size, step):
 		for x in range(0, size, step):
 			var total := 0.0
 			for b in blobs:
 				var r: float = b["r"]
 				var strength: float = b["s"]
-				for ox in [-size, 0, size]:
-					for oy in [-size, 0, size]:
+				for ox in wrap_offsets:
+					for oy in wrap_offsets:
 						var dx: float = float(x) - (float(b["cx"]) + float(ox))
 						var dy: float = float(y) - (float(b["cy"]) + float(oy))
 						var d := sqrt(dx * dx + dy * dy)
