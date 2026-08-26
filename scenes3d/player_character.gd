@@ -1629,9 +1629,7 @@ func _update_broom_vacuum(delta: float) -> void:
 			fx_burst.emit(&"dispose", nozzle + Vector3(0, 0.15, 0), 0.85)
 			item_disposed.emit(prop.prop_id)
 	if captured_n > 0:
-		_vacuum_targets = _vacuum_targets.filter(func(p: ClutterProp) -> bool:
-			return p != null and is_instance_valid(p) and not p.is_destroying()
-		)
+		_vacuum_targets = _vacuum_targets.filter(_is_live_vacuum_target)
 		_squash = Vector3(1.12, 0.9, 1.12)
 		_hop_y = 0.1
 		if is_vacuum_bag_full():
@@ -1640,6 +1638,10 @@ func _update_broom_vacuum(delta: float) -> void:
 			status_message.emit("Emildi · torba %d/%d" % [_vacuum_bag, vacuum_bag_capacity])
 		else:
 			status_message.emit("x%d emildi · torba %d/%d" % [captured_n, _vacuum_bag, vacuum_bag_capacity])
+
+
+func _is_live_vacuum_target(prop: ClutterProp) -> bool:
+	return prop != null and is_instance_valid(prop) and not prop.is_destroying()
 
 
 func _sync_vacuum_targets(fresh: Array[ClutterProp], delta: float) -> void:

@@ -268,17 +268,19 @@ func stop(fade: bool = true) -> void:
 	if fade:
 		for i in _target_db.size():
 			_target_db[i] = -80.0
-		for p in _layers:
+		for layer in _layers:
 			var tw := create_tween()
-			tw.tween_property(p, "volume_db", -80.0, 0.45)
-			tw.finished.connect(func() -> void:
-				if not _playing and is_instance_valid(p):
-					p.stop()
-			)
+			tw.tween_property(layer, "volume_db", -80.0, 0.45)
+			tw.finished.connect(_on_layer_fade_finished.bind(layer))
 	else:
 		for p in _layers:
 			p.stop()
 			p.volume_db = -80.0
+
+
+func _on_layer_fade_finished(layer: AudioStreamPlayer) -> void:
+	if not _playing and is_instance_valid(layer):
+		layer.stop()
 
 
 ## 0..1 oda ilerlemesi.
