@@ -63,18 +63,18 @@ func _burst_extra(world_pos: Vector3, color: Color, amount: int, speed: float, l
 
 
 func _acquire() -> CPUParticles3D:
-	for p in _pool:
-		if p != null and not p.emitting:
-			return p
-	var p := CPUParticles3D.new()
-	p.name = "ComedyBurst"
-	p.one_shot = true
-	p.explosiveness = 0.92
-	p.local_coords = false
-	p.emitting = false
-	add_child(p)
-	_pool.append(p)
-	return p
+	for existing in _pool:
+		if existing != null and not existing.emitting:
+			return existing
+	var spawned := CPUParticles3D.new()
+	spawned.name = "ComedyBurst"
+	spawned.one_shot = true
+	spawned.explosiveness = 0.92
+	spawned.local_coords = false
+	spawned.emitting = false
+	add_child(spawned)
+	_pool.append(spawned)
+	return spawned
 
 
 func _configure(p: CPUParticles3D, color: Color, amount: int, speed: float, lifetime: float) -> void:
