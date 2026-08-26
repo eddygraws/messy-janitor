@@ -236,11 +236,11 @@ func _strip_orphan_world_meshes(root: Node) -> void:
 
 
 func _is_descendant_of_skeleton(node: Node) -> bool:
-	var p := node.get_parent()
-	while p != null:
-		if p is Skeleton3D:
+	var walk := node.get_parent()
+	while walk != null:
+		if walk is Skeleton3D:
 			return true
-		p = p.get_parent()
+		walk = walk.get_parent()
 	return false
 
 
@@ -381,9 +381,9 @@ func _import_animations() -> void:
 
 	for key in ANIM_OPTIONAL.keys():
 		var paths: Array = ANIM_OPTIONAL[key] as Array
-		for p in paths:
-			if ResourceLoader.exists(String(p)):
-				_add_anim_from_path(lib, StringName(key), String(p))
+		for anim_path in paths:
+			if ResourceLoader.exists(String(anim_path)):
+				_add_anim_from_path(lib, StringName(key), String(anim_path))
 				break
 
 	_ap.add_animation_library(LIB_NAME, lib)

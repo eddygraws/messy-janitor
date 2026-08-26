@@ -1178,8 +1178,8 @@ func _move_cursor(dir: int) -> void:
 func _pawn_stand_pos(idx: int) -> Vector3:
 	if idx < 0 or idx >= _node_pos.size():
 		return Vector3.ZERO
-	var p: Vector3 = _node_pos[idx]
-	return Vector3(p.x, 0.0, p.z)
+	var stand: Vector3 = _node_pos[idx]
+	return Vector3(stand.x, 0.0, stand.z)
 
 
 func _walk_pawn_to_cursor_async(animate: bool) -> void:
@@ -1328,7 +1328,7 @@ func _palette_for_world(slot: int) -> Dictionary:
 			"sun": 1.1,
 			"fog": Color(0.75, 0.88, 0.95),
 		}
-	var themes := {
+	var themes: Dictionary = {
 		"liquids": {
 			"sky": Color(0.42, 0.68, 0.88), "ambient": Color(0.5, 0.7, 0.85),
 			"ground": Color(0.28, 0.34, 0.4), "hill": Color(0.22, 0.3, 0.38),
@@ -1413,10 +1413,11 @@ func _palette_for_world(slot: int) -> Dictionary:
 	var ids := ["liquids", "mold", "broom", "slime", "brush", "spray", "tweezers", "dark", "ritual", "finale"]
 	var idx := clampi(slot - 1, 0, ids.size() - 1)
 	var tid: String = ids[idx]
-	var p: Dictionary = (themes[tid] as Dictionary).duplicate()
-	p["id"] = tid
-	p["node_locked"] = Color(0.35, 0.35, 0.38)
-	return p
+	var theme: Dictionary = themes[tid] as Dictionary
+	var palette: Dictionary = theme.duplicate()
+	palette["id"] = tid
+	palette["node_locked"] = Color(0.35, 0.35, 0.38)
+	return palette
 
 
 func _apply_palette_visuals() -> void:
@@ -1605,8 +1606,8 @@ func _spawn_puddles(col: Color) -> void:
 		disk.top_radius = 0.7 + float(i % 3) * 0.25
 		disk.bottom_radius = disk.top_radius
 		disk.height = 0.04
-		var p := Vector3(-9.0 + float(i) * 3.0, 0.02, 3.5 - float(i % 2) * 5.5)
-		_spawn_mesh(disk, p, Color(col.r, col.g, col.b, 0.85).lightened(0.1), 0.35)
+		var pos := Vector3(-9.0 + float(i) * 3.0, 0.02, 3.5 - float(i % 2) * 5.5)
+		_spawn_mesh(disk, pos, Color(col.r, col.g, col.b, 0.85).lightened(0.1), 0.35)
 
 
 func _spawn_bucket(pos: Vector3, col: Color) -> void:
@@ -1627,12 +1628,12 @@ func _spawn_blobs(col: Color, count: int) -> void:
 		var sph := SphereMesh.new()
 		sph.radius = 0.25 + float(i % 4) * 0.08
 		sph.height = sph.radius * 1.4
-		var p := Vector3(
+		var pos := Vector3(
 			-10.0 + float(i) * 2.4 + sin(float(i)) * 0.8,
 			sph.radius * 0.45,
 			3.8 - float(i % 3) * 3.2
 		)
-		_spawn_mesh(sph, p, col.darkened(0.05 * float(i % 3)), 0.25)
+		_spawn_mesh(sph, pos, col.darkened(0.05 * float(i % 3)), 0.25)
 
 
 func _spawn_dust_piles() -> void:
@@ -1653,11 +1654,11 @@ func _spawn_potions(col: Color) -> void:
 		bottle.top_radius = 0.12
 		bottle.bottom_radius = 0.16
 		bottle.height = 0.55
-		var p := Vector3(-8.0 + float(i) * 4.0, 0.3, 3.5 - float(i % 2) * 5.5)
-		_spawn_mesh(bottle, p, col, 0.7)
+		var pos := Vector3(-8.0 + float(i) * 4.0, 0.3, 3.5 - float(i % 2) * 5.5)
+		_spawn_mesh(bottle, pos, col, 0.7)
 		var cap := SphereMesh.new()
 		cap.radius = 0.1
-		_spawn_mesh(cap, p + Vector3(0, 0.35, 0), Color(0.9, 0.85, 0.3), 0.4)
+		_spawn_mesh(cap, pos + Vector3(0, 0.35, 0), Color(0.9, 0.85, 0.3), 0.4)
 
 
 func _spawn_cans(col: Color) -> void:
@@ -1691,11 +1692,11 @@ func _spawn_candles() -> void:
 		stick.top_radius = 0.06
 		stick.bottom_radius = 0.07
 		stick.height = 0.45
-		var p := Vector3(-9.0 + float(i) * 3.5, 0.25, 3.8 - float(i % 2) * 6.0)
-		_spawn_mesh(stick, p, Color(0.9, 0.88, 0.8))
+		var pos := Vector3(-9.0 + float(i) * 3.5, 0.25, 3.8 - float(i % 2) * 6.0)
+		_spawn_mesh(stick, pos, Color(0.9, 0.88, 0.8))
 		var flame := SphereMesh.new()
 		flame.radius = 0.09
-		_spawn_mesh(flame, p + Vector3(0, 0.32, 0), Color(1.0, 0.7, 0.25), 2.2)
+		_spawn_mesh(flame, pos + Vector3(0, 0.32, 0), Color(1.0, 0.7, 0.25), 2.2)
 
 
 func _spawn_lanterns(col: Color) -> void:
@@ -1704,11 +1705,11 @@ func _spawn_lanterns(col: Color) -> void:
 		pole.top_radius = 0.05
 		pole.bottom_radius = 0.06
 		pole.height = 1.4
-		var p := Vector3(-8.5 + float(i) * 5.5, 0.7, 4.0 - float(i % 2) * 7.0)
-		_spawn_mesh(pole, p, Color(0.25, 0.25, 0.28))
+		var pos := Vector3(-8.5 + float(i) * 5.5, 0.7, 4.0 - float(i % 2) * 7.0)
+		_spawn_mesh(pole, pos, Color(0.25, 0.25, 0.28))
 		var lamp := SphereMesh.new()
 		lamp.radius = 0.22
-		_spawn_mesh(lamp, p + Vector3(0, 0.85, 0), col, 2.8)
+		_spawn_mesh(lamp, pos + Vector3(0, 0.85, 0), col, 2.8)
 
 
 func _spawn_runes(col: Color) -> void:

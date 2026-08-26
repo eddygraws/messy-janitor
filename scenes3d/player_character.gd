@@ -435,7 +435,7 @@ func _build_facing_face() -> void:
 	nose.position = Vector3(0.0, 0.15, -0.38)
 	_face_root.add_child(nose)
 
-	for side in [-1.0, 1.0]:
+	for side: float in [-1.0, 1.0]:
 		var eye := MeshInstance3D.new()
 		var sphere := SphereMesh.new()
 		sphere.radius = 0.07
@@ -1339,17 +1339,17 @@ func _find_junk_target() -> ClutterProp:
 	var best: ClutterProp = null
 	var best_d := 999.0
 	for node in get_tree().get_nodes_in_group(PROP_GROUP):
-		var p := node as ClutterProp
-		if p == null or not p.is_junk():
+		var junk := node as ClutterProp
+		if junk == null or not junk.is_junk():
 			continue
-		var flat := p.global_position - global_position
+		var flat := junk.global_position - global_position
 		flat.y = 0.0
 		var d := flat.length()
 		if d > swing_range * 0.85:
 			continue
 		if d < best_d:
 			best_d = d
-			best = p
+			best = junk
 	return best
 
 
@@ -1357,17 +1357,17 @@ func _find_needs_spray_target() -> ClutterProp:
 	var best: ClutterProp = null
 	var best_d := 999.0
 	for node in get_tree().get_nodes_in_group(PROP_GROUP):
-		var p := node as ClutterProp
-		if p == null or not p.needs_spray():
+		var wet := node as ClutterProp
+		if wet == null or not wet.needs_spray():
 			continue
-		var flat := p.global_position - global_position
+		var flat := wet.global_position - global_position
 		flat.y = 0.0
 		var d := flat.length()
-		if d > maxf(p.scrub_radius, swing_range * 0.7) + 0.4:
+		if d > maxf(wet.scrub_radius, swing_range * 0.7) + 0.4:
 			continue
 		if d < best_d:
 			best_d = d
-			best = p
+			best = wet
 	return best
 
 
@@ -1629,9 +1629,7 @@ func _update_broom_vacuum(delta: float) -> void:
 			fx_burst.emit(&"dispose", nozzle + Vector3(0, 0.15, 0), 0.85)
 			item_disposed.emit(prop.prop_id)
 	if captured_n > 0:
-		_vacuum_targets = _vacuum_targets.filter(func(p: ClutterProp) -> bool:
-			return p != null and is_instance_valid(p) and not p.is_destroying()
-		)
+		_vacuum_targets = _vacuum_targets.filter(_is_live_vacuum_target)
 		_squash = Vector3(1.12, 0.9, 1.12)
 		_hop_y = 0.1
 		if is_vacuum_bag_full():
@@ -1640,6 +1638,10 @@ func _update_broom_vacuum(delta: float) -> void:
 			status_message.emit("Emildi · torba %d/%d" % [_vacuum_bag, vacuum_bag_capacity])
 		else:
 			status_message.emit("x%d emildi · torba %d/%d" % [captured_n, _vacuum_bag, vacuum_bag_capacity])
+
+
+func _is_live_vacuum_target(prop: ClutterProp) -> bool:
+	return prop != null and is_instance_valid(prop) and not prop.is_destroying()
 
 
 func _sync_vacuum_targets(fresh: Array[ClutterProp], delta: float) -> void:
@@ -1655,9 +1657,9 @@ func _sync_vacuum_targets(fresh: Array[ClutterProp], delta: float) -> void:
 
 
 func _release_vacuum_targets(delta: float, snap: bool = false) -> void:
-	for p in _vacuum_targets:
-		if p != null and is_instance_valid(p):
-			p.cancel_vacuum_pull(delta, snap)
+	for target in _vacuum_targets:
+		if target != null and is_instance_valid(target):
+			target.cancel_vacuum_pull(delta, snap)
 	_vacuum_targets.clear()
 	_vacuum_target = null
 
@@ -1796,7 +1798,7 @@ func _ensure_vacuum_visuals() -> void:
 	_vacuum_rig.add_child(_vacuum_tank_mesh)
 
 	# Omuz askısı (görsel)
-	for side in [-1.0, 1.0]:
+	for side: float in [-1.0, 1.0]:
 		var strap := MeshInstance3D.new()
 		strap.name = "Strap%s" % ("L" if side < 0.0 else "R")
 		var strap_mesh := BoxMesh.new()
