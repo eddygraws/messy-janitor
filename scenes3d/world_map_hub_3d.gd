@@ -605,7 +605,8 @@ func _rebuild_foliage() -> void:
 	PropCatalog3D.refresh()
 	var leaf_tint: Color = _palette.get("hill", Color(0.22, 0.48, 0.22))
 	var grass_tint: Color = _palette.get("ground", Color(0.18, 0.52, 0.24)).lerp(Color(0.12, 0.62, 0.20), 0.45)
-	ForestVegetation.fill_world_map(_foliage_root, GROUND_Y, leaf_tint, grass_tint, _decor_rng)
+	var flower_tint: Color = _palette.get("accent", Color(0.95, 0.85, 0.4))
+	ForestVegetation.fill_world_map(_foliage_root, GROUND_Y, leaf_tint, grass_tint, _decor_rng, flower_tint)
 	# Kayalar — düz mesh + katalog RNG
 	var rock_spots: Array[Vector3] = [
 		Vector3(-5.2, 0, 3.2), Vector3(6.4, 0, 3.0), Vector3(-7.8, 0, -2.2),
@@ -972,17 +973,42 @@ func _rebuild_nodes() -> void:
 	_refresh_node_visuals()
 
 
+## Her level'a deterministik görsel çeşitlilik — base (pedestal) şekli/yön/renk tonu.
+## level_id'ye bağlı olduğundan sabit kalır (rebuild'lerde titremez).
+func _pedestal_style(level_id: int) -> Dictionary:
+	var sides_arr := [64, 6, 8, 4, 5, 3, 12]
+	var taper_arr := [0.06, 0.0, -0.05, 0.1]
+	var info := LevelData3D.get_level(level_id)
+	var is_boss := bool(info.get("is_boss_room", false))
+	return {
+		"sides": int(sides_arr[level_id % sides_arr.size()]),
+		"height": 0.12 + float((level_id * 7) % 4) * 0.025,
+		"top_delta": float(taper_arr[(level_id >> 1) % taper_arr.size()]),
+		"radius_mul": 1.28 if is_boss else 1.0,
+		"yaw": float(level_id % 6) * 0.26,
+		"hue_rot": (float((level_id * 3) % 7) - 3.0) * 0.016,
+		"val_mul": 0.92 + float((level_id * 5) % 5) * 0.04,
+		"sat_mul": 0.85 + float((level_id * 11) % 4) * 0.1,
+	}
+
+
 func _make_node_visual(index: int) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Node_%d" % index
+	var level_id: int = _levels[index] if index < _levels.size() else index
+	var style := _pedestal_style(level_id)
+	var rmul: float = style["radius_mul"]
+	var ped_h: float = style["height"]
 	var pedestal := MeshInstance3D.new()
 	pedestal.name = "Pedestal"
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = NODE_PEDESTAL_R
-	cyl.bottom_radius = NODE_PEDESTAL_R + 0.04
-	cyl.height = 0.14
+	cyl.top_radius = (NODE_PEDESTAL_R + float(style["top_delta"])) * rmul
+	cyl.bottom_radius = (NODE_PEDESTAL_R + 0.04) * rmul
+	cyl.height = ped_h
+	cyl.radial_segments = int(style["sides"])
 	pedestal.mesh = cyl
 	pedestal.position.y = 0.0
+	pedestal.rotation.y = float(style["yaw"])
 	root.add_child(pedestal)
 	var gem := MeshInstance3D.new()
 	gem.name = "Gem"
@@ -990,7 +1016,7 @@ func _make_node_visual(index: int) -> Node3D:
 	sph.radius = NODE_GEM_R
 	sph.height = NODE_GEM_R * 2.0
 	gem.mesh = sph
-	gem.position.y = 0.28
+	gem.position.y = ped_h * 0.5 + 0.21
 	root.add_child(gem)
 	var label := Label3D.new()
 	label.name = "Tag"
@@ -1074,8 +1100,13 @@ func _refresh_node_visuals() -> void:
 				fill = col_clear
 		var ped := root.get_node_or_null("Pedestal") as MeshInstance3D
 		if ped != null:
+			var style := _pedestal_style(li)
+			var pc := ped_col
+			pc.h = fposmod(pc.h + float(style["hue_rot"]), 1.0)
+			pc.s = clampf(pc.s * float(style["sat_mul"]), 0.0, 1.0)
+			pc.v = clampf(pc.v * float(style["val_mul"]), 0.05, 1.0)
 			var pmat := StandardMaterial3D.new()
-			pmat.albedo_color = ped_col.darkened(0.15 if not unlocked else 0.0)
+			pmat.albedo_color = pc.darkened(0.15 if not unlocked else 0.0)
 			ped.material_override = pmat
 		var gem := root.get_node_or_null("Gem") as MeshInstance3D
 		if gem != null:

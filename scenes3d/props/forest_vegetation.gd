@@ -71,8 +71,25 @@ static func ensure_wind() -> void:
 		RenderingServer.global_shader_parameter_set("wind_noise", noise)
 
 
-static func fill_world_map(parent: Node3D, ground_y: float, _leaf_tint: Color, _grass_tint: Color, rng: RandomNumberGenerator) -> void:
+static func fill_world_map(
+	parent: Node3D,
+	ground_y: float,
+	leaf_tint: Color,
+	grass_tint: Color,
+	rng: RandomNumberGenerator,
+	flower_tint: Color = Color(0.95, 0.85, 0.4),
+) -> void:
 	ensure_wind()
+	# Dünya paletinden türetilen biome renk seti + yoğunluk (yeşillik → gürlük)
+	var biome := _biome_colors(leaf_tint, grass_tint, flower_tint)
+	var grass_mat := _make_grass_mat_tinted(biome["grass"], false)
+	var tall_mat := _make_grass_mat_tinted(biome["tall"], true)
+	var flower_mat := _make_flower_mat_tinted(biome["flower"])
+	var crown_tint: Color = biome["crown"]
+	var plane_mat := _make_plane_tree_mat_tinted(Color(1, 1, 1).lerp(crown_tint, 0.4))
+	var lush := clampf((clampf(grass_tint.g, 0.05, 0.85) - 0.12) / 0.5, 0.0, 1.0)
+	var sp_mul := lerpf(1.35, 0.88, lush)
+
 	var tree_spots: Array[Vector3] = [
 		Vector3(-11.5, 0, 5.5), Vector3(-13.0, 0, 2.0), Vector3(-12.2, 0, -3.5),
 		Vector3(11.8, 0, 4.8), Vector3(13.2, 0, 0.5), Vector3(12.0, 0, -4.0),
@@ -84,18 +101,70 @@ static func fill_world_map(parent: Node3D, ground_y: float, _leaf_tint: Color, _
 		p.y = ground_y
 		var yaw := rng.randf() * TAU
 		if i % 3 == 0:
-			spawn_plane_tree(parent, p, rng.randf_range(4.6, 6.2))
+			spawn_plane_tree(parent, p, rng.randf_range(4.6, 6.2), plane_mat)
 		else:
-			spawn_tree(parent, p, yaw, i % 2)
+			spawn_tree(parent, p, yaw, i % 2, crown_tint)
 
-	var grass_pts := _jitter_grid(rng, 22.0, 16.0, 0.42, ground_y, 2.15, 9.0)
-	_spawn_multimesh(parent, _grass_mesh(), _get_grass_mat(false), grass_pts, rng, 0.92, 1.08, Vector3.ONE)
+	var grass_pts := _jitter_grid(rng, 22.0, 16.0, 0.42 * sp_mul, ground_y, 2.15, 9.0)
+	_spawn_multimesh(parent, _grass_mesh(), grass_mat, grass_pts, rng, 0.9, 1.06 + lush * 0.12, Vector3.ONE)
 
-	var tall_pts := _jitter_grid(rng, 18.0, 13.0, 1.35, ground_y, 2.4, 8.0)
-	_spawn_multimesh(parent, _tall_grass_mesh(), _get_grass_mat(true), tall_pts, rng, 0.95, 1.1, Vector3.ONE)
+	var tall_pts := _jitter_grid(rng, 18.0, 13.0, 1.35 * sp_mul, ground_y, 2.4, 8.0)
+	_spawn_multimesh(parent, _tall_grass_mesh(), tall_mat, tall_pts, rng, 0.95, 1.1 + lush * 0.15, Vector3.ONE)
 
-	var flower_pts := _jitter_grid(rng, 10.0, 8.0, 2.4, ground_y, 2.6, 6.0)
-	_spawn_multimesh(parent, _flower_mesh(), _get_flower_mat(), flower_pts, rng, FLOWER_SC_MIN, FLOWER_SC_MAX, Vector3.ONE)
+	# Çiçekler yalnızca yeterince yeşil/gür biome'larda
+	if lush > 0.35:
+		var flower_pts := _jitter_grid(rng, 10.0, 8.0, 2.4 * sp_mul, ground_y, 2.6, 6.0)
+		_spawn_multimesh(parent, _flower_mesh(), flower_mat, flower_pts, rng, FLOWER_SC_MIN, FLOWER_SC_MAX, Vector3.ONE)
+
+
+## Palet tint'lerinden tutarlı bir biome renk seti üretir (çim / uzun çim / çiçek / ağaç tacı).
+static func _biome_colors(leaf_tint: Color, grass_tint: Color, flower_tint: Color) -> Dictionary:
+	var grass := grass_tint
+	grass.s = clampf(grass.s * 1.15 + 0.05, 0.0, 1.0)
+	grass.v = clampf(grass.v * 1.05 + 0.03, 0.05, 1.0)
+	var tall := grass.lightened(0.06)
+	tall.s = clampf(tall.s * 1.05, 0.0, 1.0)
+	var flower := flower_tint
+	flower.s = clampf(flower.s * 1.1 + 0.1, 0.0, 1.0)
+	flower.v = clampf(flower.v + 0.08, 0.0, 1.0)
+	var crown := leaf_tint.lerp(LEAF_COLOR, 0.35)
+	crown.s = clampf(crown.s * 1.1, 0.0, 1.0)
+	crown.v = clampf(crown.v * 1.05, 0.05, 1.0)
+	return {"grass": grass, "tall": tall, "flower": flower, "crown": crown}
+
+
+static func _make_grass_mat_tinted(col: Color, tall: bool) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = GRASS_SHADER
+	m.set_shader_parameter("grass_color", col)
+	m.set_shader_parameter("grass_alpha", GRASS_THIN if tall else GRASS_ROUND)
+	m.set_shader_parameter("grass_bend_amount", 1.0)
+	m.set_shader_parameter("sway_back", 0.5 if tall else 1.0)
+	m.set_shader_parameter("light_steps", 3.0)
+	return m
+
+
+static func _make_flower_mat_tinted(col: Color) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = FLOWER_SHADER
+	m.set_shader_parameter("flower_texture", FLOWER_TEX)
+	m.set_shader_parameter("tint", col)
+	m.set_shader_parameter("flower_bendiness", 1.2)
+	m.set_shader_parameter("sway_back", 0.5)
+	m.set_shader_parameter("light_steps", 3.0)
+	return m
+
+
+static func _make_plane_tree_mat_tinted(tint: Color) -> ShaderMaterial:
+	var tex := _get_plane_tree_tex()
+	if tex == null:
+		return null
+	var m := ShaderMaterial.new()
+	m.shader = PLANE_TREE_SHADER
+	m.set_shader_parameter("albedo_tex", tex)
+	m.set_shader_parameter("cut", 0.08)
+	m.set_shader_parameter("tint", tint)
+	return m
 
 
 static func fill_level_outskirts(
@@ -171,7 +240,7 @@ static func fill_play_boundary(
 	_spawn_multimesh(parent, _tall_grass_mesh(), _get_grass_mat(true), hedge_grass, rng, 1.05, 1.28, Vector3.ONE)
 
 
-static func spawn_tree(parent: Node3D, pos: Vector3, yaw: float, variant: int) -> Node3D:
+static func spawn_tree(parent: Node3D, pos: Vector3, yaw: float, variant: int, crown_col: Color = LEAF_COLOR) -> Node3D:
 	var path := TREE_B_PATH if variant == 1 else TREE_A_PATH
 	var packed := load(path) as PackedScene
 	if packed == null:
@@ -183,14 +252,14 @@ static func spawn_tree(parent: Node3D, pos: Vector3, yaw: float, variant: int) -
 	inst.transform = Transform3D(Basis.from_euler(Vector3(0.0, yaw, 0.0)).scaled(Vector3.ONE * root_sc), pos)
 	parent.add_child(inst)
 	_apply_tree_materials(inst, variant)
-	_add_leaf_cluster(inst, variant)
-	_add_falling_leaves(inst)
+	_add_leaf_cluster(inst, variant, crown_col)
+	_add_falling_leaves(inst, crown_col)
 	return inst
 
 
-static func spawn_plane_tree(parent: Node3D, pos: Vector3, height: float) -> Node3D:
+static func spawn_plane_tree(parent: Node3D, pos: Vector3, height: float, mat_override: Material = null) -> Node3D:
 	var mesh := _get_plane_tree_mesh()
-	var mat := _get_plane_tree_mat()
+	var mat: Material = mat_override if mat_override != null else _get_plane_tree_mat()
 	if mesh == null or mat == null:
 		return null
 	var root := Node3D.new()
@@ -225,7 +294,7 @@ static func _apply_tree_materials(n: Node, variant: int) -> void:
 		_apply_tree_materials(c, variant)
 
 
-static func _add_leaf_cluster(tree: Node3D, variant: int) -> void:
+static func _add_leaf_cluster(tree: Node3D, variant: int, crown_col: Color = LEAF_COLOR) -> void:
 	var mesh := load(TREE_B_LEAVES_MESH if variant == 1 else TREE_A_LEAVES_MESH) as Mesh
 	if mesh == null:
 		return
@@ -234,14 +303,14 @@ static func _add_leaf_cluster(tree: Node3D, variant: int) -> void:
 	mi.mesh = mesh
 	## DemoForest leaves2/leaves4 — sadece gölge hacmi; görünür taç billboard shader.
 	var shadow_mat := StandardMaterial3D.new()
-	shadow_mat.albedo_color = LEAF_COLOR
+	shadow_mat.albedo_color = crown_col
 	mi.material_override = shadow_mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 	mi.transform = TREE_B_CLUSTER_XFORM if variant == 1 else TREE_A_CLUSTER_XFORM
 	tree.add_child(mi)
 
 
-static func _add_falling_leaves(tree: Node3D) -> void:
+static func _add_falling_leaves(tree: Node3D, crown_col: Color = LEAF_COLOR) -> void:
 	var particles := GPUParticles3D.new()
 	particles.name = "FallingLeaves"
 	particles.amount = 5
@@ -273,7 +342,7 @@ static func _add_falling_leaves(tree: Node3D) -> void:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	mat.vertex_color_use_as_albedo = true
-	mat.albedo_color = LEAF_COLOR
+	mat.albedo_color = crown_col
 	mat.albedo_texture = LEAF_PARTICLE
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	mat.billboard_keep_scale = true

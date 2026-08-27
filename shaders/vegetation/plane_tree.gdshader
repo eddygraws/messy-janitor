@@ -2,6 +2,7 @@ shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_disabled, specular_disabled, shadows_disabled;
 
 uniform sampler2D albedo_tex : source_color, filter_linear;
+uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 uniform float cut : hint_range(0.0, 1.0) = 0.08;
 
 void vertex() {
@@ -32,7 +33,7 @@ void fragment() {
 	if (a < cut) {
 		discard;
 	}
-	ALBEDO = c.rgb;
+	ALBEDO = c.rgb * tint.rgb;
 	ALPHA = 1.0;
 	ROUGHNESS = 0.9;
 	SPECULAR = 0.0;

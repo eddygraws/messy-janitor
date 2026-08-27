@@ -9,6 +9,7 @@ global uniform vec3 wind_direction;
 global uniform sampler2D wind_noise : filter_linear_mipmap;
 
 uniform sampler2D flower_texture : source_color, filter_nearest;
+uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 uniform float flower_bendiness = 1.0;
 uniform float sway_back : hint_range(0.0, 1.0, 0.01) = 1.0;
 uniform float light_steps = 3.0;
@@ -51,7 +52,7 @@ void fragment() {
 
 	vec4 color = texture(flower_texture, UV);
 
-	ALBEDO = color.rgb;
+	ALBEDO = color.rgb * tint.rgb;
 	ALPHA = color.a;
 	ALPHA_SCISSOR_THRESHOLD = 0.75;
 
