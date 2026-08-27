@@ -83,17 +83,17 @@ func _ready() -> void:
 
 
 func _add_player(index: int, stream: AudioStream) -> void:
-	var p := AudioStreamPlayer.new()
-	p.name = "MusicLayer%d" % (index + 1)
-	p.bus = &"Master"
-	p.volume_db = -80.0
+	var player := AudioStreamPlayer.new()
+	player.name = "MusicLayer%d" % (index + 1)
+	player.bus = &"Master"
+	player.volume_db = -80.0
 	if stream != null:
 		_enable_loop(stream)
-		p.stream = stream
+		player.stream = stream
 	else:
-		p.stream = _build_loop(index)
-	add_child(p)
-	_layers.append(p)
+		player.stream = _build_loop(index)
+	add_child(player)
+	_layers.append(player)
 
 
 func _load_playlist() -> Array[AudioStream]:
@@ -204,9 +204,9 @@ func _process(delta: float) -> void:
 	if not _playing:
 		return
 	for i in _layers.size():
-		var p: AudioStreamPlayer = _layers[i]
+		var layer: AudioStreamPlayer = _layers[i]
 		var target := _target_db[mini(i, _target_db.size() - 1)]
-		p.volume_db = lerpf(p.volume_db, target, clampf(4.0 * delta, 0.0, 1.0))
+		layer.volume_db = lerpf(layer.volume_db, target, clampf(4.0 * delta, 0.0, 1.0))
 
 	_heat_clock += delta
 	# Heat varken loop-hit kapalı — heat pitch'i bozmasın
@@ -253,9 +253,9 @@ func start(phase: int = 1) -> void:
 	_hit_busy = false
 	_loop_end_armed = true
 	_pick_random_track()
-	for p in _layers:
-		if p.stream != null and not p.playing:
-			p.play()
+	for layer in _layers:
+		if layer.stream != null and not layer.playing:
+			layer.play()
 	set_phase(phase, false)
 
 
@@ -268,17 +268,19 @@ func stop(fade: bool = true) -> void:
 	if fade:
 		for i in _target_db.size():
 			_target_db[i] = -80.0
-		for p in _layers:
+		for layer in _layers:
 			var tw := create_tween()
-			tw.tween_property(p, "volume_db", -80.0, 0.45)
-			tw.finished.connect(func() -> void:
-				if not _playing and is_instance_valid(p):
-					p.stop()
-			)
+			tw.tween_property(layer, "volume_db", -80.0, 0.45)
+			tw.finished.connect(_on_layer_fade_finished.bind(layer))
 	else:
-		for p in _layers:
-			p.stop()
-			p.volume_db = -80.0
+		for layer in _layers:
+			layer.stop()
+			layer.volume_db = -80.0
+
+
+func _on_layer_fade_finished(layer: AudioStreamPlayer) -> void:
+	if not _playing and is_instance_valid(layer):
+		layer.stop()
 
 
 ## 0..1 oda ilerlemesi.
@@ -372,8 +374,8 @@ func get_phase() -> int:
 
 func _apply_pitch(pitch: float) -> void:
 	_pitch_current = pitch
-	for p in _layers:
-		p.pitch_scale = pitch
+	for layer in _layers:
+		layer.pitch_scale = pitch
 
 
 func _build_loop(layer: int) -> AudioStreamWAV:

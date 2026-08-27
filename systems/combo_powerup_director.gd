@@ -158,11 +158,11 @@ func _is_in_active_room(node: Node) -> bool:
 	var room: Node = _room_manager.get_current_room()
 	if room == null:
 		return false
-	var p := node.get_parent()
-	while p != null:
-		if p == room:
+	var walk := node.get_parent()
+	while walk != null:
+		if walk == room:
 			return true
-		p = p.get_parent()
+		walk = walk.get_parent()
 	return false
 
 
