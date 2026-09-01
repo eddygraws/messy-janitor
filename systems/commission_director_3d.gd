@@ -6,6 +6,8 @@ extends Node
 signal commission_ready
 signal time_up
 
+const Juice3D := preload("res://systems/juice_3d.gd")
+
 @export var time_up_stress: float = 28.0
 
 var _card: CommissionCardUI
@@ -220,14 +222,14 @@ func _update_info() -> void:
 		return
 	var rule: CommissionData.Rule = int(_current.get("rule", CommissionData.Rule.NONE)) as CommissionData.Rule
 	if rule == CommissionData.Rule.TIME_LIMIT:
-		_info.text = "🥇 Altın / gümüş / bronz — hızlı bitir"
+		_info.text = "Altın / gümüş / bronz — hızlı bitir"
 		_info.modulate = Color(1.0, 0.85, 0.45)
 	elif rule != CommissionData.Rule.NONE:
 		_info.text = CommissionData.rule_label(rule as int)
 		_info.modulate = Color(1.0, 0.7, 0.55)
 	else:
 		var npc := String(_current.get("npc", ""))
-		_info.text = ("📜 %s" % npc) if npc != "" else ""
+		_info.text = npc
 		_info.modulate = Color(0.85, 0.8, 0.7)
 
 
@@ -238,5 +240,5 @@ func notify_forbidden_touched() -> void:
 	if _stress != null:
 		_stress.register_mistake()
 		_stress.add_stress(18.0)
-	if _camera != null and _camera.has_method("shake"):
-		_camera.shake(1.6)
+	if _camera != null:
+		Juice3D.apply(_camera, Juice3D.FAIL)

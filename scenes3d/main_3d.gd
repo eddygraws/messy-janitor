@@ -6,6 +6,8 @@ const WorldClearUIScript := preload("res://ui/world_clear_ui.gd")
 const LevelCountdownUIScript := preload("res://ui/level_countdown_ui.gd")
 const RoomLayoutScript := preload("res://scenes3d/props/room_layout_3d.gd")
 const UfoAbductionDirectorScript := preload("res://systems/ufo_abduction_director.gd")
+const HudIcons := preload("res://ui/hud_icons.gd")
+const Juice3D := preload("res://systems/juice_3d.gd")
 
 @onready var _player: PlayerCharacter3D = $World/PlayerCharacter
 @onready var _camera_rig: IsometricCameraRig = $IsometricCameraRig
@@ -34,9 +36,11 @@ var _room_timer: RoomTimer3D
 var _ui_sfx: AudioStreamPlayer
 var _stress_label: Label
 var _combo_label: Label
+var _combo_shown: int = 0
+var _combo_hud_tween: Tween
 var _time_label: Label
 var _badge_hud: Control
-var _badge_medal_label: Label
+var _badge_medal_label: TextureRect
 var _badge_time_label: Label
 var _badge_hint_label: Label
 var _hud_badge_rank: int = BadgeRating3D.Rank.NONE
@@ -65,7 +69,9 @@ var _menu_scrap_label: Label
 var _pending_scrap_ids: PackedStringArray = []
 var _scrap_revealing: bool = false
 var _coin_label: Label
+var _coin_icon: TextureRect
 var _lives_label: Label
+var _lives_icon: TextureRect
 var _menu_coin_label: Label
 var _menu_lives_label: Label
 var _menu_records_label: Label
@@ -86,6 +92,12 @@ var _boot_on_title: bool = true
 var _level_failing: bool = false
 var _game_paused: bool = false
 var _pause_overlay: Control
+var _pause_title: Label
+var _pause_sub: Label
+var _pause_resume: Button
+var _pause_settings_btn: Button
+var _pause_menu: Button
+var _pause_settings
 var _paused_room_timer: bool = false
 var _save_path := "user://messy3d_progress_v2.cfg"
 var _pending_wallet_coins: int = -1
@@ -121,6 +133,7 @@ func _ready() -> void:
 	_setup_hud()
 	_setup_menu()
 	_ensure_pause_overlay()
+	GameSettings.locale_changed.connect(func(_c: String) -> void: _refresh_pause_texts())
 	_particles = ComedyParticles.new()
 	_particles.name = "ComedyParticles"
 	$World.add_child(_particles)
@@ -234,7 +247,7 @@ func _setup_tempo_and_tasks() -> void:
 	_commission_info.offset_top = 8.0
 	_commission_info.offset_bottom = 40.0
 	_commission_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_commission_info.add_theme_font_size_override("font_size", 20)
+	_commission_info.add_theme_font_size_override("font_size", 22)
 	$UI.add_child(_commission_info)
 
 	_commission = CommissionDirector3D.new()
@@ -347,7 +360,7 @@ func _setup_tempo_and_tasks() -> void:
 
 	_ui_sfx = AudioStreamPlayer.new()
 	_ui_sfx.name = "UiSfx"
-	_ui_sfx.bus = &"Master"
+	_ui_sfx.bus = &"SFX"
 	_ui_sfx.volume_db = -4.0
 	add_child(_ui_sfx)
 	GameAudioBank.ensure_ready()
@@ -395,9 +408,21 @@ func _update_phase_progress_hud() -> void:
 func _on_fx_burst(kind: StringName, world_pos: Vector3, strength: float) -> void:
 	if _particles != null:
 		_particles.burst(kind, world_pos, strength)
-	# Başarı micro-shake (fail ~2.4 ile karışmasın)
-	if _camera_rig != null and (kind == &"dispose" or kind == &"clean" or kind == &"suck"):
-		_camera_rig.shake(clampf(0.28 + strength * 0.18, 0.25, 0.55) if kind == &"suck" else clampf(0.35 + strength * 0.22, 0.35, 0.7))
+	if _camera_rig == null:
+		return
+	if kind == &"hit":
+		Juice3D.apply(_camera_rig, Juice3D.HIT)
+	elif kind == &"dispose" or kind == &"clean":
+		Juice3D.apply(_camera_rig, Juice3D.SUCCESS)
+	elif kind == &"suck":
+		Juice3D.apply(_camera_rig, Juice3D.HIT)
+
+
+func _play_juice(kind: StringName, at: Vector3 = Vector3.ZERO) -> Dictionary:
+	var pos := at
+	if pos == Vector3.ZERO and _player != null:
+		pos = _player.global_position + Vector3(0, 0.7, 0)
+	return Juice3D.apply(_camera_rig, kind, _particles, pos)
 
 
 func _spawn_pop(pop_text: String, color: Color = Color(1.0, 0.92, 0.45), font_px: int = 64) -> void:
@@ -415,11 +440,11 @@ func start_level(index: int, daily: bool = false) -> void:
 		if _wallet != null and _wallet.spend(Lives3D.COINS_PER_LIFE):
 			_lives.add_life(&"buy")
 			_save_progress()
-			_spawn_pop("❤️ 100 coin → can", Color(1.0, 0.45, 0.55), 64)
+			_spawn_pop("100 coin → can", Color(1.0, 0.45, 0.55), Juice3D.pop_px(Juice3D.TICK))
 		else:
 			_show_menu(true)
 			if _menu_lives_label != null:
-				_menu_lives_label.text = "🖤 Can yok · 100 coin lazım"
+				_menu_lives_label.text = "Can yok · 100 coin lazım"
 			PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.1)
 			return
 	_set_game_paused(false)
@@ -614,6 +639,7 @@ func start_level(index: int, daily: bool = false) -> void:
 			var c := _commission.get_current()
 			if (int(c.get("rule", 0)) as CommissionData.Rule) == CommissionData.Rule.HIGH_RISK:
 				_stress.mistake_multiplier = clampf(float(c.get("param", 2.0)), 1.4, 3.0)
+	_combo_shown = 0
 	if _combo != null:
 		_combo.reset()
 	if _phase_hud != null:
@@ -641,7 +667,7 @@ func start_level(index: int, daily: bool = false) -> void:
 	if is_boss:
 		_flash_boss_intro(String(spec.get("boss_title", "SET-PIECE")))
 	if _daily_mode and _hint != null:
-		_hint.text = "📅 Günlük meydan okuma — kendini geç!"
+		_hint.text = "Günlük meydan okuma — kendini geç!"
 	# Tutorial bölüm 1 UI (komisyon kartından sonra, ikinci kart yok)
 	if is_tutorial and _spawner != null and _spawner.has_sections():
 		await _apply_tutorial_section(_spawner.get_current_section(), 0, _spawner.get_section_count(), false)
@@ -667,13 +693,9 @@ func _flash_boss_intro(title: String) -> void:
 	if _banner != null:
 		_banner.flash_boss(title)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 1.2)
-	if _camera_rig != null:
-		_camera_rig.punch_fov(8.0)
-		_camera_rig.shake(1.8)
+	_play_juice(Juice3D.PHASE)
 	if _hint != null:
 		_hint.text = "%s — ısınma yok, direkt kaos!" % title
-	if _particles != null and _player != null:
-		_particles.burst(&"bump", _player.global_position, 1.6)
 
 
 func _on_commission_time_up() -> void:
@@ -728,7 +750,7 @@ func _show_corner_stopwatch(elapsed: float) -> void:
 	if _badge_time_label != null:
 		_badge_time_label.text = "%d:%02d" % [mins, secs]
 	if _badge_medal_label != null:
-		_badge_medal_label.text = BadgeRating3D.icon(rank)
+		_badge_medal_label.texture = HudIcons.tex_for_rank(rank)
 		_badge_medal_label.modulate = BadgeRating3D.color(rank)
 	if _badge_hint_label != null:
 		_badge_hint_label.text = _badge_drop_hint(elapsed, par, rank)
@@ -745,10 +767,10 @@ func _badge_drop_hint(elapsed: float, par: float, rank: int) -> String:
 	match rank as BadgeRating3D.Rank:
 		BadgeRating3D.Rank.GOLD:
 			var left := maxf(0.0, gold_t - elapsed)
-			return "ALTIN  ·  🥈 %.0fs" % left
+			return "ALTIN  ·  gümüş %.0fs" % left
 		BadgeRating3D.Rank.SILVER:
 			var left2 := maxf(0.0, silver_t - elapsed)
-			return "GÜMÜŞ  ·  🥉 %.0fs" % left2
+			return "GÜMÜŞ  ·  bronz %.0fs" % left2
 		BadgeRating3D.Rank.BRONZE:
 			return "BRONZ"
 		_:
@@ -759,12 +781,11 @@ func _pulse_badge_drop(new_rank: int) -> void:
 	if _badge_medal_label == null:
 		return
 	_spawn_pop(
-		"%s %s" % [BadgeRating3D.icon(new_rank), BadgeRating3D.label(new_rank)],
+		"%s" % BadgeRating3D.label(new_rank),
 		BadgeRating3D.color(new_rank),
-		68
+		Juice3D.pop_px(Juice3D.TICK)
 	)
-	if _camera_rig != null:
-		_camera_rig.shake(0.35)
+	Juice3D.apply(_camera_rig, Juice3D.TICK)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.15)
 	if _badge_pulse_tween != null and _badge_pulse_tween.is_valid():
 		_badge_pulse_tween.kill()
@@ -817,7 +838,7 @@ func _on_stress_mistake_side() -> void:
 
 
 func _on_player_abducted() -> void:
-	_fail_level("👽 UFO KAÇIRDI!")
+	_fail_level("UFO KAÇIRDI!")
 
 
 func _fail_level(title_text: String) -> void:
@@ -840,12 +861,12 @@ func _fail_level(title_text: String) -> void:
 		_music.stop(true)
 	if _banner != null:
 		_banner.flash_fail()
-	if _camera_rig != null:
-		_camera_rig.shake(2.4)
+	_play_juice(Juice3D.BURST)
 	if _player != null:
 		_player.scale = Vector3.ONE
 		if _player.has_method("set_control_locked"):
 			_player.call("set_control_locked", true)
+	_set_game_paused(false)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.75)
 	if _lives != null:
 		_lives.lose_life()
@@ -874,19 +895,30 @@ func _refresh_fail_overlay(title_text: String = "") -> void:
 	if _fail_overlay == null:
 		return
 	var left := _lives.get_lives() if _lives != null else 0
+	var coins := _wallet.get_balance() if _wallet != null else 0
 	var title := _fail_overlay.get_node_or_null("Panel/VBox/FailTitle") as Label
 	var sub := _fail_overlay.get_node_or_null("Panel/VBox/FailSub") as Label
 	var retry := _fail_overlay.get_node_or_null("Panel/VBox/FailRetry") as Button
+	var buy := _fail_overlay.get_node_or_null("Panel/VBox/FailBuy") as Button
+	var menu_btn := _fail_overlay.get_node_or_null("Panel/VBox/FailMenu") as Button
 	if title != null and not title_text.is_empty():
 		title.text = title_text
+	elif title != null and title_text.is_empty():
+		title.text = GameSettings.t("fail_title")
 	if sub != null:
 		if left > 0:
-			sub.text = "Kalan can: %d  ·  Tekrar dene veya menüye dön" % left
+			sub.text = GameSettings.t("fail_sub_lives") % left
 		else:
-			sub.text = "Can bitti! 100 coin veya seviyede ❤️ bul"
+			sub.text = GameSettings.t("fail_sub_empty")
 	if retry != null:
 		retry.disabled = left <= 0
-		retry.text = "Tekrar" if left > 0 else "Can yok"
+		retry.text = GameSettings.t("fail_retry") if left > 0 else GameSettings.t("fail_no_lives")
+	if buy != null:
+		buy.visible = left <= 0
+		buy.disabled = coins < Lives3D.COINS_PER_LIFE
+		buy.text = GameSettings.t("fail_buy")
+	if menu_btn != null:
+		menu_btn.text = GameSettings.t("fail_menu")
 
 
 func _ensure_fail_overlay() -> void:
@@ -915,8 +947,8 @@ func _ensure_fail_overlay() -> void:
 	panel.anchor_bottom = 0.5
 	panel.offset_left = -220.0
 	panel.offset_right = 220.0
-	panel.offset_top = -130.0
-	panel.offset_bottom = 130.0
+	panel.offset_top = -160.0
+	panel.offset_bottom = 170.0
 	_fail_overlay.add_child(panel)
 
 	var vbox := VBoxContainer.new()
@@ -926,7 +958,7 @@ func _ensure_fail_overlay() -> void:
 
 	var title := Label.new()
 	title.name = "FailTitle"
-	title.text = "BAŞARISIZ!"
+	title.text = GameSettings.t("fail_title")
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 36)
 	title.add_theme_color_override("font_color", Color(1.0, 0.4, 0.35))
@@ -943,13 +975,22 @@ func _ensure_fail_overlay() -> void:
 
 	var retry := Button.new()
 	retry.name = "FailRetry"
-	retry.text = "Tekrar"
+	retry.text = GameSettings.t("fail_retry")
 	retry.custom_minimum_size = Vector2(0, 40)
 	retry.pressed.connect(_on_fail_retry)
 	vbox.add_child(retry)
 
+	var buy := Button.new()
+	buy.name = "FailBuy"
+	buy.text = GameSettings.t("fail_buy")
+	buy.custom_minimum_size = Vector2(0, 36)
+	buy.visible = false
+	buy.pressed.connect(_on_fail_buy_life)
+	vbox.add_child(buy)
+
 	var menu_btn := Button.new()
-	menu_btn.text = "Menü"
+	menu_btn.name = "FailMenu"
+	menu_btn.text = GameSettings.t("fail_menu")
 	menu_btn.custom_minimum_size = Vector2(0, 36)
 	menu_btn.pressed.connect(_on_fail_menu)
 	vbox.add_child(menu_btn)
@@ -965,9 +1006,26 @@ func _on_fail_retry() -> void:
 	start_level(_level_index, _daily_mode)
 
 
+func _on_fail_buy_life() -> void:
+	if _lives == null or _lives.has_lives():
+		_refresh_fail_overlay()
+		return
+	if _wallet == null or not _wallet.spend(Lives3D.COINS_PER_LIFE):
+		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 1.2)
+		_refresh_fail_overlay()
+		return
+	_lives.add_life(&"buy")
+	_save_progress()
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 0.9)
+	_spawn_pop("100 coin → can", Color(1.0, 0.45, 0.55), Juice3D.pop_px(Juice3D.TICK))
+	_refresh_fail_overlay()
+
+
 func _on_fail_menu() -> void:
 	_hide_fail_overlay()
 	_level_failing = false
+	if _player != null and _player.has_method("set_control_locked"):
+		_player.call("set_control_locked", false)
 	if _room_timer != null:
 		_room_timer.stop()
 	_set_time_label_visible(false)
@@ -1002,16 +1060,12 @@ func _on_phase_flash(phase: int) -> void:
 	if _banner != null:
 		_banner.flash_phase(phase)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.PHASE, 1.0 + float(phase) * 0.08)
-	if _camera_rig != null:
-		_camera_rig.punch_fov(5.0 + float(phase) * 2.0)
-		_camera_rig.shake(1.2 if phase == 2 else 2.0)
-	if _particles != null and _player != null:
-		_particles.burst(&"bump", _player.global_position, 1.2)
+	_play_juice(Juice3D.PHASE)
 	if _hint != null:
 		if phase == 2:
-			_hint.text = "⚡ HIZLAN — tempo yükseliyor!"
+			_hint.text = "HIZLAN — tempo yükseliyor!"
 		elif phase == 3:
-			_hint.text = "🔥 SON PATLAMA — emirler sıklaşıyor!"
+			_hint.text = "SON PATLAMA — emirler sıklaşıyor!"
 
 
 func _on_task_issued(task_type: String, duration: float, color: Color) -> void:
@@ -1091,13 +1145,10 @@ func _on_task_succeeded(_task_type: String, star_units: int = 1) -> void:
 		_stress.reduce_stress(task_success_relief)
 	if _music != null:
 		_music.pulse_upbeat(0.05 + 0.01 * float(combo_n))
-	if _particles != null and _player != null:
-		_particles.burst(&"clean", _player.global_position + Vector3(0, 1, 0), 1.1)
-	if _camera_rig != null:
-		_camera_rig.shake(0.55)
-	_spawn_pop("+%d" % (80 + mini(combo_n, 8) * 12), Color(0.55, 1.0, 0.7), 72)
+	_play_juice(Juice3D.SUCCESS)
+	_spawn_pop("+%d" % (80 + mini(combo_n, 8) * 12), Color(0.55, 1.0, 0.7), Juice3D.pop_px(Juice3D.SUCCESS))
 	if star_units >= 2:
-		_spawn_pop("+%d🪙" % maxi(0, star_units - 1), Color(1.0, 0.85, 0.35), 56)
+		_spawn_pop("+%d coin" % maxi(0, star_units - 1), Color(1.0, 0.85, 0.35), Juice3D.pop_px(Juice3D.TICK))
 	if _hint != null:
 		_hint.text = "Emir tamam! ★  combo x%d" % combo_n
 
@@ -1107,8 +1158,6 @@ func _on_task_failed(_task_type: String) -> void:
 	if _banner != null:
 		_banner.flash_fail()
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.85)
-	await get_tree().create_timer(0.08).timeout
-	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.BUMP, 0.65)
 	if _combo != null:
 		_combo.register_fail()
 	if _score != null:
@@ -1117,16 +1166,11 @@ func _on_task_failed(_task_type: String) -> void:
 		_stress.register_mistake()
 	if _music != null and _stress != null:
 		_music.on_mistake(_stress.get_stress_ratio())
-	if _camera_rig != null:
-		_camera_rig.punch_fov(10.0)
-		_camera_rig.shake(2.4)
+	_play_juice(Juice3D.FAIL)
 	if _player != null:
 		_player.play_task_fail_recoil()
-	if _particles != null and _player != null:
-		_particles.burst(&"bump", _player.global_position + Vector3(0, 0.7, 0), 2.0)
-		_particles.burst(&"hit", _player.global_position + Vector3(0.4, 1.0, 0), 1.4)
 	if _hint != null:
-		_hint.text = "💥 EMİR KAÇTI — stres + combo kırıldı!"
+		_hint.text = "EMİR KAÇTI — stres + combo kırıldı!"
 	if _objective_label != null:
 		_objective_label.modulate = Color(1.0, 0.35, 0.35)
 		await get_tree().create_timer(0.7).timeout
@@ -1168,25 +1212,22 @@ func _on_forbidden_touched() -> void:
 	if _music != null and _stress != null:
 		_music.on_mistake(_stress.get_stress_ratio())
 	if _hint != null:
-		_hint.text = "⛔ Yasak! Ona dokunma!"
+		_hint.text = "Yasak! Ona dokunma!"
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.STOP, 0.9)
 
 func _on_stress_critical() -> void:
-	if _camera_rig != null:
-		_camera_rig.shake(1.8)
-		_camera_rig.punch_fov(7.0)
+	_play_juice(Juice3D.FAIL)
 	if _hint != null:
-		_hint.text = "⚠️ STRES KRİTİK!"
+		_hint.text = "STRES KRİTİK!"
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.75)
 
 
 func _on_stress_exploded() -> void:
-	if _camera_rig != null:
-		_camera_rig.shake(3.0)
+	_play_juice(Juice3D.BURST)
 	if _banner != null:
 		_banner.flash_fail()
 	if _hint != null:
-		_hint.text = "🤯 STRES PATLADI — nefes al!"
+		_hint.text = "STRES PATLADI — nefes al!"
 	if _stress != null:
 		# 3D'de oyun bitsin diye değil — sert ceza + reset
 		await get_tree().create_timer(1.0).timeout
@@ -1197,17 +1238,46 @@ func _on_stress_exploded() -> void:
 func _on_combo_changed(combo: int) -> void:
 	if _combo_label == null:
 		return
+	var broke := combo <= 0 and _combo_shown > 0
+	_combo_shown = combo
 	_combo_label.text = "COMBO x%d" % combo
-	_combo_label.modulate = Color(1.0, 0.9, 0.4) if combo > 0 else Color(0.6, 0.65, 0.7)
+	if combo <= 0:
+		_combo_label.modulate = Color(1.0, 0.4, 0.4) if broke else Color(0.6, 0.65, 0.7)
+		if broke:
+			_pulse_combo_hud(true)
+			var t := get_tree().create_timer(0.28)
+			t.timeout.connect(func() -> void:
+				if _combo_label != null and _combo_shown <= 0:
+					_combo_label.modulate = Color(0.6, 0.65, 0.7)
+			)
+	else:
+		var heat := clampf(float(combo) / 8.0, 0.0, 1.0)
+		_combo_label.modulate = Color(1.0, lerpf(0.92, 0.72, heat), lerpf(0.55, 0.28, heat))
+		_pulse_combo_hud(false)
 	if _score != null and combo > 0:
 		_score.on_combo(combo)
+
+
+func _pulse_combo_hud(broke: bool) -> void:
+	if _combo_label == null:
+		return
+	if _combo_hud_tween != null and _combo_hud_tween.is_valid():
+		_combo_hud_tween.kill()
+	_combo_label.pivot_offset = Vector2(70, 14)
+	_combo_label.scale = Vector2.ONE
+	_combo_hud_tween = create_tween()
+	var peak := Vector2(1.12, 1.12) if broke else Vector2(1.18, 1.18)
+	_combo_hud_tween.tween_property(_combo_label, "scale", peak, 0.07)\
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_combo_hud_tween.tween_property(_combo_label, "scale", Vector2.ONE, 0.16)\
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _on_score_changed(score: int) -> void:
 	if _score_label != null:
 		_score_label.text = "SKOR: %d" % score
 		if _daily_mode:
-			_score_label.text = "📅 SKOR: %d" % score
+			_score_label.text = "GÜNLÜK SKOR: %d" % score
 
 
 func _on_run_coins_changed(run_coins: int) -> void:
@@ -1218,7 +1288,7 @@ func _on_wallet_changed(_balance: int) -> void:
 	_refresh_coin_hud(-1)
 	var bal := _wallet.get_balance() if _wallet != null else 0
 	if _menu_coin_label != null:
-		_menu_coin_label.text = "🪙 %d" % bal
+		_menu_coin_label.text = "%d" % bal
 	if _world_map != null:
 		_world_map.set_wallet_coins(bal)
 	_refresh_lives_hud()
@@ -1231,9 +1301,9 @@ func _on_lives_changed(_lives_n: int) -> void:
 func _on_life_gained(reason: StringName, lives_n: int) -> void:
 	_refresh_lives_hud()
 	if reason == &"coins":
-		_spawn_pop("❤️ +1 CAN", Color(1.0, 0.45, 0.55), 70)
+		_spawn_pop("+1 CAN", Color(1.0, 0.45, 0.55), Juice3D.pop_px(Juice3D.SUCCESS))
 		if _hint != null and not _menu_open:
-			_hint.text = "❤️ 100 coin → can! (toplam %d)" % lives_n
+			_hint.text = "100 coin → can! (toplam %d)" % lives_n
 
 
 func _refresh_coin_hud(run_override: int = -1) -> void:
@@ -1244,24 +1314,21 @@ func _refresh_coin_hud(run_override: int = -1) -> void:
 	if run_c < 0 and _score != null:
 		run_c = _score.get_run_bonus_coins()
 	if run_c > 0:
-		_coin_label.text = "🪙 %d  (+%d bu tur)" % [total, run_c]
+		_coin_label.text = "%d  (+%d bu tur)" % [total, run_c]
 	else:
-		_coin_label.text = "🪙 %d" % total
+		_coin_label.text = "%d" % total
 
 
 func _refresh_lives_hud() -> void:
 	var n := _lives.get_lives() if _lives != null else Lives3D.START_LIVES
 	var prog := _lives.get_coin_progress() if _lives != null else 0
 	var need := _lives.get_coins_per_life() if _lives != null else Lives3D.COINS_PER_LIFE
-	var hearts := ""
-	for _i in n:
-		hearts += "❤️"
-	if hearts.is_empty():
-		hearts = "🖤"
 	if _lives_label != null:
-		_lives_label.text = "%s %d  ·  %d/%d" % [hearts, n, prog, need]
+		_lives_label.text = "%d  ·  %d/%d" % [n, prog, need]
 	if _menu_lives_label != null:
-		_menu_lives_label.text = "%s %d  ·  %d/%d coin → +can" % [hearts, n, prog, need]
+		_menu_lives_label.text = "Can %d  ·  %d/%d coin → +can" % [n, prog, need]
+	if _lives_icon != null:
+		_lives_icon.modulate = Color(1, 1, 1) if n > 0 else Color(0.35, 0.35, 0.4)
 
 
 func _clear_bonus_coins() -> void:
@@ -1325,11 +1392,10 @@ func _on_coin_collected(amount: int, world_pos: Vector3) -> void:
 	if _score != null:
 		_score.on_coin_pickup(amount)
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.DISPOSE, 1.35)
-	_spawn_pop("+%d🪙" % amount, Color(1.0, 0.85, 0.3), 64)
+	_spawn_pop("+%d coin" % amount, Color(1.0, 0.85, 0.3), Juice3D.pop_px(Juice3D.TICK))
 	if _particles != null:
 		_particles.burst(&"clean", world_pos + Vector3(0, 0.5, 0), 0.9)
-	if _camera_rig != null:
-		_camera_rig.shake(0.2)
+	Juice3D.apply(_camera_rig, Juice3D.TICK)
 
 
 func _on_heart_collected(world_pos: Vector3) -> void:
@@ -1339,26 +1405,22 @@ func _on_heart_collected(world_pos: Vector3) -> void:
 		_save_progress()
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.2)
 	if ok:
-		_spawn_pop("+1❤️", Color(1.0, 0.4, 0.5), 72)
+		_spawn_pop("+1 CAN", Color(1.0, 0.4, 0.5), Juice3D.pop_px(Juice3D.SUCCESS))
 	else:
-		_spawn_pop("CAN DOLU", Color(1.0, 0.7, 0.75), 56)
+		_spawn_pop("CAN DOLU", Color(1.0, 0.7, 0.75), Juice3D.pop_px(Juice3D.TICK))
 	if _particles != null:
 		_particles.burst(&"clean", world_pos + Vector3(0, 0.6, 0), 1.1)
-	if _camera_rig != null:
-		_camera_rig.shake(0.35)
+	Juice3D.apply(_camera_rig, Juice3D.TICK)
 	if _hint != null and ok:
-		_hint.text = "❤️ Can +1!"
+		_hint.text = "Can +1!"
 
 
 func _on_combo_milestone(combo: int) -> void:
 	if _hint != null:
-		_hint.text = "🔥 Combo x%d!" % combo
-	if _particles != null and _player != null:
-		_particles.burst(&"dance", _player.global_position, 1.3)
-	if _camera_rig != null:
-		_camera_rig.shake(0.5)
-	_spawn_pop("COMBO x%d" % combo, Color(1.0, 0.75, 0.35), 80)
-	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.25)
+		_hint.text = "Combo x%d!" % combo
+	_play_juice(Juice3D.COMBO)
+	_spawn_pop("COMBO x%d" % combo, Color(1.0, 0.75, 0.35), Juice3D.pop_px(Juice3D.COMBO))
+	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_OK, 1.15)
 
 
 func _on_task_cleared() -> void:
@@ -1593,7 +1655,7 @@ func _apply_tutorial_section(section: Dictionary, section_index: int, section_co
 	if _level_label != null:
 		_level_label.text = "1 · Tutorial · %s" % title
 	if _commission_info != null:
-		_commission_info.text = "📘 %s  (%d / %d)" % [title, section_index + 1, section_count]
+		_commission_info.text = "%s  (%d / %d)" % [title, section_index + 1, section_count]
 		_commission_info.modulate = col
 
 	if with_card and _commission_card != null:
@@ -1739,6 +1801,8 @@ func _on_level_cleared() -> void:
 		result["lives"] = _lives.get_lives()
 		result["life_coin_progress"] = _lives.get_coin_progress()
 	var compare := DailyChallenge3D.save_result(_level_index, int(result.get("score", 0)), _daily_mode)
+	if _daily_mode:
+		SteamService.notify_progress(_highest_unlocked, _level_badges, true)
 
 	var next := _level_index + 1
 	if next + 1 > _highest_unlocked and next < LevelData3D.level_count() and not _daily_mode:
@@ -1755,6 +1819,7 @@ func _on_level_cleared() -> void:
 
 	if _stress != null:
 		_stress.reset_stress()
+	_combo_shown = 0
 	if _combo != null:
 		_combo.reset()
 
@@ -1764,8 +1829,7 @@ func _on_level_cleared() -> void:
 	if _particles != null and _player != null:
 		_particles.burst(&"clean", _player.global_position + Vector3(0, 1.2, 0), 1.4)
 		_particles.burst(&"dispose", _player.global_position + Vector3(0.3, 1.0, 0), 1.0)
-	if _camera_rig != null:
-		_camera_rig.shake(0.6)
+	Juice3D.apply(_camera_rig, Juice3D.SUCCESS)
 
 	# Günlük: seviye sonucu. Kampanya: sadece dünya/bölüm sonunda özet.
 	if _daily_mode and _result_ui != null:
@@ -1778,17 +1842,16 @@ func _on_level_cleared() -> void:
 		_reset_world_run()
 	else:
 		# Ara seviye — rozet pop
-		var bicon := String(result.get("badge_icon", "🥉"))
 		var blab := String(result.get("badge_label", "BRONZ"))
 		var earned_show := int(result.get("coins_earned", 0))
 		var sc := int(result.get("score", 0))
-		_spawn_pop("%s %s" % [bicon, blab], BadgeRating3D.color(int(result.get("badge", 1))), 72)
+		_spawn_pop("%s" % blab, BadgeRating3D.color(int(result.get("badge", 1))), Juice3D.pop_px(Juice3D.SUCCESS))
 		if bool(compare.get("is_new_best", false)):
 			await get_tree().create_timer(0.25).timeout
-			_spawn_pop("🏆 %d" % sc, Color(1.0, 0.85, 0.35), 64)
+			_spawn_pop("REKOR %d" % sc, Color(1.0, 0.85, 0.35), Juice3D.pop_px(Juice3D.COMBO))
 		elif earned_show > 0:
 			await get_tree().create_timer(0.2).timeout
-			_spawn_pop("+%d🪙" % earned_show, Color(1.0, 0.85, 0.35), 56)
+			_spawn_pop("+%d coin" % earned_show, Color(1.0, 0.85, 0.35), Juice3D.pop_px(Juice3D.TICK))
 		await get_tree().create_timer(0.65).timeout
 		_on_result_closed()
 
@@ -1946,7 +2009,7 @@ func _setup_hud() -> void:
 	_mop_label.offset_top = 52.0
 	_mop_label.offset_right = 480.0
 	_mop_label.offset_bottom = 82.0
-	_mop_label.add_theme_font_size_override("font_size", 18)
+	_mop_label.add_theme_font_size_override("font_size", 20)
 	_mop_label.visible = false
 	ui.add_child(_mop_label)
 
@@ -1955,7 +2018,7 @@ func _setup_hud() -> void:
 	_vacuum_label.offset_top = 52.0
 	_vacuum_label.offset_right = 420.0
 	_vacuum_label.offset_bottom = 82.0
-	_vacuum_label.add_theme_font_size_override("font_size", 18)
+	_vacuum_label.add_theme_font_size_override("font_size", 20)
 	_vacuum_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	_vacuum_label.add_theme_constant_override("outline_size", 6)
 	_vacuum_label.visible = false
@@ -1992,7 +2055,7 @@ func _setup_hud() -> void:
 	_objective_label.offset_top = 24.0
 	_objective_label.offset_right = 520.0
 	_objective_label.offset_bottom = 64.0
-	_objective_label.add_theme_font_size_override("font_size", 28)
+	_objective_label.add_theme_font_size_override("font_size", 32)
 	_objective_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	_objective_label.add_theme_constant_override("outline_size", 8)
 	ui.add_child(_objective_label)
@@ -2005,7 +2068,7 @@ func _setup_hud() -> void:
 	_level_label.offset_top = 18.0
 	_level_label.offset_bottom = 52.0
 	_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_level_label.add_theme_font_size_override("font_size", 22)
+	_level_label.add_theme_font_size_override("font_size", 24)
 	_level_label.add_theme_color_override("font_color", Color(0.95, 0.88, 0.55))
 	_level_label.visible = false
 	ui.add_child(_level_label)
@@ -2018,7 +2081,7 @@ func _setup_hud() -> void:
 	_phase_hud.offset_top = 56.0
 	_phase_hud.offset_bottom = 88.0
 	_phase_hud.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_phase_hud.add_theme_font_size_override("font_size", 18)
+	_phase_hud.add_theme_font_size_override("font_size", 22)
 	_phase_hud.text = "FAZ 1 · Isınma"
 	_phase_hud.visible = false
 	ui.add_child(_phase_hud)
@@ -2028,7 +2091,7 @@ func _setup_hud() -> void:
 	_stress_label.offset_top = 116.0
 	_stress_label.offset_right = 320.0
 	_stress_label.offset_bottom = 140.0
-	_stress_label.add_theme_font_size_override("font_size", 18)
+	_stress_label.add_theme_font_size_override("font_size", 22)
 	_stress_label.text = "HEAT: 0%"
 	_stress_label.visible = false
 	ui.add_child(_stress_label)
@@ -2058,7 +2121,8 @@ func _setup_hud() -> void:
 	_combo_label.offset_top = 168.0
 	_combo_label.offset_right = 320.0
 	_combo_label.offset_bottom = 196.0
-	_combo_label.add_theme_font_size_override("font_size", 18)
+	_combo_label.add_theme_font_size_override("font_size", 22)
+	_combo_label.pivot_offset = Vector2(70, 14)
 	_combo_label.text = "COMBO x0"
 	_combo_label.modulate = Color(0.6, 0.65, 0.7)
 	_combo_label.visible = false
@@ -2069,15 +2133,18 @@ func _setup_hud() -> void:
 	_tool_bar.offset_left = 24.0
 	_tool_bar.offset_top = 72.0
 	_tool_bar.offset_right = 420.0
-	_tool_bar.offset_bottom = 118.0
+	_tool_bar.offset_bottom = 132.0
 	_tool_bar.add_theme_constant_override("separation", 6)
 	ui.add_child(_tool_bar)
 	_tool_bar_buttons.clear()
 	for i in 5:
 		var b := Button.new()
-		b.custom_minimum_size = Vector2(52, 40)
+		b.custom_minimum_size = Vector2(76, 52)
 		b.focus_mode = Control.FOCUS_NONE
 		b.toggle_mode = true
+		b.expand_icon = true
+		b.add_theme_font_size_override("font_size", 16)
+		b.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		var idx := i
 		b.pressed.connect(func() -> void:
 			if _player != null:
@@ -2141,16 +2208,14 @@ func _setup_hud() -> void:
 	_badge_hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	badge_col.add_child(_badge_hint_label)
 
-	_badge_medal_label = Label.new()
+	_badge_medal_label = TextureRect.new()
 	_badge_medal_label.name = "BadgeMedal"
-	_badge_medal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_badge_medal_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_badge_medal_label.custom_minimum_size = Vector2(88, 88)
 	_badge_medal_label.pivot_offset = Vector2(44, 44)
-	_badge_medal_label.add_theme_font_size_override("font_size", 64)
-	_badge_medal_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
-	_badge_medal_label.add_theme_constant_override("outline_size", 8)
-	_badge_medal_label.text = "🥇"
+	_badge_medal_label.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_badge_medal_label.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_badge_medal_label.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_badge_medal_label.texture = HudIcons.tex("gold")
 	_badge_medal_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	badge_row.add_child(_badge_medal_label)
 
@@ -2182,36 +2247,62 @@ func _setup_hud() -> void:
 	_score_label.offset_top = 200.0
 	_score_label.offset_right = 320.0
 	_score_label.offset_bottom = 228.0
-	_score_label.add_theme_font_size_override("font_size", 18)
+	_score_label.add_theme_font_size_override("font_size", 22)
 	_score_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	_score_label.text = "SKOR: 0"
 	_score_label.visible = false
 	ui.add_child(_score_label)
 
+	_coin_icon = TextureRect.new()
+	_coin_icon.name = "CoinIcon"
+	_coin_icon.offset_left = 24.0
+	_coin_icon.offset_top = 228.0
+	_coin_icon.offset_right = 52.0
+	_coin_icon.offset_bottom = 256.0
+	_coin_icon.texture = HudIcons.tex("coin")
+	_coin_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_coin_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_coin_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_coin_icon.visible = false
+	ui.add_child(_coin_icon)
+
 	_coin_label = Label.new()
-	_coin_label.offset_left = 24.0
+	_coin_label.offset_left = 56.0
 	_coin_label.offset_top = 228.0
-	_coin_label.offset_right = 360.0
+	_coin_label.offset_right = 400.0
 	_coin_label.offset_bottom = 256.0
-	_coin_label.add_theme_font_size_override("font_size", 18)
+	_coin_label.add_theme_font_size_override("font_size", 22)
 	_coin_label.add_theme_color_override("font_color", Color(1.0, 0.88, 0.4))
 	_coin_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
 	_coin_label.add_theme_constant_override("outline_size", 6)
-	_coin_label.text = "🪙 0"
+	_coin_label.text = "0"
 	_coin_label.visible = false
 	ui.add_child(_coin_label)
 	_refresh_coin_hud()
 
+	_lives_icon = TextureRect.new()
+	_lives_icon.name = "LivesIcon"
+	_lives_icon.offset_left = 24.0
+	_lives_icon.offset_top = 260.0
+	_lives_icon.offset_right = 52.0
+	_lives_icon.offset_bottom = 288.0
+	_lives_icon.texture = HudIcons.tex("heart")
+	_lives_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_lives_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_lives_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_lives_icon.visible = false
+	ui.add_child(_lives_icon)
+
 	_lives_label = Label.new()
-	_lives_label.offset_left = 24.0
-	_lives_label.offset_top = 256.0
-	_lives_label.offset_right = 420.0
-	_lives_label.offset_bottom = 284.0
-	_lives_label.add_theme_font_size_override("font_size", 18)
+	_lives_label.offset_left = 56.0
+	_lives_label.offset_top = 260.0
+	_lives_label.offset_right = 440.0
+	_lives_label.offset_bottom = 288.0
+	_lives_label.add_theme_font_size_override("font_size", 22)
 	_lives_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.5))
 	_lives_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
 	_lives_label.add_theme_constant_override("outline_size", 6)
-	_lives_label.text = "❤️ 3"
+	_lives_label.text = "3"
 	_lives_label.visible = false
 	ui.add_child(_lives_label)
 	_refresh_lives_hud()
@@ -2245,6 +2336,8 @@ func _boot_to_title() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _title_screen != null:
 		_title_screen.present()
+	if _music != null:
+		_music.play_menu(true)
 
 
 func _on_title_continued() -> void:
@@ -2301,7 +2394,7 @@ func _setup_menu() -> void:
 	_menu_coin_label.offset_bottom = 78.0
 	_menu_coin_label.add_theme_font_size_override("font_size", 22)
 	_menu_coin_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
-	_menu_coin_label.text = "🪙 0"
+	_menu_coin_label.text = "0"
 	_menu.add_child(_menu_coin_label)
 
 	_menu_lives_label = Label.new()
@@ -2312,7 +2405,7 @@ func _setup_menu() -> void:
 	_menu_lives_label.offset_bottom = 102.0
 	_menu_lives_label.add_theme_font_size_override("font_size", 20)
 	_menu_lives_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.55))
-	_menu_lives_label.text = "❤️ 3  ·  0/100 → +can"
+	_menu_lives_label.text = "Can 3  ·  0/100 → +can"
 	_menu.add_child(_menu_lives_label)
 
 	_menu_scrap_label = Label.new()
@@ -2401,10 +2494,10 @@ func _setup_menu() -> void:
 	_menu_records_label.offset_right = 320.0
 	_menu_records_label.offset_top = 150.0
 	_menu_records_label.offset_bottom = 290.0
-	_menu_records_label.add_theme_font_size_override("font_size", 13)
+	_menu_records_label.add_theme_font_size_override("font_size", 16)
 	_menu_records_label.add_theme_color_override("font_color", Color(0.75, 0.82, 0.9))
 	_menu_records_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_menu_records_label.text = "🏆 Kayıtlar"
+	_menu_records_label.text = "Kayıtlar"
 	_menu.add_child(_menu_records_label)
 
 	_world_map.setup(_highest_unlocked, -1)
@@ -2448,7 +2541,7 @@ func _show_menu(open: bool) -> void:
 		if _spawner != null:
 			_spawner.stop_pressure()
 		if _music != null:
-			_music.stop(true)
+			_music.play_menu(false)
 		if _commission != null:
 			_commission.clear()
 		if _banner != null:
@@ -2491,8 +2584,12 @@ func _set_run_hud_visible(hud_on: bool) -> void:
 		_score_label.visible = hud_on
 	if _coin_label != null:
 		_coin_label.visible = hud_on
+	if _coin_icon != null:
+		_coin_icon.visible = hud_on
 	if _lives_label != null:
 		_lives_label.visible = hud_on
+	if _lives_icon != null:
+		_lives_icon.visible = hud_on
 	if hud_on:
 		_refresh_coin_hud()
 		_refresh_lives_hud()
@@ -2502,7 +2599,7 @@ func _refresh_hint() -> void:
 	if _hint == null or _menu_open:
 		return
 	if _player != null and _player.get_potion_drunk() > 0.35:
-		_hint.text = "😵 İksir sarhoşu! Mor lekeden çık / paspasla temizle"
+		_hint.text = "İksir sarhoşu! Mor lekeden çık / paspasla temizle"
 		return
 	if _player != null and _player.is_holding():
 		_hint.text = "Kutu elde · başka kutuya Space = stack · çöpe Space = at (max 5)"
@@ -2515,7 +2612,7 @@ func _refresh_hint() -> void:
 func _on_dance_changed(dancing: bool) -> void:
 	if _hint == null:
 		return
-	_hint.text = "💃 DANS — duvara çarp, partikül yağsın!" if dancing else "Dans bitti · Esc menü"
+	_hint.text = "DANS — duvara çarp, partikül yağsın!" if dancing else "Dans bitti · Esc menü"
 
 
 func _on_mop_dirt_changed(ratio: float) -> void:
@@ -2554,10 +2651,9 @@ func _on_vacuum_bag_changed(count: int, capacity: int) -> void:
 		if not _vac_was_full:
 			if _hint != null:
 				_hint.visible = true
-				_hint.text = "⚠️ Torba dolu — yeşil ÇÖP'ün yanında Space"
-			_spawn_pop("TORBA DOLU!", Color(1.0, 0.45, 0.3), 72)
-			if _camera_rig != null:
-				_camera_rig.shake(0.55)
+				_hint.text = "Torba dolu — yeşil ÇÖP'ün yanında Space"
+			_spawn_pop("TORBA DOLU!", Color(1.0, 0.45, 0.3), Juice3D.pop_px(Juice3D.FAIL))
+			Juice3D.apply(_camera_rig, Juice3D.TICK)
 			if _banner != null and not _tutorial_banner_sticky:
 				_banner.show_task("TORBA DOLU", Color(1.0, 0.4, 0.28), "Çöpün yanında Space ile boşalt", "")
 	elif count <= 0:
@@ -2795,7 +2891,7 @@ func _refresh_menu_scrap_label() -> void:
 		return
 	var found := _scrap_collection.found_count() if _scrap_collection != null else 0
 	var total := ScrapCatalog.count()
-	_menu_scrap_label.text = "📦 Kayıp eşya %d/%d" % [found, total]
+	_menu_scrap_label.text = "Kayıp eşya %d/%d" % [found, total]
 
 
 func _on_menu_world_changed(world_slot: int) -> void:
@@ -2805,10 +2901,9 @@ func _on_menu_world_changed(world_slot: int) -> void:
 func _refresh_menu_records(world_slot: int) -> void:
 	if _menu_records_label == null:
 		return
-	var icon := LevelData3D.world_icon(world_slot)
 	var title := LevelData3D.world_title(world_slot)
 	var body := DailyChallenge3D.world_records_summary(world_slot)
-	_menu_records_label.text = "🏆 %s %s\n%s" % [icon, title, body]
+	_menu_records_label.text = "%s\n%s" % [title, body]
 
 
 func _on_prop_cleared() -> void:
@@ -2838,10 +2933,12 @@ func _refresh_tool_bar() -> void:
 		b.visible = open
 		b.disabled = not open
 		if open:
-			b.text = "%d %s" % [i + 1, PlayerCharacter3D.TOOL_ICONS[i]]
+			b.icon = HudIcons.tex_for_tool(i)
+			b.text = str(i + 1)
 			b.tooltip_text = PlayerCharacter3D.TOOL_LABELS[i]
 			b.button_pressed = (i == active)
 			b.modulate = Color(1.0, 0.95, 0.55) if i == active else Color(0.75, 0.78, 0.82)
+			b.add_theme_constant_override("icon_max_width", 32)
 
 
 func _on_junk_eaten(world_pos: Vector3) -> void:
@@ -2849,10 +2946,8 @@ func _on_junk_eaten(world_pos: Vector3) -> void:
 		_score.on_junk()
 	if _room_timer != null and _room_timer.is_active():
 		_room_timer.on_clean()
-	_spawn_pop("+80 🍔", Color(1.0, 0.75, 0.35), 72)
-	if _camera_rig != null:
-		_camera_rig.punch_fov(4.0)
-		_camera_rig.shake(0.45)
+	_spawn_pop("+80", Color(1.0, 0.75, 0.35), Juice3D.pop_px(Juice3D.SUCCESS))
+	Juice3D.apply(_camera_rig, Juice3D.SUCCESS)
 	if _stress != null:
 		_stress.reduce_stress(6.0)
 		_stress.add_delayed_stress(14.0, 1.8)
@@ -2871,26 +2966,22 @@ func _on_junk_eaten(world_pos: Vector3) -> void:
 
 func _on_junk_powerup(kind: StringName) -> void:
 	if kind == &"speed_rush":
-		_spawn_pop("⚡ HIZ!", Color(0.45, 0.95, 1.0), 88)
-		if _camera_rig != null:
-			_camera_rig.punch_fov(7.0)
-			_camera_rig.shake(0.35)
+		_spawn_pop("HIZ!", Color(0.45, 0.95, 1.0), Juice3D.pop_px(Juice3D.COMBO))
+		_play_juice(Juice3D.COMBO)
 		if _banner != null and not _tutorial_banner_sticky:
 			_banner.show_task("HIZ PATLAMASI", Color(0.4, 0.9, 1.0), "Koş + taşı hızlandı!", "")
 		if _hint != null:
-			_hint.text = "⚡ Hız + taşıma boost — ~9 sn"
+			_hint.text = "Hız + taşıma boost — ~9 sn"
 		if _room_timer != null and _room_timer.is_active():
 			_room_timer.add_time(2.0)
 		return
 	if kind == &"scene_sweep":
-		_spawn_pop("🌪️ SÜPÜR!", Color(0.95, 0.85, 0.35), 92)
-		if _camera_rig != null:
-			_camera_rig.punch_fov(10.0)
-			_camera_rig.shake(0.85)
+		_spawn_pop("SÜPÜR!", Color(0.95, 0.85, 0.35), Juice3D.pop_px(Juice3D.PHASE))
+		_play_juice(Juice3D.PHASE)
 		if _banner != null:
 			_banner.show_task("SÜPÜRGE FIRTINASI", Color(1.0, 0.75, 0.3), "Tüm sahne temizleniyor!", "")
 		if _hint != null:
-			_hint.text = "🌪️ Tek seferde silip süpürdü!"
+			_hint.text = "Tek seferde silip süpürdü!"
 		if _particles != null and _player != null:
 			_particles.burst(&"clean", _player.global_position + Vector3(0, 1.0, 0), 2.4)
 		if _spawner != null:
@@ -2919,18 +3010,16 @@ func _on_hazard_slippery(_world_pos: Vector3) -> void:
 
 func _on_hazard_furniture() -> void:
 	PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.BUMP, 0.75)
-	if _camera_rig != null:
-		_camera_rig.shake(0.35)
+	Juice3D.apply(_camera_rig, Juice3D.TICK)
 	if _hint != null:
 		_hint.text = "Raf kaydı — kırmızı çizgiye basma!"
 
 
 func _on_hazard_fall_impact(hit_player: bool, world_pos: Vector3) -> void:
 	if _particles != null:
-		_particles.burst(&"bump", world_pos + Vector3(0, 0.4, 0), 1.6 if hit_player else 0.9)
-	if _camera_rig != null:
-		_camera_rig.shake(1.4 if hit_player else 0.55)
+		_particles.burst(&"bump", world_pos + Vector3(0, 0.4, 0), 1.05 if hit_player else 0.7)
 	if hit_player:
+		_play_juice(Juice3D.FAIL)
 		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.TASK_FAIL, 0.85)
 		if _music != null and _stress != null:
 			_music.on_mistake(_stress.get_stress_ratio())
@@ -2941,6 +3030,7 @@ func _on_hazard_fall_impact(hit_player: bool, world_pos: Vector3) -> void:
 		if _player != null:
 			_player.play_task_fail_recoil()
 	else:
+		Juice3D.apply(_camera_rig, Juice3D.HIT)
 		PrototypeSfx.play(_ui_sfx, PrototypeSfx.Kind.HIT, 0.7)
 		if _hint != null:
 			_hint.text = "Kurtuldun — raf yere çarptı"
@@ -2948,6 +3038,8 @@ func _on_hazard_fall_impact(hit_player: bool, world_pos: Vector3) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
+		return
+	if _pause_settings != null and _pause_settings.visible:
 		return
 	get_viewport().set_input_as_handled()
 	# Seviye seçim menüsü / fail / sonuç / kart — Esc ile ölü sahneye dönme
@@ -2991,48 +3083,85 @@ func _ensure_pause_overlay() -> void:
 	_pause_overlay.add_child(dim)
 
 	var title := Label.new()
-	title.text = "DURAKLATILDI"
+	_pause_title = title
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.anchor_right = 1.0
-	title.offset_top = 220.0
-	title.offset_bottom = 280.0
+	title.offset_top = 180.0
+	title.offset_bottom = 240.0
 	title.add_theme_font_size_override("font_size", 48)
 	title.add_theme_color_override("font_color", Color(0.95, 0.9, 0.55))
 	_pause_overlay.add_child(title)
 
 	var sub := Label.new()
-	sub.text = "Esc · devam"
+	_pause_sub = sub
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.anchor_right = 1.0
-	sub.offset_top = 290.0
-	sub.offset_bottom = 330.0
+	sub.offset_top = 248.0
+	sub.offset_bottom = 286.0
 	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color(0.75, 0.85, 0.95))
 	_pause_overlay.add_child(sub)
 
 	var resume := Button.new()
-	resume.text = "Devam"
+	_pause_resume = resume
 	resume.focus_mode = Control.FOCUS_NONE
 	resume.anchor_left = 0.5
 	resume.anchor_right = 0.5
 	resume.offset_left = -140.0
 	resume.offset_right = 140.0
-	resume.offset_top = 360.0
-	resume.offset_bottom = 410.0
+	resume.offset_top = 320.0
+	resume.offset_bottom = 370.0
 	resume.pressed.connect(func() -> void: _set_game_paused(false))
 	_pause_overlay.add_child(resume)
 
+	var settings_btn := Button.new()
+	_pause_settings_btn = settings_btn
+	settings_btn.focus_mode = Control.FOCUS_NONE
+	settings_btn.anchor_left = 0.5
+	settings_btn.anchor_right = 0.5
+	settings_btn.offset_left = -140.0
+	settings_btn.offset_right = 140.0
+	settings_btn.offset_top = 384.0
+	settings_btn.offset_bottom = 430.0
+	settings_btn.pressed.connect(_open_pause_settings)
+	_pause_overlay.add_child(settings_btn)
+
 	var to_menu := Button.new()
-	to_menu.text = "Ana Menü"
+	_pause_menu = to_menu
 	to_menu.focus_mode = Control.FOCUS_NONE
 	to_menu.anchor_left = 0.5
 	to_menu.anchor_right = 0.5
 	to_menu.offset_left = -140.0
 	to_menu.offset_right = 140.0
-	to_menu.offset_top = 424.0
-	to_menu.offset_bottom = 470.0
+	to_menu.offset_top = 444.0
+	to_menu.offset_bottom = 490.0
 	to_menu.pressed.connect(_pause_quit_to_menu)
 	_pause_overlay.add_child(to_menu)
+
+	var settings_panel = preload("res://ui/settings_panel_3d.gd").new()
+	_pause_settings = settings_panel
+	settings_panel.name = "PauseSettings"
+	settings_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	_pause_overlay.add_child(settings_panel)
+	_refresh_pause_texts()
+
+
+func _open_pause_settings() -> void:
+	if _pause_settings != null:
+		_pause_settings.present()
+
+
+func _refresh_pause_texts() -> void:
+	if _pause_title != null:
+		_pause_title.text = GameSettings.t("paused")
+	if _pause_sub != null:
+		_pause_sub.text = GameSettings.t("pause_hint")
+	if _pause_resume != null:
+		_pause_resume.text = GameSettings.t("resume")
+	if _pause_settings_btn != null:
+		_pause_settings_btn.text = GameSettings.t("settings")
+	if _pause_menu != null:
+		_pause_menu.text = GameSettings.t("main_menu")
 
 
 func _toggle_game_pause() -> void:
@@ -3046,6 +3175,9 @@ func _set_game_paused(on: bool) -> void:
 	_ensure_pause_overlay()
 	if _pause_overlay != null:
 		_pause_overlay.visible = on
+		if not on and _pause_settings != null:
+			_pause_settings.visible = false
+			_pause_settings.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if on:
 		if _player != null and _player.has_method("_release_vacuum"):
 			_player.call("_release_vacuum")
@@ -3068,29 +3200,41 @@ func _pause_quit_to_menu() -> void:
 
 
 func _load_progress() -> void:
-	# Tüm seviyeler açık (dev / test) — coin + can kalıcı
-	_highest_unlocked = LevelData3D.level_count()
+	_highest_unlocked = 1
+	_pending_wallet_coins = -1
+	_pending_lives = Lives3D.START_LIVES
+	_pending_life_coin_progress = 0
+	_pending_scrap_ids = PackedStringArray()
+	_level_badges.clear()
 	var cfg := ConfigFile.new()
-	if cfg.load(_save_path) == OK:
-		_pending_wallet_coins = maxi(0, int(cfg.get_value("wallet", "coins", 0)))
-		_pending_lives = clampi(int(cfg.get_value("lives", "count", Lives3D.START_LIVES)), 0, Lives3D.MAX_LIVES)
-		_pending_life_coin_progress = clampi(
-			int(cfg.get_value("lives", "coin_progress", 0)), 0, Lives3D.COINS_PER_LIFE - 1
-		)
-		var scrap_var: Variant = cfg.get_value("scraps", "found", PackedStringArray())
-		if scrap_var is PackedStringArray:
-			_pending_scrap_ids = scrap_var
-		elif scrap_var is Array:
-			_pending_scrap_ids = PackedStringArray()
-			for x in scrap_var as Array:
-				_pending_scrap_ids.append(String(x))
-		_level_badges.clear()
-		if cfg.has_section("badges"):
-			for key in cfg.get_section_keys("badges"):
-				_level_badges[String(key)] = clampi(int(cfg.get_value("badges", key, 0)), 0, 3)
-	else:
-		_pending_lives = Lives3D.START_LIVES
-		_pending_life_coin_progress = 0
+	if cfg.load(_save_path) != OK:
+		_apply_loaded_progress()
+		return
+	var schema := int(cfg.get_value("progress", "schema", 0))
+	var unlocked := int(cfg.get_value("progress", "unlocked", 1))
+	# Eski dev kaydı tüm seviyeleri açıyordu — şema yoksa kampanya kilidini sıfırla
+	if schema < 1:
+		unlocked = 1
+	_highest_unlocked = clampi(unlocked, 1, LevelData3D.level_count())
+	_pending_wallet_coins = maxi(0, int(cfg.get_value("wallet", "coins", 0)))
+	_pending_lives = clampi(int(cfg.get_value("lives", "count", Lives3D.START_LIVES)), 0, Lives3D.MAX_LIVES)
+	_pending_life_coin_progress = clampi(
+		int(cfg.get_value("lives", "coin_progress", 0)), 0, Lives3D.COINS_PER_LIFE - 1
+	)
+	var scrap_var: Variant = cfg.get_value("scraps", "found", PackedStringArray())
+	if scrap_var is PackedStringArray:
+		_pending_scrap_ids = scrap_var
+	elif scrap_var is Array:
+		_pending_scrap_ids = PackedStringArray()
+		for x in scrap_var as Array:
+			_pending_scrap_ids.append(String(x))
+	if schema >= 1 and cfg.has_section("badges"):
+		for key in cfg.get_section_keys("badges"):
+			_level_badges[String(key)] = clampi(int(cfg.get_value("badges", key, 0)), 0, 3)
+	_apply_loaded_progress()
+
+
+func _apply_loaded_progress() -> void:
 	if _wallet != null and _pending_wallet_coins >= 0:
 		_wallet.set_balance(_pending_wallet_coins)
 		_pending_wallet_coins = -1
@@ -3101,11 +3245,13 @@ func _load_progress() -> void:
 	if _scrap_collection != null and not _pending_scrap_ids.is_empty():
 		_scrap_collection.load_ids(_pending_scrap_ids)
 		_pending_scrap_ids.clear()
+	SteamService.notify_progress(_highest_unlocked, _level_badges)
 
 
 func _save_progress() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(_save_path)  # mevcut anahtarları koru
+	cfg.set_value("progress", "schema", 1)
 	cfg.set_value("progress", "unlocked", _highest_unlocked)
 	var coins := 0
 	if _wallet != null:
@@ -3134,3 +3280,5 @@ func _save_progress() -> void:
 	for k in _level_badges.keys():
 		cfg.set_value("badges", String(k), int(_level_badges[k]))
 	cfg.save(_save_path)
+	SteamService.push_saves()
+	SteamService.notify_progress(_highest_unlocked, _level_badges)

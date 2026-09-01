@@ -63,10 +63,10 @@ static func color(rank: int) -> Color:
 
 
 static func short(rank: int) -> String:
-	var ic := icon(rank)
-	if ic.is_empty():
+	var lab := label(rank)
+	if lab.is_empty():
 		return "—"
-	return "%s %s" % [ic, label(rank)]
+	return lab
 
 
 static func gold_threshold(par_seconds: float) -> float:

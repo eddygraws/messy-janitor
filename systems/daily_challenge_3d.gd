@@ -80,6 +80,7 @@ static func save_result(level_index: int, score: int, daily: bool = false) -> Di
 		cfg.set_value("daily_best", key, daily_best)
 		cfg.set_value("daily_last", key, score)
 	cfg.save(SAVE_PATH)
+	SteamService.push_saves()
 	return {
 		"best": best,
 		"prev_best": prev_best,
@@ -112,6 +113,7 @@ static func save_world_result(world_slot: int, total_score: int) -> Dictionary:
 	cfg.set_value("world_best", "world_%d" % world_slot, best)
 	cfg.set_value("world_last", "world_%d" % world_slot, total_score)
 	cfg.save(SAVE_PATH)
+	SteamService.push_saves()
 	return {
 		"world_best": best,
 		"prev_best": prev_best,

@@ -25,7 +25,7 @@ func _ready() -> void:
 
 	_sfx = AudioStreamPlayer.new()
 	_sfx.name = "ResultSfx"
-	_sfx.bus = &"Master"
+	_sfx.bus = &"SFX"
 	_sfx.volume_db = -3.0
 	add_child(_sfx)
 
@@ -120,7 +120,7 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 	var gcol: Color = result.get("grade_color", Color.WHITE)
 	var badge := int(result.get("badge", 0))
 	if badge >= BadgeRating3D.Rank.BRONZE:
-		grade = "%s %s" % [BadgeRating3D.icon(badge), BadgeRating3D.label(badge)]
+		grade = BadgeRating3D.label(badge)
 		gcol = BadgeRating3D.color(badge)
 	_title.text = "GÜNLÜK SONUÇ" if daily else "SEVİYE SONUÇ"
 	_grade_label.text = grade
@@ -132,7 +132,7 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 	var coins_earned := int(result.get("coins_earned", 0))
 	var wallet_total := int(result.get("wallet_total", 0))
 	if coins_earned > 0:
-		_score_label.text = "Skor: %d   ·   +%d🪙" % [score, coins_earned]
+		_score_label.text = "Skor: %d   ·   +%d coin" % [score, coins_earned]
 	else:
 		_score_label.text = "Skor: %d" % score
 
@@ -142,9 +142,9 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 	var is_new_best := bool(compare.get("is_new_best", false)) or bool(compare.get("beat_best", false))
 	if is_new_best:
 		if prev_best > 0:
-			lines.append("🏆 YENİ REKOR!  (eski: %d  →  +%d)" % [prev_best, score - prev_best])
+			lines.append("YENİ REKOR!  (eski: %d  →  +%d)" % [prev_best, score - prev_best])
 		else:
-			lines.append("🏆 İlk rekor: %d" % score)
+			lines.append("İlk rekor: %d" % score)
 		_compare.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
 	elif bool(compare.get("beat_last", false)):
 		lines.append("▲ Kendini geçtin!  Geçen: %d  →  +%d" % [last, score - last])
@@ -161,17 +161,17 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 		var db := int(compare.get("daily_best", 0))
 		if bool(compare.get("beat_daily_best", false)):
 			if prev_db > 0:
-				lines.append("📅 Günlük rekor kırıldı! (eski: %d)" % prev_db)
+				lines.append("Günlük rekor kırıldı! (eski: %d)" % prev_db)
 			else:
-				lines.append("📅 Günlük ilk rekor: %d" % score)
+				lines.append("Günlük ilk rekor: %d" % score)
 		elif db > 0:
-			lines.append("📅 Günlük en iyi: %d" % db)
+			lines.append("Günlük en iyi: %d" % db)
 
 	# Coin her zaman görünsün (geçiş ekranında da net)
 	if coins_earned > 0:
-		lines.append("🪙 +%d coin  →  cüzdan: %d" % [coins_earned, wallet_total])
+		lines.append("+%d coin  →  cüzdan: %d" % [coins_earned, wallet_total])
 	else:
-		lines.append("🪙 Cüzdan: %d" % wallet_total)
+		lines.append("Cüzdan: %d" % wallet_total)
 	var lives_n := int(result.get("lives", -1))
 	var life_prog := int(result.get("life_coin_progress", -1))
 	if lives_n >= 0:
@@ -179,9 +179,9 @@ func present(result: Dictionary, compare: Dictionary, daily: bool = false) -> vo
 		if int(result.get("lives_from_coins", 0)) > 0:
 			extra = "  (+%d can coin'den)" % int(result.get("lives_from_coins", 0))
 		if life_prog >= 0:
-			lines.append("❤️ can: %d  ·  %d/100%s" % [lives_n, life_prog, extra])
+			lines.append("Can: %d  ·  %d/100%s" % [lives_n, life_prog, extra])
 		else:
-			lines.append("❤️ can: %d%s" % [lives_n, extra])
+			lines.append("Can: %d%s" % [lives_n, extra])
 
 	_compare.text = "\n".join(lines)
 	_detail.text = "%s  ·  Combo x%d  ·  Hata %d  ·  %.0fs" % [

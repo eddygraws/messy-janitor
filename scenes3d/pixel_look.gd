@@ -21,6 +21,8 @@ static var _compositor: Compositor
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	pixel_size = GameSettings.pixel_size
+	outlines = GameSettings.outlines
 	_ensure_shared()
 	_apply_settings()
 	_bind_parent_camera()
@@ -41,11 +43,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if k.keycode != cycle_key and k.physical_keycode != cycle_key:
 		return
-	var next := pixel_size + 1
+	var next := GameSettings.pixel_size + 1
 	if next > 4:
 		next = 1
 	pixel_size = next
-	_apply_settings()
+	GameSettings.set_pixel_size(next)
 	get_viewport().set_input_as_handled()
 
 
@@ -62,12 +64,18 @@ static func set_pixel_size(size: int) -> void:
 		_effect.pixel_size = clampi(size, 1, 8)
 
 
+static func set_outlines(on: bool) -> void:
+	_ensure_shared()
+	if _effect != null:
+		_effect.outline_strength = 0.55 if on else 0.0
+
+
 static func _ensure_shared() -> void:
 	if _effect != null and _compositor != null:
 		return
 	_effect = PIXELIZE_SCRIPT.new() as PixelizeCompositor
-	_effect.pixel_size = 3
-	_effect.outline_strength = 0.55
+	_effect.pixel_size = GameSettings.pixel_size
+	_effect.outline_strength = 0.55 if GameSettings.outlines else 0.0
 	_compositor = Compositor.new()
 	_compositor.compositor_effects = [_effect]
 

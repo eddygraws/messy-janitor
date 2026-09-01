@@ -1,40 +1,30 @@
 class_name GameAudioBank
 extends RefCounted
 
-## Kalıcı WAV bankası — ilk çalıştırmada user://messy_audio altına yazar.
-## Sonraki açılışlarda dosyadan yükler (gerçek ses dosyası yolu).
+## Ship SFX bankası: `res://audio/sfx/{kind}.wav` (ogg/mp3 da olur).
+## Dosya yoksa kısa orijinal prosedürel yedek. Müzik bu sınıfta üretilmez.
 
-const SFX_DIR := "user://messy_audio/sfx"
-const MUSIC_DIR := "user://messy_audio/music"
+const SFX_DIR := "res://audio/sfx/"
+const EXT_CANDIDATES: Array[String] = [".wav", ".ogg", ".mp3", ".WAV", ".OGG", ".MP3"]
+
+const KIND_NAMES: PackedStringArray = [
+	"hit", "pickup", "drop", "throw", "dash", "rinse", "dispose", "switch",
+	"dance", "bump", "task", "task_ok", "task_fail", "phase", "stop",
+]
 
 static var _ready_bank: bool = false
 static var _sfx: Dictionary = {}
-static var _music_layers: Array[AudioStreamWAV] = []
 
 
 static func ensure_ready() -> void:
 	if _ready_bank:
 		return
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(SFX_DIR))
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(MUSIC_DIR))
-	_sfx[PrototypeSfx.Kind.HIT] = _sfx_file("hit", _gen_hit())
-	_sfx[PrototypeSfx.Kind.PICKUP] = _sfx_file("pickup", _gen_pickup())
-	_sfx[PrototypeSfx.Kind.DROP] = _sfx_file("drop", _gen_drop())
-	_sfx[PrototypeSfx.Kind.THROW] = _sfx_file("throw", _gen_whoosh())
-	_sfx[PrototypeSfx.Kind.DASH] = _sfx_file("dash", _gen_dash())
-	_sfx[PrototypeSfx.Kind.RINSE] = _sfx_file("rinse", _gen_rinse())
-	_sfx[PrototypeSfx.Kind.DISPOSE] = _sfx_file("dispose", _gen_dispose())
-	_sfx[PrototypeSfx.Kind.SWITCH] = _sfx_file("switch", _gen_switch())
-	_sfx[PrototypeSfx.Kind.DANCE] = _sfx_file("dance", _gen_dance())
-	_sfx[PrototypeSfx.Kind.BUMP] = _sfx_file("bump", _gen_bump())
-	_sfx[PrototypeSfx.Kind.TASK] = _sfx_file("task", _gen_task())
-	_sfx[PrototypeSfx.Kind.TASK_OK] = _sfx_file("task_ok", _gen_task_ok())
-	_sfx[PrototypeSfx.Kind.TASK_FAIL] = _sfx_file("task_fail", _gen_task_fail())
-	_sfx[PrototypeSfx.Kind.PHASE] = _sfx_file("phase", _gen_phase())
-	_sfx[PrototypeSfx.Kind.STOP] = _sfx_file("stop", _gen_stop())
-	_music_layers.clear()
-	for i in 3:
-		_music_layers.append(_music_file(i, _gen_music_layer(i)))
+	for kind in KIND_NAMES.size():
+		var name := KIND_NAMES[kind]
+		var stream := _load_res_sfx(name)
+		if stream == null:
+			stream = _procedural_for(kind)
+		_sfx[kind] = stream
 	_ready_bank = true
 
 
@@ -44,33 +34,23 @@ static func get_sfx(kind: int) -> AudioStream:
 
 
 static func get_music_layer(index: int) -> AudioStream:
-	ensure_ready()
-	if index < 0 or index >= _music_layers.size():
-		return null
-	return _music_layers[index]
+	## Müzik `MusicDirector3D` + `res://audio/music/`. Burada yedek yok.
+	return null
 
 
-static func _sfx_file(name: String, pcm: PackedByteArray) -> AudioStreamWAV:
-	var path := "%s/%s.wav" % [SFX_DIR, name]
-	if FileAccess.file_exists(path):
-		var loaded := _load_wav_file(path)
-		if loaded != null:
-			return loaded
-	_save_wav_file(path, pcm, 22050)
-	return _pcm_to_stream(pcm, 22050, false)
-
-
-static func _music_file(layer: int, pcm: PackedByteArray) -> AudioStreamWAV:
-	var path := "%s/layer_%d.wav" % [MUSIC_DIR, layer]
-	if FileAccess.file_exists(path):
-		var loaded := _load_wav_file(path)
-		if loaded != null:
-			loaded.loop_mode = AudioStreamWAV.LOOP_FORWARD
-			loaded.loop_begin = 0
-			loaded.loop_end = floori(float(loaded.data.size()) * 0.5)
-			return loaded
-	_save_wav_file(path, pcm, 22050)
-	return _pcm_to_stream(pcm, 22050, true)
+static func _load_res_sfx(name: String) -> AudioStream:
+	for ext in EXT_CANDIDATES:
+		var path := SFX_DIR + name + ext
+		if ResourceLoader.exists(path):
+			var res = load(path)
+			if res is AudioStream:
+				return res as AudioStream
+		var abs_path := ProjectSettings.globalize_path(path)
+		if FileAccess.file_exists(abs_path):
+			var raw := _load_wav_file(abs_path)
+			if raw != null:
+				return raw
+	return null
 
 
 static func _pcm_to_stream(pcm: PackedByteArray, rate: int, loop: bool) -> AudioStreamWAV:
@@ -86,28 +66,6 @@ static func _pcm_to_stream(pcm: PackedByteArray, rate: int, loop: bool) -> Audio
 	return s
 
 
-static func _save_wav_file(path: String, pcm: PackedByteArray, rate: int) -> void:
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if f == null:
-		return
-	var data_size := pcm.size()
-	f.store_buffer("RIFF".to_ascii_buffer())
-	f.store_32(36 + data_size)
-	f.store_buffer("WAVE".to_ascii_buffer())
-	f.store_buffer("fmt ".to_ascii_buffer())
-	f.store_32(16)
-	f.store_16(1)
-	f.store_16(1)
-	f.store_32(rate)
-	f.store_32(rate * 2)
-	f.store_16(2)
-	f.store_16(16)
-	f.store_buffer("data".to_ascii_buffer())
-	f.store_32(data_size)
-	f.store_buffer(pcm)
-	f.close()
-
-
 static func _load_wav_file(path: String) -> AudioStreamWAV:
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
@@ -119,6 +77,14 @@ static func _load_wav_file(path: String) -> AudioStreamWAV:
 	var rate := 22050
 	if bytes.size() >= 28:
 		rate = bytes.decode_u32(24)
+	var channels := 1
+	if bytes.size() >= 24:
+		channels = bytes.decode_u16(22)
+	var bits := 16
+	if bytes.size() >= 36:
+		bits = bytes.decode_u16(34)
+	if channels != 1 or bits != 16:
+		return null
 	return _pcm_to_stream(bytes.slice(44), rate, false)
 
 
@@ -130,6 +96,42 @@ static func _alloc(count: int) -> PackedByteArray:
 	var data := PackedByteArray()
 	data.resize(count * 2)
 	return data
+
+
+static func _procedural_for(kind: int) -> AudioStreamWAV:
+	match kind:
+		PrototypeSfx.Kind.HIT:
+			return _pcm_to_stream(_gen_hit(), 22050, false)
+		PrototypeSfx.Kind.PICKUP:
+			return _pcm_to_stream(_gen_pickup(), 22050, false)
+		PrototypeSfx.Kind.DROP:
+			return _pcm_to_stream(_gen_drop(), 22050, false)
+		PrototypeSfx.Kind.THROW:
+			return _pcm_to_stream(_gen_whoosh(), 22050, false)
+		PrototypeSfx.Kind.DASH:
+			return _pcm_to_stream(_gen_dash(), 22050, false)
+		PrototypeSfx.Kind.RINSE:
+			return _pcm_to_stream(_gen_rinse(), 22050, false)
+		PrototypeSfx.Kind.DISPOSE:
+			return _pcm_to_stream(_gen_dispose(), 22050, false)
+		PrototypeSfx.Kind.SWITCH:
+			return _pcm_to_stream(_gen_switch(), 22050, false)
+		PrototypeSfx.Kind.DANCE:
+			return _pcm_to_stream(_gen_dance(), 22050, false)
+		PrototypeSfx.Kind.BUMP:
+			return _pcm_to_stream(_gen_bump(), 22050, false)
+		PrototypeSfx.Kind.TASK:
+			return _pcm_to_stream(_gen_task(), 22050, false)
+		PrototypeSfx.Kind.TASK_OK:
+			return _pcm_to_stream(_gen_task_ok(), 22050, false)
+		PrototypeSfx.Kind.TASK_FAIL:
+			return _pcm_to_stream(_gen_task_fail(), 22050, false)
+		PrototypeSfx.Kind.PHASE:
+			return _pcm_to_stream(_gen_phase(), 22050, false)
+		PrototypeSfx.Kind.STOP:
+			return _pcm_to_stream(_gen_stop(), 22050, false)
+		_:
+			return _pcm_to_stream(_gen_switch(), 22050, false)
 
 
 static func _gen_hit() -> PackedByteArray:
@@ -221,43 +223,4 @@ static func _noise_pcm(duration: float, vol: float, watery: bool) -> PackedByteA
 			prev = lerpf(prev, noise, 0.35)
 			noise = prev
 		_write_s16(data, i, noise * env * vol)
-	return data
-
-
-static func _gen_music_layer(layer: int) -> PackedByteArray:
-	var rate := 22050
-	var bpm := 100.0
-	var beat := 60.0 / bpm
-	var beats := 8
-	var duration := beat * float(beats)
-	var count := int(rate * duration)
-	var data := _alloc(count)
-	var root := 98.0 if layer == 0 else (196.0 if layer == 1 else 392.0)
-	var scale_deg: Array[int] = [0, 3, 5, 7, 10, 12, 15, 17]
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 42 + layer * 97
-	for i in count:
-		var t := float(i) / float(rate)
-		var beat_i := floori(t / beat) % beats
-		var beat_pos := fmod(t, beat) / beat
-		var sample := 0.0
-		if layer == 0:
-			var freq := root * pow(2.0, float(scale_deg[beat_i % 4]) / 12.0)
-			sample += sin(t * freq * TAU) * exp(-beat_pos * 4.2) * 0.36
-			if beat_i % 2 == 0:
-				sample += exp(-beat_pos * 16.0) * sin(t * lerpf(130.0, 40.0, beat_pos) * TAU) * 0.4
-		elif layer == 1:
-			var deg := scale_deg[(beat_i * 2 + floori(beat_pos * 2.0)) % scale_deg.size()]
-			var freq := root * pow(2.0, float(deg) / 12.0)
-			var env := sin(beat_pos * PI) * 0.5
-			sample += sin(t * freq * TAU) * env * 0.26
-			sample += sin(t * freq * 2.0 * TAU) * env * 0.08
-		else:
-			if beat_pos < 0.08 or (beat_pos > 0.45 and beat_pos < 0.52):
-				sample += (rng.randf() * 2.0 - 1.0) * exp(-fmod(beat_pos, 0.5) * 38.0) * 0.2
-			if beat_i % 2 == 1:
-				var deg2 := scale_deg[(beat_i + 3) % scale_deg.size()]
-				var freq2 := root * pow(2.0, float(deg2) / 12.0)
-				sample += exp(-beat_pos * 8.0) * sin(t * freq2 * TAU) * 0.18
-		_write_s16(data, i, sample)
 	return data

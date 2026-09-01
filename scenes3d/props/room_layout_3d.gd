@@ -329,7 +329,6 @@ func _fill_outside_void(col_a: Color, col_b: Color) -> void:
 			_spawn_barrel(p, col)
 		else:
 			_spawn_crate(p, col)
-	_spawn_horizon_mounds(rng, col_a, col_b)
 
 
 func _scatter_outside_spots(
@@ -378,12 +377,7 @@ func _spawn_outskirt_multimesh_rocks(spots: Array[Vector3], rng: RandomNumberGen
 	var mesh: Mesh = pick.get("mesh") as Mesh
 	var tex: Texture2D = pick.get("texture") as Texture2D
 	if mesh == null:
-		var sph := SphereMesh.new()
-		sph.radius = 0.35
-		sph.height = 0.45
-		sph.radial_segments = 8
-		sph.rings = 4
-		mesh = sph
+		return
 	var n := mini(max_n, spots.size())
 	if n <= 0:
 		return
@@ -422,11 +416,9 @@ func _spawn_outskirt_multimesh_boxes(
 	var pick: Dictionary = PropCatalog3D.pick_box(rng, false)
 	var mesh: Mesh = pick.get("mesh") as Mesh
 	var tex: Texture2D = pick.get("texture") as Texture2D
-	var flip := mesh != null
 	if mesh == null:
-		var box := BoxMesh.new()
-		box.size = Vector3(0.65, 0.55, 0.65)
-		mesh = box
+		return
+	var flip := true
 	var n := mini(max_n, maxi(1, spots.size() - 8))
 	if n <= 0:
 		return
@@ -455,31 +447,6 @@ func _spawn_outskirt_multimesh_boxes(
 	mi.material_override = _mat_tex(Color.WHITE, tex) if tex != null else _mat(col)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_decor_root.add_child(mi)
-
-
-func _spawn_horizon_mounds(rng: RandomNumberGenerator, col_a: Color, col_b: Color) -> void:
-	## 6–8 büyük tepecik — uzak boşluğu kapatır, ucuz
-	var ring := 16.0
-	for i in 8:
-		var ang := float(i) / 8.0 * TAU + rng.randf_range(-0.12, 0.12)
-		var dist := ring + rng.randf_range(-1.5, 3.5)
-		var p := Vector3(cos(ang) * dist, 0.0, sin(ang) * dist)
-		# Oda üstüne binmesin
-		if absf(p.x) < _half_x + 4.0 and absf(p.z) < _half_z + 4.0:
-			p *= 1.35
-		var mi := MeshInstance3D.new()
-		var sph := SphereMesh.new()
-		sph.radius = rng.randf_range(2.2, 3.6)
-		sph.height = sph.radius * rng.randf_range(0.7, 1.05)
-		sph.radial_segments = 10
-		sph.rings = 6
-		mi.mesh = sph
-		var c := col_a if i % 2 == 0 else col_b
-		mi.material_override = _mat(c.darkened(0.25).lerp(Color(0.22, 0.2, 0.18), 0.35))
-		mi.position = p + Vector3(0, sph.height * 0.18, 0)
-		mi.scale = Vector3(rng.randf_range(1.2, 1.8), 0.55, rng.randf_range(1.1, 1.7))
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_decor_root.add_child(mi)
 
 
 func _outside_depth(p: Vector3) -> float:

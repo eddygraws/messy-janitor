@@ -1,7 +1,7 @@
 class_name PrototypeSfx
 extends RefCounted
 
-## Asset yokken kısa prototyping sesleri (16-bit PCM).
+## Kısa SFX — banka `res://audio/sfx/`, yoksa prosedürel yedek.
 
 enum Kind { HIT, PICKUP, DROP, THROW, DASH, RINSE, DISPOSE, SWITCH, DANCE, BUMP, TASK, TASK_OK, TASK_FAIL, PHASE, STOP }
 

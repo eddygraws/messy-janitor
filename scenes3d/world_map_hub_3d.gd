@@ -10,6 +10,7 @@ signal advance_finished(level_index: int)
 
 const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
 const CURVE_SHADER := preload("res://shaders/map_world_curve.gdshader")
+const HudIcons := preload("res://ui/hud_icons.gd")
 const PATH_CURVE_SHADER := preload("res://shaders/map_path_curve.gdshader")
 const OUTLINE_SHADER := preload("res://shaders/mesh_outline.gdshader")
 
@@ -75,6 +76,7 @@ var _cam_env: Environment
 var _sun: DirectionalLight3D
 var _hud: CanvasLayer
 var _world_label: Label
+var _coin_icon: TextureRect
 var _coin_hud: Label
 var _info: Label
 var _hint: Label
@@ -95,7 +97,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_decor_rng.randomize()
 	_sfx = AudioStreamPlayer.new()
-	_sfx.bus = &"Master"
+	_sfx.bus = &"SFX"
 	_sfx.volume_db = -6.0
 	add_child(_sfx)
 	_build_world()
@@ -212,7 +214,7 @@ func _set_nav_controls_enabled(on: bool) -> void:
 func _refresh_coin_hud() -> void:
 	if _coin_hud == null:
 		return
-	_coin_hud.text = "🪙 %d" % _wallet_coins
+	_coin_hud.text = "%d" % _wallet_coins
 
 
 func is_map_active() -> bool:
@@ -283,18 +285,10 @@ func _build_world() -> void:
 	_hills_root = Node3D.new()
 	_hills_root.name = "Hills"
 	add_child(_hills_root)
+	# Eski küre tepeler prototip; arka sırada plane tree
 	for i in 7:
-		var hill := MeshInstance3D.new()
-		var hm := SphereMesh.new()
-		hm.radius = 2.0 + float(i % 3) * 0.45
-		hm.height = hm.radius * 1.05
-		hm.radial_segments = 16
-		hm.rings = 8
-		hill.mesh = hm
-		var hmat := _make_curve_mat(Color(0.18, 0.4, 0.22), "", 1.0, true)
-		hill.material_override = hmat
-		hill.position = Vector3(-18.0 + float(i) * 6.0, GROUND_Y - 0.55, -8.0 - float(i % 2) * 1.8)
-		_hills_root.add_child(hill)
+		var hp := Vector3(-18.0 + float(i) * 6.0, GROUND_Y, -8.0 - float(i % 2) * 1.8)
+		ForestVegetation.spawn_plane_tree(_hills_root, hp, 6.2 + float(i % 3) * 0.7)
 
 	_build_horizon()
 
@@ -557,6 +551,23 @@ func _try_load_tex(path: String) -> Texture2D:
 	return load(path) as Texture2D
 
 
+func _make_sky_fallback_tex() -> Texture2D:
+	var img := Image.create(64, 32, false, Image.FORMAT_RGBA8)
+	var top := Color(0.52, 0.76, 0.94)
+	var mid := Color(0.78, 0.86, 0.72)
+	var bot := Color(0.22, 0.42, 0.20)
+	for y in 32:
+		var t := float(y) / 31.0
+		var col: Color
+		if t < 0.62:
+			col = top.lerp(mid, t / 0.62)
+		else:
+			col = mid.lerp(bot, (t - 0.62) / 0.38)
+		for x in 64:
+			img.set_pixel(x, y, col)
+	return ImageTexture.create_from_image(img)
+
+
 func _build_horizon() -> void:
 	## Ayrı ufuk katmanı — eğrilmez; sky + distant hills billboard
 	_horizon = MeshInstance3D.new()
@@ -577,7 +588,8 @@ func _build_horizon() -> void:
 		_horizon_mat.albedo_texture = sil
 		_horizon_mat.albedo_color = Color.WHITE
 	else:
-		_horizon_mat.albedo_color = Color(0.58, 0.8, 0.95, 1.0)
+		_horizon_mat.albedo_texture = _make_sky_fallback_tex()
+		_horizon_mat.albedo_color = Color.WHITE
 	_horizon.material_override = _horizon_mat
 	# QuadMesh -Z bakar; kamera +Z'den -Z'ye bakıyor → ufuk önde
 	_horizon.position = Vector3(0, 8.5, -28.0)
@@ -617,9 +629,8 @@ func _rebuild_foliage() -> void:
 		var pick: Dictionary = PropCatalog3D.pick_rock(_decor_rng)
 		var xform: Dictionary = PropCatalog3D.roll_rock_xform(_decor_rng)
 		if pick.is_empty():
-			_spawn_placeholder_rock(rock_spots[i], 0.35 + float(i % 3) * 0.08)
-		else:
-			_spawn_catalog_rock(pick, rock_spots[i], xform)
+			continue
+		_spawn_catalog_rock(pick, rock_spots[i], xform)
 
 
 func _spawn_billboard(tex: Texture2D, pos: Vector3, size: Vector2) -> void:
@@ -640,53 +651,6 @@ func _spawn_billboard(tex: Texture2D, pos: Vector3, size: Vector2) -> void:
 	_foliage_root.add_child(mi)
 
 
-func _spawn_placeholder_tree(pos: Vector3, height: float) -> void:
-	var trunk := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.08
-	cyl.bottom_radius = 0.12
-	cyl.height = height * 0.45
-	trunk.mesh = cyl
-	trunk.material_override = _mat(Color(0.42, 0.28, 0.16))
-	trunk.position = Vector3(pos.x, GROUND_Y + cyl.height * 0.5, pos.z)
-	_foliage_root.add_child(trunk)
-	var crown := MeshInstance3D.new()
-	var sph := SphereMesh.new()
-	sph.radius = height * 0.28
-	sph.height = height * 0.5
-	crown.mesh = sph
-	crown.material_override = _mat(Color(0.25, 0.55, 0.28))
-	crown.position = Vector3(pos.x, GROUND_Y + height * 0.55, pos.z)
-	_foliage_root.add_child(crown)
-
-
-func _spawn_placeholder_bush(pos: Vector3) -> void:
-	var bush := MeshInstance3D.new()
-	var sph := SphereMesh.new()
-	sph.radius = 0.45
-	sph.height = 0.55
-	bush.mesh = sph
-	bush.material_override = _mat(Color(0.28, 0.52, 0.26))
-	bush.position = Vector3(pos.x, GROUND_Y + 0.22, pos.z)
-	_foliage_root.add_child(bush)
-
-
-func _spawn_placeholder_rock(pos: Vector3, radius: float) -> void:
-	var rock := MeshInstance3D.new()
-	var sph := SphereMesh.new()
-	sph.radius = radius
-	sph.height = radius * 1.35
-	sph.radial_segments = 10
-	sph.rings = 6
-	rock.mesh = sph
-	rock.material_override = _make_prop_mat(Color(0.48, 0.46, 0.42))
-	rock.scale = Vector3(1.3, 0.65, 1.05)
-	rock.rotation_degrees = Vector3(8.0, _decor_rng.randf_range(0.0, 360.0), -6.0)
-	rock.position = Vector3(pos.x, 0.0, pos.z)
-	_foliage_root.add_child(rock)
-	_snap_mesh_to_ground(rock)
-
-
 func _spawn_catalog_rock(pick: Dictionary, pos: Vector3, xform: Dictionary) -> void:
 	var target := 0.85
 	if _try_spawn_packed_prop(_foliage_root, pick, pos, xform, target):
@@ -696,15 +660,9 @@ func _spawn_catalog_rock(pick: Dictionary, pos: Vector3, xform: Dictionary) -> v
 	var tex: Texture2D = pick.get("texture") as Texture2D
 	if tex == null and custom != null:
 		tex = _texture_from_mesh(custom)
-	if custom != null:
-		rock.mesh = custom
-	else:
-		var sph := SphereMesh.new()
-		sph.radius = 0.4
-		sph.height = 0.55
-		sph.radial_segments = 10
-		sph.rings = 6
-		rock.mesh = sph
+	if custom == null:
+		return
+	rock.mesh = custom
 	var tint := Color.WHITE if tex != null else Color(0.48, 0.46, 0.42)
 	rock.material_override = _make_prop_mat(tint, tex, 0.028)
 	var sc: Vector3 = xform.get("scale", Vector3(1.2, 0.7, 1.1))
@@ -766,18 +724,32 @@ func _build_hud() -> void:
 	_world_label.add_theme_constant_override("outline_size", 8)
 	_hud.add_child(_world_label)
 
+	var coin_row := HBoxContainer.new()
+	coin_row.name = "MapCoinRow"
+	coin_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	coin_row.anchor_left = 0.5
+	coin_row.anchor_right = 0.5
+	coin_row.offset_left = -90.0
+	coin_row.offset_right = 90.0
+	coin_row.offset_top = 292.0
+	coin_row.offset_bottom = 322.0
+	coin_row.add_theme_constant_override("separation", 8)
+	coin_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(coin_row)
+
+	_coin_icon = HudIcons.make_rect("coin", Vector2(28, 28))
+	_coin_icon.name = "MapCoinIcon"
+	coin_row.add_child(_coin_icon)
+
 	_coin_hud = Label.new()
 	_coin_hud.name = "MapCoinHud"
-	_coin_hud.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_coin_hud.anchor_right = 1.0
-	_coin_hud.offset_top = 292.0
-	_coin_hud.offset_bottom = 322.0
+	_coin_hud.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_coin_hud.add_theme_font_size_override("font_size", 26)
 	_coin_hud.add_theme_color_override("font_color", Color(1.0, 0.88, 0.35))
 	_coin_hud.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	_coin_hud.add_theme_constant_override("outline_size", 7)
-	_coin_hud.text = "🪙 0"
-	_hud.add_child(_coin_hud)
+	_coin_hud.text = "0"
+	coin_row.add_child(_coin_hud)
 
 	_prev_btn = Button.new()
 	_prev_btn.text = "◀ Dünya"
@@ -1137,7 +1109,7 @@ func _refresh_node_visuals() -> void:
 
 func _refresh_labels() -> void:
 	if _world_label != null:
-		_world_label.text = "%s  %s" % [LevelData3D.world_icon(_world_slot), LevelData3D.world_title(_world_slot)]
+		_world_label.text = LevelData3D.world_title(_world_slot)
 		var ac: Color = _palette.get("accent", Color(1.0, 0.92, 0.45))
 		_world_label.add_theme_color_override("font_color", ac)
 	_update_info()

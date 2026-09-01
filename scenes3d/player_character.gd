@@ -232,11 +232,14 @@ func apply_hazard_shove(dir: Vector3, power: float = 13.5) -> void:
 	_bump_vel = dir * power
 	_bump_cd = 0.16
 	_facing = dir
-	_squash = Vector3(1.0 + absf(dir.x) * 1.2, 0.4, 1.0 + absf(dir.z) * 1.2)
-	_visual_spin += randf_range(2.5, 5.0) * (1.0 if randf() > 0.5 else -1.0)
-	_hop_y = 0.22
+	_squash = Vector3(1.0 + absf(dir.x) * 0.55, 0.72, 1.0 + absf(dir.z) * 0.55)
+	_visual_spin += randf_range(1.2, 2.4) * (1.0 if randf() > 0.5 else -1.0)
+	_hop_y = 0.16
 	_play_sfx(PrototypeSfx.Kind.BUMP, 1.05)
-	fx_burst.emit(&"bump", global_position, power * 0.1)
+	fx_burst.emit(&"bump", global_position, 0.85)
+	play_juice_wobble(dir, 1.1)
+	if _janitor != null and _janitor.has_method("play_hit"):
+		_janitor.call("play_hit", 1.85)
 
 
 func _ready() -> void:
@@ -252,7 +255,7 @@ func _ready() -> void:
 	_place_hold_point()
 	_sfx = AudioStreamPlayer.new()
 	_sfx.name = "Sfx"
-	_sfx.bus = &"Master"
+	_sfx.bus = &"SFX"
 	_sfx.volume_db = -6.0
 	add_child(_sfx)
 	call_deferred("_bind_camera")
@@ -1105,10 +1108,10 @@ func _wrong_tool(needed: String) -> void:
 	_play_sfx(PrototypeSfx.Kind.TASK_FAIL, 0.85)
 
 
-## Emir kaçırınca abartılı negatif juice.
+## Emir / fail — kısa stun, hafif geri tepme (Juice3D FAIL).
 func play_task_fail_recoil() -> void:
-	_fail_stun = 0.55
-	_swing_cooldown = maxf(_swing_cooldown, 0.45)
+	_fail_stun = 0.32
+	_swing_cooldown = maxf(_swing_cooldown, 0.28)
 	_rinsing = false
 	if _dancing:
 		_dancing = false
@@ -1118,12 +1121,19 @@ func play_task_fail_recoil() -> void:
 	if away.length_squared() < 0.001:
 		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
 	away = away.normalized()
-	_bump_vel = away * 7.5
-	_squash = Vector3(1.55, 0.4, 1.55)
-	_visual_spin += randf_range(4.0, 7.0) * (1.0 if randf() > 0.5 else -1.0)
-	_hop_y = 0.4
+	_bump_vel = away * 4.2
+	_squash = Vector3(1.28, 0.72, 1.28)
+	_visual_spin += randf_range(1.2, 2.2) * (1.0 if randf() > 0.5 else -1.0)
+	_hop_y = 0.18
 	_play_sfx(PrototypeSfx.Kind.BUMP, 0.7)
-	fx_burst.emit(&"bump", global_position + Vector3(0, 0.6, 0), 1.6)
+	play_juice_wobble(away, 1.25)
+	if _janitor != null and _janitor.has_method("play_hit"):
+		_janitor.call("play_hit", 1.6)
+
+
+func play_juice_wobble(hit_dir: Vector3, strength: float = 1.0) -> void:
+	if _janitor != null and _janitor.has_method("apply_hit_wobble"):
+		_janitor.call("apply_hit_wobble", hit_dir, strength)
 
 
 func _try_interact() -> void:
@@ -1285,6 +1295,7 @@ func _try_interact() -> void:
 	_swing_cooldown = cd
 	_snap_face(hit_dir)
 	_squash = Vector3(1.12, 0.88, 1.12)
+	play_juice_wobble(hit_dir, clampf(strength, 0.7, 1.2))
 	_play_sfx(PrototypeSfx.Kind.HIT, 1.0 + strength * 0.08)
 	fx_burst.emit(&"hit", prop.global_position + Vector3(0, 0.7, 0), strength)
 	if active_tool == ToolKind.MOP and allow_mop:
@@ -1599,7 +1610,7 @@ func _update_broom_vacuum(delta: float) -> void:
 		_squash = Vector3(1.12, 0.9, 1.12)
 		_hop_y = 0.1
 		if is_vacuum_bag_full():
-			status_message.emit("⚠️ TORBA DOLU — çöpe boşalt!")
+			status_message.emit("TORBA DOLU — çöpe boşalt!")
 		elif captured_n == 1:
 			status_message.emit("Emildi · torba %d/%d" % [_vacuum_bag, vacuum_bag_capacity])
 		else:

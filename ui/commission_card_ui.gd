@@ -6,13 +6,15 @@ extends Control
 
 signal dismissed
 
+const HudIcons := preload("res://ui/hud_icons.gd")
+
 @export var auto_dismiss_time: float = 7.0
 ## Hikâye diyalogları için varsayılan süre (0 = sadece tıkla)
 @export var story_dismiss_time: float = 0.0
 
 var _panel: PanelContainer
 var _header: Label
-var _icon: Label
+var _icon: TextureRect
 var _npc: Label
 var _title: Label
 var _desc: Label
@@ -69,15 +71,17 @@ func _build() -> void:
 	_panel.add_child(vb)
 
 	_header = Label.new()
-	_header.text = "📜 KOMİSYON"
+	_header.text = "KOMİSYON"
 	_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_header.add_theme_font_size_override("font_size", 22)
 	_header.add_theme_color_override("font_color", Color(0.8, 0.7, 0.5))
 	vb.add_child(_header)
 
-	_icon = Label.new()
-	_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_icon.add_theme_font_size_override("font_size", 84)
+	_icon = TextureRect.new()
+	_icon.custom_minimum_size = Vector2(96, 96)
+	_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	vb.add_child(_icon)
 
 	_npc = Label.new()
@@ -117,7 +121,7 @@ func _build() -> void:
 ## auto_secs: < 0 → varsayılan auto_dismiss_time; 0 → sadece tıkla; >0 → o süre
 func show_card(commission: Dictionary, auto_secs: float = -1.0, story: bool = false) -> void:
 	_cancel_timer()
-	_icon.text = String(commission.get("icon", "📜"))
+	_icon.texture = HudIcons.tex_for_emoji(String(commission.get("icon", "📜")))
 	_npc.text = String(commission.get("npc", ""))
 	_title.text = String(commission.get("title", ""))
 	_desc.text = "\"%s\"" % String(commission.get("desc", ""))
@@ -126,10 +130,10 @@ func show_card(commission: Dictionary, auto_secs: float = -1.0, story: bool = fa
 	_rule.visible = rule_text != ""
 
 	if story:
-		_header.text = "📖 HİKÂYE"
+		_header.text = "HİKÂYE"
 		_hint.text = "▸ Devam için tıkla / Space"
 	else:
-		_header.text = "📜 KOMİSYON"
+		_header.text = "KOMİSYON"
 		_hint.text = "▸ Devam için tıkla / Space"
 
 	var wait := auto_secs

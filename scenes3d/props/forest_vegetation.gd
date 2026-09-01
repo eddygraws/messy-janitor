@@ -13,18 +13,21 @@ const TALL_GRASS_MESH_PATH := "res://assets/vegetation/meshes/grass_tall_mesh.re
 const FLOWER_MESH_PATH := "res://assets/vegetation/meshes/flower.res"
 const NOISE_PATH := "res://assets/vegetation/textures/noise.tres"
 const PLANE_TREE_TEX_PATH := "res://assets/props/foliage/tree_plane_a_treetrunl.png"
+const LEAF_ALPHA_PATH := "res://assets/vegetation/textures/leaf_alpha.png"
+const TREE_BARK_PATH := "res://assets/vegetation/textures/tree_bark.png"
+const GRASS_ROUND_PATH := "res://assets/vegetation/textures/grass_round.png"
+const GRASS_THIN_PATH := "res://assets/vegetation/textures/grass_thin.png"
+const FLOWER_TEX_PATH := "res://assets/vegetation/textures/flower.png"
+const LEAF_PARTICLE_PATH := "res://assets/vegetation/textures/leaf_particle.png"
+
+## Tutorial DemoForest mesh/doku lisanslı değil — ship'te kullanma.
+const USE_UNLICENSED_TUTORIAL_MESHES := false
 
 const GRASS_SHADER := preload("res://shaders/vegetation/grass_billboard.gdshader")
 const LEAVES_SHADER := preload("res://shaders/vegetation/tree_leaves.gdshader")
 const TRUNK_SHADER := preload("res://shaders/vegetation/trunk_shader.gdshader")
 const FLOWER_SHADER := preload("res://shaders/vegetation/flower.gdshader")
 const PLANE_TREE_SHADER := preload("res://shaders/vegetation/plane_tree.gdshader")
-const LEAF_ALPHA := preload("res://assets/vegetation/textures/leaf_alpha.png")
-const TREE_BARK := preload("res://assets/vegetation/textures/tree_bark.png")
-const GRASS_ROUND := preload("res://assets/vegetation/textures/grass_round.png")
-const GRASS_THIN := preload("res://assets/vegetation/textures/grass_thin.png")
-const FLOWER_TEX := preload("res://assets/vegetation/textures/flower.png")
-const LEAF_PARTICLE := preload("res://assets/vegetation/textures/leaf_particle.png")
 
 const LEAF_COLOR := Color(0.3647059, 0.65882355, 0.1764706)
 const GRASS_COLOR := Color(0.101960786, 0.6901961, 0.21176471)
@@ -58,6 +61,12 @@ static var _plane_tree_mesh: QuadMesh
 static var _plane_tree_tex: Texture2D
 
 
+static func _tex(path: String) -> Texture2D:
+	if not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
+
+
 static func ensure_wind() -> void:
 	if _wind_ready:
 		return
@@ -66,9 +75,10 @@ static func ensure_wind() -> void:
 	RenderingServer.global_shader_parameter_set("wind_scale", 0.025)
 	RenderingServer.global_shader_parameter_set("wind_speed", 0.075)
 	RenderingServer.global_shader_parameter_set("wind_strength", 0.4)
-	var noise := load(NOISE_PATH)
-	if noise != null:
-		RenderingServer.global_shader_parameter_set("wind_noise", noise)
+	if USE_UNLICENSED_TUTORIAL_MESHES:
+		var noise := load(NOISE_PATH)
+		if noise != null:
+			RenderingServer.global_shader_parameter_set("wind_noise", noise)
 
 
 static func fill_world_map(
@@ -82,13 +92,8 @@ static func fill_world_map(
 	ensure_wind()
 	# Dünya paletinden türetilen biome renk seti + yoğunluk (yeşillik → gürlük)
 	var biome := _biome_colors(leaf_tint, grass_tint, flower_tint)
-	var grass_mat := _make_grass_mat_tinted(biome["grass"], false)
-	var tall_mat := _make_grass_mat_tinted(biome["tall"], true)
-	var flower_mat := _make_flower_mat_tinted(biome["flower"])
 	var crown_tint: Color = biome["crown"]
 	var plane_mat := _make_plane_tree_mat_tinted(Color(1, 1, 1).lerp(crown_tint, 0.4))
-	var lush := clampf((clampf(grass_tint.g, 0.05, 0.85) - 0.12) / 0.5, 0.0, 1.0)
-	var sp_mul := lerpf(1.35, 0.88, lush)
 
 	var tree_spots: Array[Vector3] = [
 		Vector3(-11.5, 0, 5.5), Vector3(-13.0, 0, 2.0), Vector3(-12.2, 0, -3.5),
@@ -99,12 +104,19 @@ static func fill_world_map(
 	for i in tree_spots.size():
 		var p := tree_spots[i]
 		p.y = ground_y
-		var yaw := rng.randf() * TAU
-		if i % 3 == 0:
-			spawn_plane_tree(parent, p, rng.randf_range(4.6, 6.2), plane_mat)
+		if USE_UNLICENSED_TUTORIAL_MESHES and i % 3 != 0:
+			spawn_tree(parent, p, rng.randf() * TAU, i % 2, crown_tint)
 		else:
-			spawn_tree(parent, p, yaw, i % 2, crown_tint)
+			spawn_plane_tree(parent, p, rng.randf_range(4.6, 6.2), plane_mat)
 
+	if not USE_UNLICENSED_TUTORIAL_MESHES:
+		return
+
+	var lush := clampf((clampf(grass_tint.g, 0.05, 0.85) - 0.12) / 0.5, 0.0, 1.0)
+	var sp_mul := lerpf(1.35, 0.88, lush)
+	var grass_mat := _make_grass_mat_tinted(biome["grass"], false)
+	var tall_mat := _make_grass_mat_tinted(biome["tall"], true)
+	var flower_mat := _make_flower_mat_tinted(biome["flower"])
 	var grass_pts := _jitter_grid(rng, 22.0, 16.0, 0.42 * sp_mul, ground_y, 2.15, 9.0)
 	_spawn_multimesh(parent, _grass_mesh(), grass_mat, grass_pts, rng, 0.9, 1.06 + lush * 0.12, Vector3.ONE)
 
@@ -137,7 +149,7 @@ static func _make_grass_mat_tinted(col: Color, tall: bool) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = GRASS_SHADER
 	m.set_shader_parameter("grass_color", col)
-	m.set_shader_parameter("grass_alpha", GRASS_THIN if tall else GRASS_ROUND)
+	m.set_shader_parameter("grass_alpha", _tex(GRASS_THIN_PATH) if tall else _tex(GRASS_ROUND_PATH))
 	m.set_shader_parameter("grass_bend_amount", 1.0)
 	m.set_shader_parameter("sway_back", 0.5 if tall else 1.0)
 	m.set_shader_parameter("light_steps", 3.0)
@@ -147,7 +159,7 @@ static func _make_grass_mat_tinted(col: Color, tall: bool) -> ShaderMaterial:
 static func _make_flower_mat_tinted(col: Color) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = FLOWER_SHADER
-	m.set_shader_parameter("flower_texture", FLOWER_TEX)
+	m.set_shader_parameter("flower_texture", _tex(FLOWER_TEX_PATH))
 	m.set_shader_parameter("tint", col)
 	m.set_shader_parameter("flower_bendiness", 1.2)
 	m.set_shader_parameter("sway_back", 0.5)
@@ -186,10 +198,13 @@ static func fill_level_outskirts(
 		var p := Vector3(cos(ang) * dist, ground_y, sin(ang) * dist)
 		if absf(p.x) < half_x + 2.4 and absf(p.z) < half_z + 2.4:
 			p *= 1.35
-		if i % 2 == 0:
-			spawn_plane_tree(parent, p, rng.randf_range(5.4, 7.4))
-		else:
+		if USE_UNLICENSED_TUTORIAL_MESHES and i % 2 != 0:
 			spawn_tree(parent, p, rng.randf() * TAU, i % 2)
+		else:
+			spawn_plane_tree(parent, p, rng.randf_range(5.4, 7.4))
+
+	if not USE_UNLICENSED_TUTORIAL_MESHES:
+		return
 
 	var grass_pts := _outside_band_points(rng, half_x, half_z, 0.55, 9.5, 2800, ground_y)
 	_spawn_multimesh(parent, _grass_mesh(), _get_grass_mat(false), grass_pts, rng, 0.92, 1.08, Vector3.ONE)
@@ -236,11 +251,14 @@ static func fill_play_boundary(
 		Vector3(half_x * 0.72, 0.0, half_z + 1.35),
 		2.15, 2.8, 3.8, 0.12
 	)
-	var hedge_grass := _rect_edge_points(rng, half_x, half_z, 0.35, 1.65, 0.38, ground_y)
-	_spawn_multimesh(parent, _tall_grass_mesh(), _get_grass_mat(true), hedge_grass, rng, 1.05, 1.28, Vector3.ONE)
+	if USE_UNLICENSED_TUTORIAL_MESHES:
+		var hedge_grass := _rect_edge_points(rng, half_x, half_z, 0.35, 1.65, 0.38, ground_y)
+		_spawn_multimesh(parent, _tall_grass_mesh(), _get_grass_mat(true), hedge_grass, rng, 1.05, 1.28, Vector3.ONE)
 
 
 static func spawn_tree(parent: Node3D, pos: Vector3, yaw: float, variant: int, crown_col: Color = LEAF_COLOR) -> Node3D:
+	if not USE_UNLICENSED_TUTORIAL_MESHES:
+		return spawn_plane_tree(parent, pos, 5.4)
 	var path := TREE_B_PATH if variant == 1 else TREE_A_PATH
 	var packed := load(path) as PackedScene
 	if packed == null:
@@ -311,6 +329,8 @@ static func _add_leaf_cluster(tree: Node3D, variant: int, crown_col: Color = LEA
 
 
 static func _add_falling_leaves(tree: Node3D, crown_col: Color = LEAF_COLOR) -> void:
+	if not USE_UNLICENSED_TUTORIAL_MESHES:
+		return
 	var particles := GPUParticles3D.new()
 	particles.name = "FallingLeaves"
 	particles.amount = 5
@@ -343,7 +363,7 @@ static func _add_falling_leaves(tree: Node3D, crown_col: Color = LEAF_COLOR) -> 
 	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	mat.vertex_color_use_as_albedo = true
 	mat.albedo_color = crown_col
-	mat.albedo_texture = LEAF_PARTICLE
+	mat.albedo_texture = _tex(LEAF_PARTICLE_PATH)
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	mat.billboard_keep_scale = true
 	quad.material = mat
@@ -365,7 +385,7 @@ static func _make_leaves_mat(leaves_scale: float) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = LEAVES_SHADER
 	m.set_shader_parameter("color", LEAF_COLOR)
-	m.set_shader_parameter("alpha", LEAF_ALPHA)
+	m.set_shader_parameter("alpha", _tex(LEAF_ALPHA_PATH))
 	m.set_shader_parameter("leaves_scale", leaves_scale)
 	m.set_shader_parameter("leaf_bend_amount", 0.7)
 	m.set_shader_parameter("light_steps", 5.0)
@@ -385,7 +405,7 @@ static func _get_trunk_mat(variant: int) -> ShaderMaterial:
 static func _make_trunk_mat(uv_scale: Vector2) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = TRUNK_SHADER
-	m.set_shader_parameter("color_texture", TREE_BARK)
+	m.set_shader_parameter("color_texture", _tex(TREE_BARK_PATH))
 	m.set_shader_parameter("light_steps", 3.0)
 	m.set_shader_parameter("uv_scale", uv_scale)
 	m.set_shader_parameter("outline_mask", 1.0)
@@ -406,7 +426,7 @@ static func _make_grass_mat(col: Color, tall: bool) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = GRASS_SHADER
 	m.set_shader_parameter("grass_color", col)
-	m.set_shader_parameter("grass_alpha", GRASS_THIN if tall else GRASS_ROUND)
+	m.set_shader_parameter("grass_alpha", _tex(GRASS_THIN_PATH) if tall else _tex(GRASS_ROUND_PATH))
 	m.set_shader_parameter("grass_bend_amount", 1.0)
 	m.set_shader_parameter("sway_back", 0.5 if tall else 1.0)
 	m.set_shader_parameter("light_steps", 3.0)
@@ -417,7 +437,7 @@ static func _get_flower_mat() -> ShaderMaterial:
 	if _flower_mat == null:
 		_flower_mat = ShaderMaterial.new()
 		_flower_mat.shader = FLOWER_SHADER
-		_flower_mat.set_shader_parameter("flower_texture", FLOWER_TEX)
+		_flower_mat.set_shader_parameter("flower_texture", _tex(FLOWER_TEX_PATH))
 		_flower_mat.set_shader_parameter("flower_bendiness", 1.2)
 		_flower_mat.set_shader_parameter("sway_back", 0.5)
 		_flower_mat.set_shader_parameter("light_steps", 3.0)

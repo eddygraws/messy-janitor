@@ -7,11 +7,19 @@ extends Node
 signal intensity_changed(layer: int)
 
 const MUSIC_DIR := "res://audio/music/"
-## Havuz — klasördeki gerçek dosya adları (uzantısız)
+## Orijinal loop havuzu. Lisanssız parçalar SKIP_PLAYLIST'te — çalınmaz / ship edilmez.
 const TRACK_POOL: Array[String] = [
+	"mop_waltz",
+	"crate_trot",
+	"suds_night",
+	"last_call",
+]
+const SKIP_PLAYLIST: Array[String] = [
 	"Lantern Drop",
 	"Drift Circuit 97",
 ]
+const MENU_LOOP := "menu_loop"
+const MENU_STINGER := "menu_stinger"
 ## Eski tek-parça adayları (havuz boşsa / alias)
 const MAIN_CANDIDATES: Array[String] = [
 	"Lantern Drop",
@@ -53,10 +61,14 @@ var _hit_busy: bool = false
 var _hit_tween: Tween
 var _loop_end_armed: bool = true
 var _main_player: AudioStreamPlayer
+var _menu_loop: AudioStreamPlayer
+var _menu_sting: AudioStreamPlayer
+var _menu_playing: bool = false
 
 
 func _ready() -> void:
 	GameAudioBank.ensure_ready()
+	_ensure_menu_players()
 	_playlist = _load_playlist()
 	if not _playlist.is_empty():
 		_using_custom = true
@@ -69,8 +81,7 @@ func _ready() -> void:
 	if custom.is_empty():
 		_using_custom = false
 		_single_track = false
-		for i in 3:
-			_add_player(i, GameAudioBank.get_music_layer(i))
+		# SFX bankası müzik üretmez; parça yoksa sessiz kal (Music bus ayrı).
 	else:
 		_using_custom = true
 		_single_track = custom.size() == 1
@@ -85,7 +96,7 @@ func _ready() -> void:
 func _add_player(index: int, stream: AudioStream) -> void:
 	var player := AudioStreamPlayer.new()
 	player.name = "MusicLayer%d" % (index + 1)
-	player.bus = &"Master"
+	player.bus = &"Music"
 	player.volume_db = -80.0
 	if stream != null:
 		_enable_loop(stream)
@@ -101,7 +112,7 @@ func _load_playlist() -> Array[AudioStream]:
 	_playlist_names.clear()
 	var seen: Dictionary = {}
 	for base in TRACK_POOL:
-		if seen.has(base):
+		if seen.has(base) or not _is_gameplay_track(base):
 			continue
 		var s := _load_named(base)
 		if s != null:
@@ -110,7 +121,7 @@ func _load_playlist() -> Array[AudioStream]:
 			_playlist_names.append(base)
 	# Klasörde ekstra parça varsa ekle
 	for base in _scan_music_basenames():
-		if seen.has(base):
+		if seen.has(base) or not _is_gameplay_track(base):
 			continue
 		var s2 := _load_named(base)
 		if s2 != null:
@@ -119,6 +130,8 @@ func _load_playlist() -> Array[AudioStream]:
 			_playlist_names.append(base)
 	if out.is_empty():
 		for base in MAIN_CANDIDATES:
+			if not _is_gameplay_track(base):
+				continue
 			var s3 := _load_named(base)
 			if s3 != null:
 				out.append(s3)
@@ -145,6 +158,16 @@ func _scan_music_basenames() -> Array[String]:
 	return names
 
 
+func _is_gameplay_track(base: String) -> bool:
+	var lower := base.to_lower()
+	if lower.begins_with("menu"):
+		return false
+	for skip in SKIP_PLAYLIST:
+		if base == skip:
+			return false
+	return true
+
+
 func _try_load_layered_tracks() -> Array[AudioStream]:
 	var layered: Array[AudioStream] = []
 	for base in LAYER_BASENAMES:
@@ -162,9 +185,30 @@ func _load_named(basename: String) -> AudioStream:
 		if ResourceLoader.exists(path):
 			var res := load(path)
 			if res is AudioStream:
-				print("[MusicDirector3D] loaded ", path)
 				return res as AudioStream
+		var abs_path := ProjectSettings.globalize_path(path)
+		if FileAccess.file_exists(abs_path) and ext.to_lower() == ".wav":
+			var raw := _load_wav_file(abs_path)
+			if raw != null:
+				return raw
 	return null
+
+
+func _load_wav_file(path: String) -> AudioStreamWAV:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return null
+	var bytes := f.get_buffer(f.get_length())
+	f.close()
+	if bytes.size() < 44:
+		return null
+	var rate := bytes.decode_u32(24)
+	var s := AudioStreamWAV.new()
+	s.format = AudioStreamWAV.FORMAT_16_BITS
+	s.mix_rate = rate
+	s.stereo = false
+	s.data = bytes.slice(44)
+	return s
 
 
 func _enable_loop(stream: AudioStream) -> void:
@@ -246,6 +290,7 @@ func _update_loop_end_hit() -> void:
 
 
 func start(phase: int = 1) -> void:
+	stop_menu()
 	_playing = true
 	_intensity = 0.0
 	_heat = 0.0
@@ -281,6 +326,46 @@ func stop(fade: bool = true) -> void:
 func _on_layer_fade_finished(layer: AudioStreamPlayer) -> void:
 	if not _playing and is_instance_valid(layer):
 		layer.stop()
+
+
+func _ensure_menu_players() -> void:
+	if _menu_loop == null:
+		_menu_loop = AudioStreamPlayer.new()
+		_menu_loop.name = "MenuLoop"
+		_menu_loop.bus = &"Music"
+		var loop_s := _load_named(MENU_LOOP)
+		if loop_s != null:
+			_enable_loop(loop_s)
+			_menu_loop.stream = loop_s
+		add_child(_menu_loop)
+	if _menu_sting == null:
+		_menu_sting = AudioStreamPlayer.new()
+		_menu_sting.name = "MenuStinger"
+		_menu_sting.bus = &"Music"
+		_menu_sting.stream = _load_named(MENU_STINGER)
+		add_child(_menu_sting)
+
+
+func play_menu(with_stinger: bool = false) -> void:
+	if _playing:
+		stop(true)
+	_ensure_menu_players()
+	_menu_playing = true
+	if _menu_loop != null and _menu_loop.stream != null:
+		_menu_loop.volume_db = _master_db - 3.0
+		if not _menu_loop.playing:
+			_menu_loop.play()
+	if with_stinger and _menu_sting != null and _menu_sting.stream != null:
+		_menu_sting.volume_db = _master_db
+		_menu_sting.play()
+
+
+func stop_menu() -> void:
+	_menu_playing = false
+	if _menu_loop != null:
+		_menu_loop.stop()
+	if _menu_sting != null:
+		_menu_sting.stop()
 
 
 ## 0..1 oda ilerlemesi.

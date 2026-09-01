@@ -207,7 +207,7 @@ func flash_fail() -> void:
 	if _tween != null and _tween.is_valid():
 		_tween.kill()
 	_tween = create_tween()
-	_tween.tween_property(_flash, "color:a", 0.28, 0.05)
+	_tween.tween_property(_flash, "color:a", 0.16, 0.05)
 	_tween.parallel().tween_property(_phase_label, "modulate:a", 1.0, 0.08)
 	_tween.parallel().tween_property(_phase_label, "scale", Vector2.ONE, 0.16)\
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)

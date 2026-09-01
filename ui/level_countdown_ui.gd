@@ -18,7 +18,7 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	_sfx = AudioStreamPlayer.new()
-	_sfx.bus = &"Master"
+	_sfx.bus = &"SFX"
 	_sfx.volume_db = -2.0
 	add_child(_sfx)
 

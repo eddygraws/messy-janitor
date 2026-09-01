@@ -34,7 +34,7 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	_sfx = AudioStreamPlayer.new()
-	_sfx.bus = &"Master"
+	_sfx.bus = &"SFX"
 	_sfx.volume_db = -3.0
 	add_child(_sfx)
 
@@ -214,9 +214,8 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 		_scene.set_process(true)
 		_scene.play_run()
 
-	var icon := LevelData3D.world_icon(world_slot)
 	var title := LevelData3D.world_title(world_slot)
-	_title.text = "%s  %s\nTAMAMLANDI" % [icon, title.to_upper()]
+	_title.text = "%s\nTAMAMLANDI" % title.to_upper()
 
 	_clear_stat_rows()
 	var score := int(summary.get("score", 0))
@@ -230,7 +229,7 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 	var levels := int(summary.get("levels_cleared", 0))
 
 	_add_stat_row("Puan", str(score), Color(0.55, 0.28, 0.12))
-	_add_stat_row("Kazanılan coin", "+%d 🪙" % coins, Color(0.75, 0.55, 0.12))
+	_add_stat_row("Kazanılan coin", "+%d" % coins, Color(0.75, 0.55, 0.12))
 	# Bölüm bölüm rozetler
 	var badge_rows: Array = summary.get("badges", []) as Array
 	if not badge_rows.is_empty():
@@ -246,19 +245,18 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 				short_n = "%d · %s" % [tier_n, parts[parts.size() - 1]]
 			elif parts.size() == 2:
 				short_n = parts[1]
-			var bic := String(entry.get("icon", "🥉"))
 			var blab := String(entry.get("label", "BRONZ"))
 			var el := float(entry.get("elapsed", 0.0))
 			_add_stat_row(
 				short_n,
-				"%s %s  (%.0fs)" % [bic, blab, el],
+				"%s  (%.0fs)" % [blab, el],
 				BadgeRating3D.color(int(entry.get("badge", 1)))
 			)
 	else:
 		var g := int(summary.get("gold", 0))
 		var s := int(summary.get("silver", 0))
 		var b := int(summary.get("bronze", 0))
-		_add_stat_row("Rozetler", "🥇%d  🥈%d  🥉%d" % [g, s, b], Color(0.75, 0.55, 0.15))
+		_add_stat_row("Rozetler", "Altın %d  ·  Gümüş %d  ·  Bronz %d" % [g, s, b], Color(0.75, 0.55, 0.15))
 	_add_stat_row("Taşınan koli", str(boxes), Color(0.35, 0.45, 0.55))
 	_add_stat_row("Paspaslanan", str(mop), Color(0.25, 0.5, 0.65))
 	_add_stat_row("Max combo", "x%d" % combo, Color(0.55, 0.35, 0.55))
@@ -275,7 +273,7 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 			_compare.text = "İlk dünya rekoru: %d" % score
 		_compare.add_theme_color_override("font_color", Color(0.75, 0.45, 0.1))
 	else:
-		_compare.text = "Rekor: %d   ·   🥇%d 🥈%d 🥉%d" % [best, g2, s2, b2]
+		_compare.text = "Rekor: %d   ·   Altın %d  Gümüş %d  Bronz %d" % [best, g2, s2, b2]
 		_compare.add_theme_color_override("font_color", Color(0.4, 0.45, 0.55))
 
 	_footer.text = "%d seviye  ·  %.0fs  ·  hata %d" % [

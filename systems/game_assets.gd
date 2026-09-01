@@ -5,6 +5,7 @@ extends RefCounted
 
 const TOOL_DIR := "res://assets/tools/"
 const ASSET_DIR := "res://assets/"
+const HudIcons := preload("res://ui/hud_icons.gd")
 
 # Dosya adı farklıysa buradan eşleştir (senin asset isimlerin dahil)
 const DIRT_ALIASES: Dictionary = {
@@ -148,6 +149,9 @@ static func get_cursor_scale(equipment_type: int) -> float:
 
 
 static func get_equipment_icon(equipment_type: int) -> Texture2D:
+	var hud := HudIcons.tex_for_tool(equipment_type)
+	if hud != null:
+		return hud
 	var idx := clampi(equipment_type, 0, ICON_FILES.size() - 1)
 	var paths: Array[String] = [
 		TOOL_DIR + ICON_FILES[idx],

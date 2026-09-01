@@ -8,10 +8,10 @@ enum Rule { NONE, FORBIDDEN, TIME_LIMIT, LOW_VISIBILITY, HIGH_RISK }
 
 const RULE_LABELS := {
 	Rule.NONE: "",
-	Rule.FORBIDDEN: "⛔ Yasak bölgeye dokunma!",
-	Rule.TIME_LIMIT: "🥇 Hızlı bitir — altın rozet!",
-	Rule.LOW_VISIBILITY: "🌑 Karanlık: fener konisiyle tara",
-	Rule.HIGH_RISK: "☠ Yüksek risk: yanlış alet acıtır",
+	Rule.FORBIDDEN: "Yasak bölgeye dokunma!",
+	Rule.TIME_LIMIT: "Hızlı bitir — altın rozet!",
+	Rule.LOW_VISIBILITY: "Karanlık: fener konisiyle tara",
+	Rule.HIGH_RISK: "Yüksek risk: yanlış alet acıtır",
 }
 
 const COMMISSIONS: Array[Dictionary] = [

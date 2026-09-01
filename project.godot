@@ -10,10 +10,17 @@ config_version=5
 
 [application]
 
-config/name="messy-janitor"
+config/name="Messy Janitor"
+config/version="0.1.0"
 run/main_scene="res://scenes3d/main_3d.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="res://assets/branding/icon.svg"
+config/windows_native_icon="res://assets/branding/icon.ico"
+
+[autoload]
+
+SteamService="*res://systems/steam_service.gd"
+GameSettings="*res://systems/game_settings.gd"
 
 [display]
 

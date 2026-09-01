@@ -68,13 +68,13 @@ func _physics_process(delta: float) -> void:
 
 
 func punch_fov(amount: float = 6.0) -> void:
-	_fov_punch = maxf(_fov_punch, amount)
+	_fov_punch = maxf(_fov_punch, minf(amount, 5.5))
 	if _camera != null:
 		_camera.fov = _base_fov + _fov_punch
 
 
 func shake(amount: float = 1.0) -> void:
-	_shake = maxf(_shake, amount)
+	_shake = maxf(_shake, minf(amount, 1.05))
 
 
 func set_finale_zoom(on: bool) -> void:

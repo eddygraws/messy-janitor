@@ -1120,7 +1120,7 @@ func _play_hit_shake(hit_dir: Vector3, strength: float) -> void:
 	if dir.length_squared() < 0.001:
 		dir = Vector3(1, 0, 0)
 	dir = dir.normalized()
-	var tilt := deg_to_rad(5.0 * strength)
+	var tilt := deg_to_rad(clampf(4.0 * strength, 2.5, 8.0))
 	var axis_tilt := Vector3(-dir.z, 0.0, dir.x) * tilt
 	_hit_shake_tween = create_tween()
 	_hit_shake_tween.tween_property(_anim_root, "rotation", _base_rot + axis_tilt, 0.05)\

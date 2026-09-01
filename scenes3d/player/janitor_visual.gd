@@ -71,6 +71,7 @@ var _oneshot: bool = false
 var _oneshot_gen: int = 0
 var _ready_ok: bool = false
 var _base_model_y: float = 0.0
+var _toon_mats: Array[ShaderMaterial] = []
 
 
 func is_ready_visual() -> bool:
@@ -468,6 +469,7 @@ func _resolve_bone_name(bone: String) -> String:
 func _apply_scene_toon() -> void:
 	if _model == null:
 		return
+	_toon_mats.clear()
 	_apply_toon_recursive(_model)
 
 
@@ -482,7 +484,7 @@ func _apply_toon_recursive(node: Node) -> void:
 			0.88,
 			Color.BLACK,
 			0.0,
-			0.0, # karakterde vertex wobble kapalı
+			0.22,
 			true,
 			outline_w
 		)
@@ -503,7 +505,14 @@ func _apply_toon_recursive(node: Node) -> void:
 		_apply_toon_recursive(c)
 
 
+func apply_hit_wobble(hit_dir: Vector3, strength: float = 1.0) -> void:
+	for mat in _toon_mats:
+		HitWobbleMaterialScript.apply_hit(mat, hit_dir, 0.0, strength)
+
+
 func _set_mesh_mats(mi: MeshInstance3D, mat: ShaderMaterial) -> void:
+	if mat != null and _toon_mats.find(mat) < 0:
+		_toon_mats.append(mat)
 	if mi.mesh == null or mi.mesh.get_surface_count() <= 0:
 		mi.material_override = mat
 		return

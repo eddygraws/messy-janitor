@@ -12,4 +12,5 @@ bush_plane_b.png
 mushroom_plane_a.png  (opsiyonel)
   Dekor mantar; kod şimdilik tree/bush okur, sonra eklenir.
 
-Yoksa hub geçici yeşil küre/silindir placeholder kullanır.
+Yoksa hub geçici yeşil küre/silindir **kullanmaz** — boş bırakır.
+Şu an: `tree_plane_a_treetrunl.png` (ve varsa `tree_plane_a.glb`) okunuyor.
