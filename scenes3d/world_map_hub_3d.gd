@@ -11,6 +11,8 @@ signal advance_finished(level_index: int)
 const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
 const CURVE_SHADER := preload("res://shaders/map_world_curve.gdshader")
 const HudIcons := preload("res://ui/hud_icons.gd")
+const PerfBudget := preload("res://systems/perf_budget_3d.gd")
+const MapSets := preload("res://scenes3d/world_map_setdress.gd")
 const PATH_CURVE_SHADER := preload("res://shaders/map_path_curve.gdshader")
 const OUTLINE_SHADER := preload("res://shaders/mesh_outline.gdshader")
 
@@ -251,17 +253,17 @@ func _build_world() -> void:
 
 	_sun = DirectionalLight3D.new()
 	_sun.light_energy = 1.05
-	_sun.shadow_enabled = true
 	_sun.rotation_degrees = Vector3(-52, 28, 0)
+	PerfBudget.apply_sun(_sun)
 	add_child(_sun)
 
-	# Subdivided plane — vertex curve için gerekli
+	# Subdivided plane — vertex curve için gerekli; bütçe: 24×16
 	_ground = MeshInstance3D.new()
 	_ground.name = "Ground"
 	var ground_mesh := PlaneMesh.new()
 	ground_mesh.size = Vector2(56, 36)
-	ground_mesh.subdivide_width = 48
-	ground_mesh.subdivide_depth = 32
+	ground_mesh.subdivide_width = PerfBudget.MAP_GROUND_SUBDIV_X
+	ground_mesh.subdivide_depth = PerfBudget.MAP_GROUND_SUBDIV_Z
 	_ground.mesh = ground_mesh
 	_ground_mat = _make_curve_mat(Color(0.22, 0.48, 0.26), PATH_MAP_GROUND, 8.0, false)
 	_ground.material_override = _ground_mat
@@ -273,8 +275,8 @@ func _build_world() -> void:
 	_cliff.name = "CliffRim"
 	var cliff_mesh := PlaneMesh.new()
 	cliff_mesh.size = Vector2(58, 10)
-	cliff_mesh.subdivide_width = 40
-	cliff_mesh.subdivide_depth = 8
+	cliff_mesh.subdivide_width = PerfBudget.MAP_CLIFF_SUBDIV_X
+	cliff_mesh.subdivide_depth = PerfBudget.MAP_CLIFF_SUBDIV_Z
 	_cliff.mesh = cliff_mesh
 	var cliff_mat := _make_curve_mat(Color(0.35, 0.28, 0.18), "", 1.0, false)
 	_cliff.material_override = cliff_mat
@@ -285,10 +287,12 @@ func _build_world() -> void:
 	_hills_root = Node3D.new()
 	_hills_root.name = "Hills"
 	add_child(_hills_root)
-	# Eski küre tepeler prototip; arka sırada plane tree
+	# Eski küre tepeler prototip; arka sırada plane tree (tek MultiMesh)
+	var hill_xfs: Array[Transform3D] = []
 	for i in 7:
 		var hp := Vector3(-18.0 + float(i) * 6.0, GROUND_Y, -8.0 - float(i % 2) * 1.8)
-		ForestVegetation.spawn_plane_tree(_hills_root, hp, 6.2 + float(i % 3) * 0.7)
+		hill_xfs.append(ForestVegetation.plane_tree_xform(hp, 6.2 + float(i % 3) * 0.7))
+	ForestVegetation.spawn_plane_tree_batch(_hills_root, hill_xfs)
 
 	_build_horizon()
 
@@ -351,6 +355,7 @@ func _build_world() -> void:
 	_cam_env.fog_light_color = Color(0.72, 0.85, 0.95)
 	_cam_env.fog_density = 0.012
 	_cam_env.fog_aerial_perspective = 0.35
+	PerfBudget.apply_environment(_cam_env)
 	_camera.environment = _cam_env
 	add_child(_camera)
 	PixelLook.bind_camera(_camera)
@@ -596,6 +601,91 @@ func _build_horizon() -> void:
 	add_child(_horizon)
 
 
+func _refresh_horizon() -> void:
+	if _horizon_mat == null:
+		return
+	var tid := String(_palette.get("id", "tutorial"))
+	var bg := _try_load_tex(String(_palette.get("bg_tex", "")))
+	var sil := _try_load_tex(String(_palette.get("horizon_tex", "")))
+	if bg == null and not MapSets.skips_forest(tid):
+		bg = _try_load_tex(PATH_MAP_BG)
+	if sil == null and not MapSets.skips_forest(tid):
+		sil = _try_load_tex(PATH_MAP_HORIZON)
+	if bg != null:
+		_horizon_mat.albedo_texture = bg
+		_horizon_mat.albedo_color = Color.WHITE
+	elif sil != null:
+		_horizon_mat.albedo_texture = sil
+		_horizon_mat.albedo_color = Color.WHITE
+	elif tid == "liquids":
+		_horizon_mat.albedo_texture = _make_suburb_sky_fallback_tex()
+		_horizon_mat.albedo_color = Color.WHITE
+	elif MapSets.skips_forest(tid):
+		_horizon_mat.albedo_texture = _make_theme_sky_fallback_tex()
+		_horizon_mat.albedo_color = Color.WHITE
+	else:
+		_horizon_mat.albedo_texture = _make_sky_fallback_tex()
+		_horizon_mat.albedo_color = Color.WHITE
+
+
+func _make_suburb_sky_fallback_tex() -> Texture2D:
+	var img := Image.create(96, 40, false, Image.FORMAT_RGBA8)
+	var top := Color(0.55, 0.78, 0.95)
+	var mid := Color(0.86, 0.88, 0.78)
+	var bot := Color(0.32, 0.48, 0.28)
+	for y in 40:
+		var t := float(y) / 39.0
+		var col: Color
+		if t < 0.55:
+			col = top.lerp(mid, t / 0.55)
+		else:
+			col = mid.lerp(bot, (t - 0.55) / 0.45)
+		for x in 96:
+			img.set_pixel(x, y, col)
+	var roofs := [
+		Color(0.62, 0.32, 0.28),
+		Color(0.38, 0.42, 0.48),
+		Color(0.55, 0.40, 0.28),
+		Color(0.42, 0.48, 0.38),
+		Color(0.58, 0.36, 0.32),
+	]
+	var walls := [
+		Color(0.82, 0.78, 0.70),
+		Color(0.78, 0.72, 0.62),
+		Color(0.86, 0.80, 0.72),
+		Color(0.74, 0.76, 0.70),
+		Color(0.80, 0.74, 0.64),
+	]
+	for i in 5:
+		var x0 := 6 + i * 18
+		var w := 12 + (i % 3)
+		var h := 7 + (i % 2) * 2
+		var y1 := 39
+		var y0 := y1 - h
+		for y in range(y0, y1):
+			for x in range(x0, x0 + w):
+				if x >= 0 and x < 96:
+					img.set_pixel(x, y, walls[i])
+		for y in range(y0 - 3, y0):
+			for x in range(x0 - 1, x0 + w + 1):
+				if x >= 0 and x < 96 and y >= 0:
+					img.set_pixel(x, y, roofs[i])
+	return ImageTexture.create_from_image(img)
+
+
+func _make_theme_sky_fallback_tex() -> Texture2D:
+	var img := Image.create(64, 32, false, Image.FORMAT_RGBA8)
+	var top: Color = _palette.get("sky", Color(0.4, 0.55, 0.8))
+	var bot: Color = _palette.get("ground", Color(0.2, 0.25, 0.22)).darkened(0.15)
+	var mid := top.lerp(bot, 0.45)
+	for y in 32:
+		var t := float(y) / 31.0
+		var col: Color = top.lerp(mid, t / 0.55) if t < 0.55 else mid.lerp(bot, (t - 0.55) / 0.45)
+		for x in 64:
+			img.set_pixel(x, y, col)
+	return ImageTexture.create_from_image(img)
+
+
 func _push_curve_cam() -> void:
 	## Eğri merkezi = karakter/odak — kameraya göre düşerse zemin ayakların altında kalır
 	var focus := Vector3.ZERO
@@ -614,6 +704,8 @@ func _rebuild_foliage() -> void:
 		return
 	for c in _foliage_root.get_children():
 		c.queue_free()
+	if MapSets.skips_forest(String(_palette.get("id", ""))):
+		return
 	PropCatalog3D.refresh()
 	var leaf_tint: Color = _palette.get("hill", Color(0.22, 0.48, 0.22))
 	var grass_tint: Color = _palette.get("ground", Color(0.18, 0.52, 0.24)).lerp(Color(0.12, 0.62, 0.20), 0.45)
@@ -819,11 +911,12 @@ func _build_hud() -> void:
 	_hud.add_child(_hint)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not _active:
 		return
 	_update_camera()
 	_push_curve_cam()
+	MapSets.tick(_decor_root, delta)
 	if _horizon != null and _camera != null:
 		# Horizon kamerayı X'te takip eder; Z/Y sabit — eğrilmez
 		var hp := _horizon.global_position
@@ -1331,60 +1424,78 @@ func _palette_for_world(slot: int) -> Dictionary:
 		}
 	var themes: Dictionary = {
 		"liquids": {
-			"sky": Color(0.42, 0.68, 0.88), "ambient": Color(0.5, 0.7, 0.85),
-			"ground": Color(0.28, 0.34, 0.4), "hill": Color(0.22, 0.3, 0.38),
-			"path": Color(0.45, 0.85, 1.0), "path_locked": Color(0.3, 0.4, 0.45),
-			"node": Color(0.35, 0.75, 0.95), "node_clear": Color(0.4, 0.9, 0.75),
-			"node_boss": Color(0.2, 0.55, 0.9), "pedestal": Color(0.45, 0.55, 0.62),
-			"accent": Color(0.45, 0.85, 1.0), "sun": 1.1,
+			"sky": Color(0.62, 0.82, 0.95), "ambient": Color(0.72, 0.78, 0.62),
+			"ground": Color(0.34, 0.54, 0.30), "hill": Color(0.28, 0.46, 0.26),
+			"path": Color(0.58, 0.56, 0.54), "path_locked": Color(0.40, 0.40, 0.38),
+			"node": Color(0.92, 0.42, 0.32), "node_clear": Color(0.42, 0.82, 0.45),
+			"node_boss": Color(0.85, 0.48, 0.22), "pedestal": Color(0.55, 0.48, 0.40),
+			"accent": Color(0.95, 0.78, 0.38), "sun": 1.15,
+			"fog": Color(0.82, 0.90, 0.95),
+			"ground_tex": "res://assets/map/suburb/map_ground_suburb.png",
+			"bg_tex": "res://assets/map/suburb/map_bg_suburb.png",
+			"horizon_tex": "res://assets/map/suburb/map_horizon_suburb.png",
 		},
 		"mold": {
-			"sky": Color(0.35, 0.55, 0.38), "ambient": Color(0.4, 0.55, 0.4),
-			"ground": Color(0.16, 0.28, 0.18), "hill": Color(0.12, 0.22, 0.14),
-			"path": Color(0.55, 0.9, 0.4), "path_locked": Color(0.28, 0.35, 0.28),
+			"sky": Color(0.38, 0.52, 0.32), "ambient": Color(0.42, 0.55, 0.38),
+			"ground": Color(0.14, 0.26, 0.16), "hill": Color(0.12, 0.22, 0.14),
+			"path": Color(0.42, 0.48, 0.28), "path_locked": Color(0.28, 0.32, 0.24),
 			"node": Color(0.45, 0.9, 0.35), "node_clear": Color(0.7, 0.95, 0.4),
 			"node_boss": Color(0.25, 0.7, 0.2), "pedestal": Color(0.3, 0.4, 0.28),
-			"accent": Color(0.45, 0.95, 0.4), "sun": 0.9,
+			"accent": Color(0.45, 0.95, 0.4), "sun": 0.85,
+			"fog": Color(0.4, 0.55, 0.35), "fog_density": 0.018,
+			"bg_tex": "res://assets/map/mold/map_bg.png",
 		},
 		"broom": {
-			"sky": Color(0.72, 0.58, 0.4), "ambient": Color(0.7, 0.6, 0.45),
-			"ground": Color(0.32, 0.22, 0.14), "hill": Color(0.26, 0.18, 0.12),
-			"path": Color(0.95, 0.75, 0.4), "path_locked": Color(0.4, 0.32, 0.25),
+			"sky": Color(0.62, 0.42, 0.28), "ambient": Color(0.62, 0.5, 0.38),
+			"ground": Color(0.28, 0.18, 0.12), "hill": Color(0.24, 0.16, 0.1),
+			"path": Color(0.48, 0.36, 0.24), "path_locked": Color(0.32, 0.24, 0.18),
 			"node": Color(0.9, 0.65, 0.3), "node_clear": Color(0.85, 0.85, 0.45),
 			"node_boss": Color(0.85, 0.45, 0.2), "pedestal": Color(0.45, 0.35, 0.25),
-			"accent": Color(0.95, 0.72, 0.35), "sun": 1.15,
+			"accent": Color(0.95, 0.72, 0.35), "sun": 1.05,
+			"fog": Color(0.7, 0.5, 0.35), "fog_density": 0.016,
+			"bg_tex": "res://assets/map/broom/map_bg.png",
 		},
 		"slime": {
-			"sky": Color(0.3, 0.55, 0.5), "ambient": Color(0.35, 0.6, 0.55),
-			"ground": Color(0.12, 0.26, 0.24), "hill": Color(0.1, 0.2, 0.18),
-			"path": Color(0.4, 1.0, 0.75), "path_locked": Color(0.25, 0.35, 0.32),
+			"sky": Color(0.35, 0.62, 0.58), "ambient": Color(0.38, 0.62, 0.55),
+			"ground": Color(0.12, 0.28, 0.24), "hill": Color(0.1, 0.22, 0.18),
+			"path": Color(0.28, 0.45, 0.38), "path_locked": Color(0.22, 0.3, 0.28),
 			"node": Color(0.3, 0.95, 0.7), "node_clear": Color(0.55, 1.0, 0.8),
 			"node_boss": Color(0.15, 0.75, 0.55), "pedestal": Color(0.25, 0.4, 0.38),
 			"accent": Color(0.35, 1.0, 0.72), "sun": 0.95,
+			"fog": Color(0.4, 0.7, 0.65), "fog_density": 0.014,
+			"bg_tex": "res://assets/map/slime/map_bg.png",
 		},
 		"brush": {
-			"sky": Color(0.55, 0.35, 0.7), "ambient": Color(0.55, 0.4, 0.7),
-			"ground": Color(0.32, 0.18, 0.4), "hill": Color(0.26, 0.14, 0.34),
-			"path": Color(0.9, 0.45, 1.0), "path_locked": Color(0.4, 0.3, 0.45),
+			"sky": Color(0.28, 0.12, 0.42), "ambient": Color(0.45, 0.28, 0.58),
+			"ground": Color(0.16, 0.08, 0.2), "hill": Color(0.12, 0.06, 0.16),
+			"path": Color(0.42, 0.28, 0.18), "path_locked": Color(0.28, 0.18, 0.22),
 			"node": Color(0.85, 0.4, 0.95), "node_clear": Color(0.7, 0.55, 1.0),
 			"node_boss": Color(0.7, 0.25, 0.85), "pedestal": Color(0.4, 0.28, 0.48),
-			"accent": Color(0.85, 0.4, 1.0), "sun": 1.0,
+			"accent": Color(0.85, 0.4, 1.0), "sun": 0.7,
+			"fog": Color(0.35, 0.18, 0.45), "fog_density": 0.02,
+			"bg_tex": "res://assets/map/brush/map_bg.png",
+			"horizon_tex": "res://assets/map/brush/map_horizon.png",
 		},
 		"spray": {
-			"sky": Color(0.35, 0.55, 0.78), "ambient": Color(0.4, 0.6, 0.8),
-			"ground": Color(0.14, 0.22, 0.32), "hill": Color(0.12, 0.18, 0.28),
-			"path": Color(0.45, 0.9, 1.0), "path_locked": Color(0.28, 0.35, 0.42),
+			"sky": Color(0.42, 0.58, 0.72), "ambient": Color(0.45, 0.58, 0.72),
+			"ground": Color(0.22, 0.26, 0.32), "hill": Color(0.18, 0.22, 0.28),
+			"path": Color(0.4, 0.44, 0.48), "path_locked": Color(0.3, 0.32, 0.36),
 			"node": Color(0.4, 0.85, 1.0), "node_clear": Color(0.55, 0.95, 0.9),
 			"node_boss": Color(0.25, 0.65, 0.95), "pedestal": Color(0.3, 0.4, 0.5),
-			"accent": Color(0.4, 0.85, 1.0), "sun": 1.05,
+			"accent": Color(0.4, 0.85, 1.0), "sun": 1.0,
+			"fog": Color(0.55, 0.7, 0.82), "fog_density": 0.014,
+			"bg_tex": "res://assets/map/spray/map_bg.png",
 		},
 		"alien": {
-			"sky": Color(0.12, 0.22, 0.18), "ambient": Color(0.28, 0.45, 0.32),
-			"ground": Color(0.1, 0.16, 0.12), "hill": Color(0.08, 0.14, 0.1),
-			"path": Color(0.45, 1.0, 0.55), "path_locked": Color(0.25, 0.35, 0.28),
-			"node": Color(0.5, 1.0, 0.45), "node_clear": Color(0.7, 1.0, 0.55),
-			"node_boss": Color(0.85, 1.0, 0.3), "pedestal": Color(0.22, 0.32, 0.24),
-			"accent": Color(0.45, 1.0, 0.55), "sun": 0.9,
+			"sky": Color(0.08, 0.14, 0.22), "ambient": Color(0.22, 0.38, 0.32),
+			"ground": Color(0.12, 0.14, 0.16), "hill": Color(0.1, 0.12, 0.14),
+			"path": Color(0.32, 0.34, 0.38), "path_locked": Color(0.22, 0.24, 0.26),
+			"node": Color(0.45, 1.0, 0.5), "node_clear": Color(0.7, 1.0, 0.55),
+			"node_boss": Color(0.85, 1.0, 0.3), "pedestal": Color(0.22, 0.32, 0.28),
+			"accent": Color(0.45, 1.0, 0.55), "sun": 0.75,
+			"fog": Color(0.12, 0.22, 0.18), "fog_density": 0.01,
+			"bg_tex": "res://assets/map/alien/map_bg.png",
+			"horizon_tex": "res://assets/map/alien/map_horizon.png",
 		},
 		"tweezers": {
 			"sky": Color(0.4, 0.42, 0.58), "ambient": Color(0.45, 0.48, 0.62),
@@ -1395,12 +1506,15 @@ func _palette_for_world(slot: int) -> Dictionary:
 			"accent": Color(0.75, 0.85, 1.0), "sun": 0.85,
 		},
 		"dark": {
-			"sky": Color(0.08, 0.1, 0.16), "ambient": Color(0.2, 0.22, 0.32),
-			"ground": Color(0.07, 0.07, 0.1), "hill": Color(0.05, 0.05, 0.08),
-			"path": Color(0.35, 0.7, 0.95), "path_locked": Color(0.2, 0.22, 0.28),
-			"node": Color(0.4, 0.75, 1.0), "node_clear": Color(0.45, 0.85, 0.7),
-			"node_boss": Color(0.7, 0.35, 0.95), "pedestal": Color(0.2, 0.2, 0.28),
-			"accent": Color(0.45, 0.85, 1.0), "sun": 0.45,
+			"sky": Color(0.05, 0.07, 0.12), "ambient": Color(0.18, 0.2, 0.28),
+			"ground": Color(0.08, 0.09, 0.08), "hill": Color(0.06, 0.07, 0.06),
+			"path": Color(0.22, 0.22, 0.2), "path_locked": Color(0.14, 0.14, 0.14),
+			"node": Color(0.55, 0.7, 0.85), "node_clear": Color(0.45, 0.85, 0.7),
+			"node_boss": Color(0.7, 0.35, 0.95), "pedestal": Color(0.28, 0.28, 0.26),
+			"accent": Color(0.7, 0.78, 0.85), "sun": 0.35,
+			"fog": Color(0.12, 0.14, 0.18), "fog_density": 0.022,
+			"bg_tex": "res://assets/map/dark/map_bg.png",
+			"horizon_tex": "res://assets/map/dark/map_horizon.png",
 		},
 		"ritual": {
 			"sky": Color(0.35, 0.15, 0.4), "ambient": Color(0.45, 0.25, 0.5),
@@ -1432,14 +1546,24 @@ func _palette_for_world(slot: int) -> Dictionary:
 func _apply_palette_visuals() -> void:
 	if _palette.is_empty():
 		return
+	var tid := String(_palette.get("id", "tutorial"))
 	var ground_c: Color = _palette.get("ground", Color(0.25, 0.4, 0.25))
 	if _ground_mat != null:
 		_ground_mat.set_shader_parameter("albedo_color", ground_c)
+		var gtex := _try_load_tex(String(_palette.get("ground_tex", "")))
+		if gtex == null and not MapSets.skips_forest(tid):
+			gtex = _try_load_tex(PATH_MAP_GROUND)
+		if gtex != null:
+			_ground_mat.set_shader_parameter("albedo_tex", gtex)
+			_ground_mat.set_shader_parameter("use_texture", true)
+		else:
+			_ground_mat.set_shader_parameter("use_texture", false)
 	if _cliff != null and _cliff.material_override is ShaderMaterial:
 		(_cliff.material_override as ShaderMaterial).set_shader_parameter(
 			"albedo_color", ground_c.darkened(0.25).lerp(Color(0.4, 0.3, 0.18), 0.4)
 		)
 	if _hills_root != null:
+		_hills_root.visible = not MapSets.skips_forest(tid)
 		var hill_c: Color = _palette.get("hill", Color(0.2, 0.35, 0.2))
 		var i := 0
 		for c in _hills_root.get_children():
@@ -1458,9 +1582,8 @@ func _apply_palette_visuals() -> void:
 		_cam_env.ambient_light_energy = 0.55 if float(_palette.get("sun", 1.0)) > 0.7 else 0.35
 		_cam_env.fog_enabled = true
 		_cam_env.fog_light_color = _palette.get("fog", sky_c.lightened(0.15))
-		_cam_env.fog_density = 0.012
-	if _horizon_mat != null and _horizon_mat.albedo_texture == null:
-		_horizon_mat.albedo_color = _palette.get("sky", Color(0.58, 0.8, 0.95))
+		_cam_env.fog_density = float(_palette.get("fog_density", 0.012))
+	_refresh_horizon()
 	if _sun != null:
 		_sun.light_energy = float(_palette.get("sun", 1.0))
 		var accent: Color = _palette.get("accent", Color.WHITE)
@@ -1477,52 +1600,7 @@ func _rebuild_theme_decor() -> void:
 		c.queue_free()
 	_rebuild_foliage()
 	var tid := String(_palette.get("id", "tutorial"))
-	var accent: Color = _palette.get("accent", Color(0.8, 0.7, 0.4))
-	match tid:
-		"tutorial":
-			_spawn_box_props(accent)
-			_spawn_prop_label("🧹", Vector3(-7, 1.2, 4.5))
-		"liquids":
-			_spawn_puddles(accent)
-			_spawn_bucket(Vector3(-8.5, 0, 3.2), accent)
-			_spawn_bucket(Vector3(8.2, 0, -2.5), accent)
-			_spawn_prop_label("💧", Vector3(0, 2.2, -5.5))
-		"mold":
-			_spawn_blobs(Color(0.35, 0.75, 0.3), 8)
-			_spawn_prop_label("🤢", Vector3(-6, 1.8, 4))
-		"broom":
-			_spawn_dust_piles()
-			_spawn_box_props(Color(0.7, 0.5, 0.3))
-			_spawn_prop_label("👻", Vector3(7, 1.6, 3.5))
-		"slime":
-			_spawn_blobs(Color(0.3, 0.95, 0.65), 10)
-			_spawn_prop_label("🐌", Vector3(-5, 1.5, -4))
-		"brush":
-			_spawn_potions(accent)
-			_spawn_prop_label("🧪", Vector3(6.5, 1.8, 2.5))
-		"spray":
-			_spawn_cans(accent)
-			_spawn_mist(accent)
-			_spawn_prop_label("💧", Vector3(-7, 2.0, 3))
-		"alien":
-			_spawn_blobs(Color(0.4, 1.0, 0.5), 9)
-			_spawn_prop_label("👽", Vector3(5, 1.7, -3.5))
-		"tweezers":
-			_spawn_candles()
-			_spawn_prop_label("🕯", Vector3(5, 1.7, -3.5))
-		"dark":
-			_spawn_lanterns(accent)
-			_spawn_prop_label("🦇", Vector3(0, 2.4, -6))
-		"ritual":
-			_spawn_candles()
-			_spawn_runes(accent)
-			_spawn_prop_label("🧙", Vector3(-6.5, 1.9, 3.5))
-		"finale":
-			_spawn_box_props(Color(0.85, 0.25, 0.25))
-			_spawn_flames()
-			_spawn_prop_label("🔥", Vector3(0, 2.5, -5.5))
-		_:
-			_spawn_box_props(accent)
+	MapSets.fill(_decor_root, _foliage_root, tid, GROUND_Y)
 
 
 func _mat(col: Color, emit: float = 0.0) -> StandardMaterial3D:
@@ -1633,6 +1711,108 @@ func _spawn_bucket(pos: Vector3, col: Color) -> void:
 	water.bottom_radius = 0.28
 	water.height = 0.08
 	_spawn_mesh(water, pos + Vector3(0, 0.48, 0), col, 0.5)
+
+
+func _spawn_suburb_neighborhood() -> void:
+	## Placeholder mahalle — ev PNG/GLB gelince PATH_SUBURB_* ile değişir.
+	var house_cols: Array[Color] = [
+		Color(0.86, 0.78, 0.68),
+		Color(0.78, 0.72, 0.62),
+		Color(0.82, 0.76, 0.70),
+		Color(0.74, 0.70, 0.62),
+		Color(0.80, 0.74, 0.64),
+	]
+	var roof_cols: Array[Color] = [
+		Color(0.62, 0.32, 0.28),
+		Color(0.40, 0.44, 0.50),
+		Color(0.55, 0.38, 0.26),
+		Color(0.42, 0.48, 0.36),
+		Color(0.58, 0.34, 0.30),
+	]
+	var house_a := _try_load_tex("res://assets/map/suburb/house_a.png")
+	var house_b := _try_load_tex("res://assets/map/suburb/house_b.png")
+	var garage_tex := _try_load_tex("res://assets/map/suburb/garage.png")
+	var xs: Array[float] = [-8.8, -4.4, 0.0, 4.4, 8.8]
+	for i in xs.size():
+		var hx := xs[i]
+		var hz := -5.4 - float(i % 2) * 0.55
+		var tex: Texture2D = garage_tex if i == 0 and garage_tex != null else (house_a if (i % 2 == 0) else house_b)
+		if tex == null:
+			tex = house_a if house_a != null else house_b
+		if tex != null:
+			_spawn_billboard(tex, Vector3(hx, 0, hz), Vector2(3.6 if i == 0 else 3.2, 3.9 if i == 0 else 3.6))
+		else:
+			_spawn_suburb_house(
+				Vector3(hx, GROUND_Y, hz),
+				house_cols[i],
+				roof_cols[i],
+				i == 0
+			)
+		_spawn_suburb_lawn(Vector3(hx, GROUND_Y, hz + 2.15), 2.6, 1.6)
+		if i == 0:
+			_spawn_suburb_driveway(Vector3(hx, GROUND_Y, hz + 2.35))
+		else:
+			_spawn_suburb_mailbox(Vector3(hx + 1.15, GROUND_Y, hz + 2.55))
+	_spawn_suburb_hedge_row(-11.5, 11.5, 4.8)
+	_spawn_suburb_hedge_row(-11.5, 11.5, -7.6)
+	var tree_tex := _try_load_tex("res://assets/props/foliage/tree_plane_a_treetrunl.png")
+	if tree_tex != null:
+		_spawn_billboard(tree_tex, Vector3(-12.8, 0, -4.2), Vector2(3.4, 4.6))
+		_spawn_billboard(tree_tex, Vector3(12.6, 0, -3.4), Vector2(3.1, 4.2))
+		_spawn_billboard(tree_tex, Vector3(-10.2, 0, 5.6), Vector2(2.6, 3.5))
+
+
+func _spawn_suburb_house(pos: Vector3, wall: Color, roof: Color, is_garage: bool) -> void:
+	var body_w := 3.1 if is_garage else 2.35
+	var body_d := 2.4 if is_garage else 2.05
+	var body_h := 1.55 if is_garage else 1.72
+	var body := BoxMesh.new()
+	body.size = Vector3(body_w, body_h, body_d)
+	_spawn_mesh(body, pos + Vector3(0.0, body_h * 0.5, 0.0), wall)
+	var roof_mesh := BoxMesh.new()
+	roof_mesh.size = Vector3(body_w + 0.22, 0.38, body_d + 0.22)
+	_spawn_mesh(roof_mesh, pos + Vector3(0.0, body_h + 0.18, 0.0), roof)
+	if is_garage:
+		var door := BoxMesh.new()
+		door.size = Vector3(1.55, 1.15, 0.08)
+		_spawn_mesh(door, pos + Vector3(0.0, 0.62, body_d * 0.5 + 0.02), Color(0.28, 0.30, 0.32))
+	else:
+		var door := BoxMesh.new()
+		door.size = Vector3(0.42, 0.95, 0.08)
+		_spawn_mesh(door, pos + Vector3(-0.35, 0.48, body_d * 0.5 + 0.02), Color(0.38, 0.26, 0.18))
+		var win := BoxMesh.new()
+		win.size = Vector3(0.55, 0.42, 0.06)
+		_spawn_mesh(win, pos + Vector3(0.55, 1.05, body_d * 0.5 + 0.02), Color(0.55, 0.75, 0.88), 0.12)
+
+
+func _spawn_suburb_lawn(pos: Vector3, w: float, d: float) -> void:
+	var patch := BoxMesh.new()
+	patch.size = Vector3(w, 0.06, d)
+	_spawn_mesh(patch, pos + Vector3(0.0, 0.04, 0.0), Color(0.30, 0.56, 0.26))
+
+
+func _spawn_suburb_driveway(pos: Vector3) -> void:
+	var slab := BoxMesh.new()
+	slab.size = Vector3(1.7, 0.05, 2.8)
+	_spawn_mesh(slab, pos + Vector3(0.0, 0.03, 0.4), Color(0.42, 0.42, 0.44))
+
+
+func _spawn_suburb_mailbox(pos: Vector3) -> void:
+	var post := BoxMesh.new()
+	post.size = Vector3(0.08, 0.72, 0.08)
+	_spawn_mesh(post, pos + Vector3(0.0, 0.36, 0.0), Color(0.55, 0.55, 0.52))
+	var box := BoxMesh.new()
+	box.size = Vector3(0.28, 0.18, 0.16)
+	_spawn_mesh(box, pos + Vector3(0.0, 0.78, 0.0), Color(0.82, 0.22, 0.18))
+
+
+func _spawn_suburb_hedge_row(x0: float, x1: float, z: float) -> void:
+	var x := x0
+	while x <= x1:
+		var bush := BoxMesh.new()
+		bush.size = Vector3(0.85, 0.55, 0.45)
+		_spawn_mesh(bush, Vector3(x, GROUND_Y + 0.28, z), Color(0.22, 0.46, 0.22))
+		x += 1.35
 
 
 func _spawn_blobs(col: Color, count: int) -> void:

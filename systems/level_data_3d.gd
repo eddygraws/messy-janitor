@@ -380,6 +380,10 @@ static func _expand_chapter(ch: Dictionary, chapter_num: int) -> Array[Dictionar
 				CommissionData.Rule.NONE,
 				0.0
 			)
+		if tier == 0 and ch.has("intro_room"):
+			var room: Dictionary = ch.get("intro_room") as Dictionary
+			for k in room.keys():
+				lvl[k] = room[k]
 		out.append(lvl)
 	return out
 
@@ -410,6 +414,16 @@ static func _chapter_defs() -> Array[Dictionary]:
 			"wall": Color(0.48, 0.5, 0.54),
 			"wall_style": "garage",
 			"accent": Color(0.45, 0.85, 1.0),
+			"intro_room": {
+				"room_theme": "garage",
+				"floor": Color(0.42, 0.40, 0.38),
+				"wall": Color(0.58, 0.44, 0.34),
+				"wall_style": "garage",
+				"map_half_x": 8.5,
+				"map_half_z": 6.0,
+				"map_shape": "rect",
+				"outdoor": false,
+			},
 			"stations": ["trash", "bucket"],
 			"unlocked_tools": 1,
 			"allow_mop": true,

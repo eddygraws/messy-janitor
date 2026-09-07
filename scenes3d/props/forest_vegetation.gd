@@ -4,6 +4,8 @@ extends RefCounted
 ## Tutorial DemoForest ile aynı materyal / ölçek / yoğunluk.
 ## Yaprak billboard'u model scale'e bağlı; ağacı küçültmek görünümü bozar.
 
+const PerfBudget := preload("res://systems/perf_budget_3d.gd")
+
 const TREE_A_PATH := "res://assets/vegetation/meshes/tree.glb"
 const TREE_B_PATH := "res://assets/vegetation/meshes/tree3.glb"
 const TREE_A_LEAVES_MESH := "res://assets/vegetation/meshes/tree_leaves_cluster.res"
@@ -101,13 +103,15 @@ static func fill_world_map(
 		Vector3(-8.5, 0, -7.5), Vector3(7.5, 0, -8.0), Vector3(0.0, 0, -9.0),
 		Vector3(-15.0, 0, -6.0), Vector3(15.0, 0, -5.5),
 	]
+	var plane_xfs: Array[Transform3D] = []
 	for i in tree_spots.size():
 		var p := tree_spots[i]
 		p.y = ground_y
 		if USE_UNLICENSED_TUTORIAL_MESHES and i % 3 != 0:
 			spawn_tree(parent, p, rng.randf() * TAU, i % 2, crown_tint)
 		else:
-			spawn_plane_tree(parent, p, rng.randf_range(4.6, 6.2), plane_mat)
+			plane_xfs.append(plane_tree_xform(p, rng.randf_range(4.6, 6.2)))
+	spawn_plane_tree_batch(parent, plane_xfs, plane_mat)
 
 	if not USE_UNLICENSED_TUTORIAL_MESHES:
 		return
@@ -189,9 +193,9 @@ static func fill_level_outskirts(
 	_grass_tint: Color,
 ) -> void:
 	ensure_wind()
-	fill_play_boundary(parent, half_x, half_z, ground_y, rng)
-
-	var tree_n := 8
+	_spawn_edge_berms(parent, half_x, half_z, ground_y)
+	var plane_xfs := _collect_play_boundary_trees(rng, half_x, half_z, ground_y)
+	var tree_n := PerfBudget.MAX_RING_TREES
 	for i in tree_n:
 		var ang := float(i) / float(tree_n) * TAU + rng.randf_range(-0.12, 0.12)
 		var dist := maxf(half_x, half_z) + rng.randf_range(6.5, 10.5)
@@ -201,7 +205,8 @@ static func fill_level_outskirts(
 		if USE_UNLICENSED_TUTORIAL_MESHES and i % 2 != 0:
 			spawn_tree(parent, p, rng.randf() * TAU, i % 2)
 		else:
-			spawn_plane_tree(parent, p, rng.randf_range(5.4, 7.4))
+			plane_xfs.append(plane_tree_xform(p, rng.randf_range(5.4, 7.4)))
+	spawn_plane_tree_batch(parent, plane_xfs)
 
 	if not USE_UNLICENSED_TUTORIAL_MESHES:
 		return
@@ -224,33 +229,7 @@ static func fill_play_boundary(
 	rng: RandomNumberGenerator,
 ) -> void:
 	_spawn_edge_berms(parent, half_x, half_z, ground_y)
-	## Arka kenar (kamera uzağı) — eski duvarın yerine çam sırası
-	_spawn_plane_line(
-		parent, rng, ground_y,
-		Vector3(-half_x, 0.0, -half_z - 1.2),
-		Vector3(half_x, 0.0, -half_z - 1.2),
-		1.28, 5.2, 6.8, 0.22
-	)
-	## Sol / sağ
-	_spawn_plane_line(
-		parent, rng, ground_y,
-		Vector3(-half_x - 1.15, 0.0, -half_z),
-		Vector3(-half_x - 1.15, 0.0, half_z),
-		1.55, 4.6, 6.2, 0.18
-	)
-	_spawn_plane_line(
-		parent, rng, ground_y,
-		Vector3(half_x + 1.15, 0.0, -half_z),
-		Vector3(half_x + 1.15, 0.0, half_z),
-		1.55, 4.6, 6.2, 0.18
-	)
-	## Ön kenar — kamerayı kapatmasın, alçak çalı hissi
-	_spawn_plane_line(
-		parent, rng, ground_y,
-		Vector3(-half_x * 0.72, 0.0, half_z + 1.35),
-		Vector3(half_x * 0.72, 0.0, half_z + 1.35),
-		2.15, 2.8, 3.8, 0.12
-	)
+	spawn_plane_tree_batch(parent, _collect_play_boundary_trees(rng, half_x, half_z, ground_y))
 	if USE_UNLICENSED_TUTORIAL_MESHES:
 		var hedge_grass := _rect_edge_points(rng, half_x, half_z, 0.35, 1.65, 0.38, ground_y)
 		_spawn_multimesh(parent, _tall_grass_mesh(), _get_grass_mat(true), hedge_grass, rng, 1.05, 1.28, Vector3.ONE)
@@ -273,6 +252,33 @@ static func spawn_tree(parent: Node3D, pos: Vector3, yaw: float, variant: int, c
 	_add_leaf_cluster(inst, variant, crown_col)
 	_add_falling_leaves(inst, crown_col)
 	return inst
+
+
+static func plane_tree_xform(pos: Vector3, height: float) -> Transform3D:
+	var sc := height / 5.6
+	return Transform3D(Basis.from_scale(Vector3(sc, sc, sc)), pos)
+
+
+static func spawn_plane_tree_batch(parent: Node3D, xforms: Array[Transform3D], mat_override: Material = null) -> void:
+	var mesh := _get_plane_tree_mesh()
+	var mat: Material = mat_override if mat_override != null else _get_plane_tree_mat()
+	if parent == null or mesh == null or mat == null:
+		return
+	var kept := _cap_xforms(xforms, PerfBudget.MAX_PLANE_TREES)
+	if kept.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = kept.size()
+	for i in kept.size():
+		mm.set_instance_transform(i, kept[i])
+	var mi := MultiMeshInstance3D.new()
+	mi.name = "PlaneTrees"
+	mi.multimesh = mm
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
 
 
 static func spawn_plane_tree(parent: Node3D, pos: Vector3, height: float, mat_override: Material = null) -> Node3D:
@@ -492,8 +498,45 @@ static func _fallback_quad(size: Vector2) -> QuadMesh:
 	return q
 
 
-static func _spawn_plane_line(
-	parent: Node3D,
+static func _collect_play_boundary_trees(
+	rng: RandomNumberGenerator,
+	half_x: float,
+	half_z: float,
+	ground_y: float,
+) -> Array[Transform3D]:
+	var out: Array[Transform3D] = []
+	## Arka kenar (kamera uzağı) — eski duvarın yerine çam sırası
+	_collect_plane_line(
+		out, rng, ground_y,
+		Vector3(-half_x, 0.0, -half_z - 1.2),
+		Vector3(half_x, 0.0, -half_z - 1.2),
+		1.28, 5.2, 6.8, 0.22
+	)
+	## Sol / sağ
+	_collect_plane_line(
+		out, rng, ground_y,
+		Vector3(-half_x - 1.15, 0.0, -half_z),
+		Vector3(-half_x - 1.15, 0.0, half_z),
+		1.55, 4.6, 6.2, 0.18
+	)
+	_collect_plane_line(
+		out, rng, ground_y,
+		Vector3(half_x + 1.15, 0.0, -half_z),
+		Vector3(half_x + 1.15, 0.0, half_z),
+		1.55, 4.6, 6.2, 0.18
+	)
+	## Ön kenar — kamerayı kapatmasın, alçak çalı hissi
+	_collect_plane_line(
+		out, rng, ground_y,
+		Vector3(-half_x * 0.72, 0.0, half_z + 1.35),
+		Vector3(half_x * 0.72, 0.0, half_z + 1.35),
+		2.15, 2.8, 3.8, 0.12
+	)
+	return out
+
+
+static func _collect_plane_line(
+	out: Array[Transform3D],
 	rng: RandomNumberGenerator,
 	ground_y: float,
 	a: Vector3,
@@ -503,6 +546,7 @@ static func _spawn_plane_line(
 	h_max: float,
 	jitter: float,
 ) -> void:
+	spacing *= PerfBudget.PLANE_SPACING_MUL
 	var delta := b - a
 	var length := delta.length()
 	if length < 0.01:
@@ -515,12 +559,27 @@ static func _spawn_plane_line(
 		p.x += rng.randf_range(-jitter, jitter)
 		p.z += rng.randf_range(-jitter, jitter)
 		p.y = ground_y
-		spawn_plane_tree(parent, p, rng.randf_range(h_min, h_max))
-		if rng.randf() < 0.35:
+		out.append(plane_tree_xform(p, rng.randf_range(h_min, h_max)))
+		if rng.randf() < PerfBudget.PLANE_EXTRA_CHANCE:
 			var side := Vector3(-dir.z, 0.0, dir.x) * rng.randf_range(0.55, 1.15)
 			if rng.randf() < 0.5:
 				side = -side
-			spawn_plane_tree(parent, p + side, rng.randf_range(h_min * 0.78, h_max * 0.92))
+			out.append(plane_tree_xform(p + side, rng.randf_range(h_min * 0.78, h_max * 0.92)))
+
+
+static func _cap_xforms(xforms: Array[Transform3D], max_n: int) -> Array[Transform3D]:
+	if max_n <= 0:
+		return []
+	if xforms.size() <= max_n:
+		return xforms
+	var out: Array[Transform3D] = []
+	var step := float(xforms.size()) / float(max_n)
+	var acc := 0.0
+	while out.size() < max_n:
+		var idx := clampi(int(acc), 0, xforms.size() - 1)
+		out.append(xforms[idx])
+		acc += step
+	return out
 
 
 static func _spawn_edge_berms(parent: Node3D, half_x: float, half_z: float, ground_y: float) -> void:

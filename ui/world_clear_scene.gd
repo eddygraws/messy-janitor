@@ -4,6 +4,7 @@ extends Node3D
 ## World-sonu tören — yüzen kara parçası; arkada/altta sadece gökyüzü (ufuk yok).
 
 const JanitorVisualScript := preload("res://scenes3d/player/janitor_visual.gd")
+const PerfBudget := preload("res://systems/perf_budget_3d.gd")
 const PATH_CURVE_SHADER := preload("res://shaders/map_path_curve.gdshader")
 const OUTLINE_SHADER := preload("res://shaders/mesh_outline.gdshader")
 
@@ -51,6 +52,7 @@ func _build() -> void:
 	env.ambient_light_color = Color(0.78, 0.88, 0.98)
 	env.ambient_light_energy = 0.9
 	env.fog_enabled = false
+	PerfBudget.apply_environment(env)
 
 	# İçten görünen gökyüzü küresi — alt/yan/arka hep gökyüzü
 	var sky := MeshInstance3D.new()

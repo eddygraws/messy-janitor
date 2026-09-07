@@ -4,6 +4,8 @@ extends Node3D
 ## Seviye başına harita boyutu / şekil çeşitliliği (tezgâh labirenti değil).
 ## Ana yapı: dikdörtgen zemin + istasyonlar önde; tema skin + footprint değişir.
 
+const PerfBudget := preload("res://systems/perf_budget_3d.gd")
+
 signal layout_applied(theme_id: String)
 signal footprint_changed(half_x: float, half_z: float)
 
@@ -222,6 +224,8 @@ func _add_block(pos: Vector3, size: Vector3, col: Color, clear_r: float) -> void
 
 
 func _theme_key(spec: Dictionary) -> String:
+	if spec.has("room_theme") and String(spec.get("room_theme")) != "":
+		return String(spec.get("room_theme"))
 	var id := String(spec.get("id", ""))
 	var t_at := id.find("_t")
 	if t_at > 0:
@@ -313,8 +317,10 @@ func _fill_outside_void(col_a: Color, col_b: Color) -> void:
 
 	var pad_near := 0.85
 	var pad_far := 22.0
-	var spots := _scatter_outside_spots(rng, pad_near, pad_far, 72)
-	_spawn_outskirt_multimesh_rocks(spots, rng, 38)
+	var spot_n := PerfBudget.OUTDOOR_SCATTER_SPOTS if _outdoor else 72
+	var rock_n := PerfBudget.MAX_OUTSKIRT_ROCKS if _outdoor else 38
+	var spots := _scatter_outside_spots(rng, pad_near, pad_far, spot_n)
+	_spawn_outskirt_multimesh_rocks(spots, rng, rock_n)
 	if _outdoor:
 		var leaf_tint: Color = Color(0.32, 0.58, 0.18).lerp(col_a, 0.28)
 		var grass_tint: Color = Color(0.14, 0.58, 0.20).lerp(col_a, 0.22)

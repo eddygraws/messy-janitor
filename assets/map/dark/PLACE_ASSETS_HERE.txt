@@ -1,0 +1,10 @@
+# Karanlık — mezarlık hub
+
+tombstone.png
+  Mezar taşı billboard.
+
+map_bg.png / map_horizon.png
+  Gece gökyüzü + ay / çıplak ağaç silüeti.
+
+fence.png / dead_tree.png  (opsiyonel)
+  Demir çit ve yapraksız ağaç. Yoksa primitive.

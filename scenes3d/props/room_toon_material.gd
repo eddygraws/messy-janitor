@@ -56,8 +56,10 @@ const STYLE_BY_ID := {
 static func make_floor(
 	albedo: Color,
 	dark_room: bool = false,
-	texture_path: String = FLOOR_TEX_DEFAULT,
+	texture_path: String = "",
 ) -> ShaderMaterial:
+	if texture_path.is_empty():
+		texture_path = FLOOR_TEX_DEFAULT
 	var mat := FLOOR_TEMPLATE.duplicate() as ShaderMaterial
 	mat.set_shader_parameter("albedo_color", albedo)
 	mat.set_shader_parameter("specular_size", 0.0)

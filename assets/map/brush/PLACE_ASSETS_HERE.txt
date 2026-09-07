@@ -1,0 +1,7 @@
+# Fırça & İksir — cadı şatosu hub
+
+castle.png
+  Arka plan şato silüeti / ön cephe. Yoksa kule+keep primitive.
+
+map_bg.png / map_horizon.png
+  Alacakaranlık gökyüzü + uzak kuleler.

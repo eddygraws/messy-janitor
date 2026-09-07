@@ -14,15 +14,15 @@ extends Node3D
 ## Gerçek izometrik ~35.26°; oyun hissi için hafif ayarlı. (izometrik mod)
 @export var pitch_degrees: float = -38.0
 @export var yaw_degrees: float = 45.0
-@export var distance: float = 23.5
+@export var distance: float = 16.0
 @export var look_height: float = 0.85
 
 ## Overcooked test preset (pitch dikey, yaw dünya eksenine hizalı)
 @export var topdown_pitch_degrees: float = -62.0
 @export var topdown_yaw_degrees: float = 0.0
-@export var topdown_distance: float = 20.0
+@export var topdown_distance: float = 12.8
 @export var topdown_look_height: float = 0.55
-@export var topdown_fov: float = 46.0
+@export var topdown_fov: float = 44.0
 
 @onready var _camera: Camera3D = $Camera3D
 
@@ -33,12 +33,12 @@ var _shake: float = 0.0
 var _finale_zoom: bool = false
 
 # İzometrik varsayılanlar (geri alma / finale zoom için)
-const _ISO_DISTANCE := 23.5
+const _ISO_DISTANCE := 16.0
 const _ISO_FOV := 42.0
-const _ISO_DISTANCE_FINALE := 21.5
+const _ISO_DISTANCE_FINALE := 14.0
 const _ISO_FOV_FINALE := 46.0
-const _TD_DISTANCE_FINALE := 17.5
-const _TD_FOV_FINALE := 50.0
+const _TD_DISTANCE_FINALE := 10.8
+const _TD_FOV_FINALE := 48.0
 
 
 func _ready() -> void:

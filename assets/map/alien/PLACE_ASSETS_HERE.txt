@@ -1,0 +1,10 @@
+# Uzaylı — şehir / gökdelen hub
+
+skyscraper.png
+  Tek kule billboard (yan yana tekrarlanır).
+
+ufo.png
+  Uçan saucer (Y-billboard). Yoksa disk+kubbe primitive, daire çizer.
+
+map_bg.png / map_horizon.png
+  Gece şehir silüeti.

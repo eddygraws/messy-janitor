@@ -1,0 +1,17 @@
+# Paspas dünya haritası — suburb mahalle. Bu klasöre koy:
+
+map_bg_suburb.png
+  Ufuk gökyüzü + uzak çatı silüeti. Öneri: 1920x1080.
+  Yoksa prosedürel ev sırası kullanılır.
+
+map_horizon_suburb.png  (opsiyonel)
+  Alpha’lı çatı/ağaç silüeti. bg yoksa buna düşer.
+
+map_ground_suburb.png  (opsiyonel)
+  Çim / kaldırım tile. Yoksa düz çim rengi + world-curve.
+
+house_a.png / house_b.png
+  Y-billboard ev (ön cephe). Primitive kutu evlerin üstüne biner.
+
+garage.png
+  İlk node (Paspas Giriş) evinin yerine geçer — açık garaj kapısı.

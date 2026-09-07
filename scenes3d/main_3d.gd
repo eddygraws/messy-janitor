@@ -8,6 +8,7 @@ const RoomLayoutScript := preload("res://scenes3d/props/room_layout_3d.gd")
 const UfoAbductionDirectorScript := preload("res://systems/ufo_abduction_director.gd")
 const HudIcons := preload("res://ui/hud_icons.gd")
 const Juice3D := preload("res://systems/juice_3d.gd")
+const PerfBudget := preload("res://systems/perf_budget_3d.gd")
 
 @onready var _player: PlayerCharacter3D = $World/PlayerCharacter
 @onready var _camera_rig: IsometricCameraRig = $IsometricCameraRig
@@ -117,6 +118,7 @@ var _level_badges: Dictionary = {}
 
 
 func _ready() -> void:
+	PerfBudget.apply_sun(get_node_or_null("Sun") as DirectionalLight3D)
 	# Eski 10'lu kampanya kaydı → yumuşak reset (yeni filler temposuna uyum)
 	if not FileAccess.file_exists(_save_path) and FileAccess.file_exists("user://messy3d_progress.cfg"):
 		var old := ConfigFile.new()
@@ -1466,7 +1468,8 @@ func _apply_theme(spec: Dictionary) -> void:
 		_room_layout.apply_spec(spec)
 		_apply_room_footprint(_room_layout.half_x(), _room_layout.half_z(), _is_outdoor_level(spec))
 	if _floor_mesh != null:
-		_floor_mesh.material_override = RoomToonMaterial.make_floor(floor_c, dark_room)
+		var floor_tex := String(spec.get("floor_tex", ""))
+		_floor_mesh.material_override = RoomToonMaterial.make_floor(floor_c, dark_room, floor_tex)
 		_floor_mesh.set_surface_override_material(0, null)
 	_apply_plain_backdrop(floor_c, dark_room)
 	var outdoor := _is_outdoor_level(spec)
@@ -1564,6 +1567,7 @@ func _apply_dark_room_lighting(on: bool) -> void:
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 		env.ambient_light_color = Color(0.04, 0.05, 0.08)
 		env.ambient_light_energy = 0.12
+		PerfBudget.apply_environment(env)
 		env_node.environment = env
 		add_child(env_node)
 	elif env_node != null:
@@ -1577,6 +1581,7 @@ func _apply_dark_room_lighting(on: bool) -> void:
 			env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 			env.ambient_light_color = Color(0.04, 0.05, 0.08)
 			env.ambient_light_energy = 0.12
+			PerfBudget.apply_environment(env)
 		else:
 			# Dark dışı: tema gökyüzü; dark: _apply_dark_room_lighting yönetir
 			_apply_plain_backdrop(Color(0.34, 0.36, 0.38), false)
@@ -1613,6 +1618,7 @@ func _apply_plain_backdrop(floor_c: Color, dark_room: bool) -> void:
 	env.ambient_light_color = Color(0.62, 0.64, 0.66)
 	env.ambient_light_energy = 0.5
 	env.fog_enabled = false
+	PerfBudget.apply_environment(env)
 
 
 func _on_objective_changed(remaining: int, total: int) -> void:

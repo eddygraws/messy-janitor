@@ -6,6 +6,7 @@ signal locale_changed(locale: String)
 signal changed
 
 const Product := preload("res://systems/product_identity.gd")
+const PerfBudget := preload("res://systems/perf_budget_3d.gd")
 
 const SAVE_PATH := "user://messy3d_settings.cfg"
 const BUS_MUSIC := &"Music"
@@ -183,6 +184,7 @@ func apply_all() -> void:
 	_apply_bus_volume(AudioServer.get_bus_index(BUS_SFX), sfx_volume)
 	_apply_window()
 	_apply_pixel()
+	PerfBudget.apply_engine()
 
 
 func save() -> void:
