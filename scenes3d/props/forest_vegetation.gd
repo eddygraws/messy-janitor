@@ -13,7 +13,7 @@ const TREE_B_LEAVES_MESH := "res://assets/vegetation/meshes/tree3_leaves_cluster
 const GRASS_MESH_PATH := "res://assets/vegetation/meshes/grass_plane_mesh.res"
 const TALL_GRASS_MESH_PATH := "res://assets/vegetation/meshes/grass_tall_mesh.res"
 const FLOWER_MESH_PATH := "res://assets/vegetation/meshes/flower.res"
-const NOISE_PATH := "res://assets/vegetation/textures/noise.tres"
+const NOISE_PATH := "res://textures/generated/wind_noise.tres"
 const PLANE_TREE_TEX_PATH := "res://assets/props/foliage/tree_plane_a_treetrunl.png"
 const LEAF_ALPHA_PATH := "res://assets/vegetation/textures/leaf_alpha.png"
 const TREE_BARK_PATH := "res://assets/vegetation/textures/tree_bark.png"
@@ -77,10 +77,9 @@ static func ensure_wind() -> void:
 	RenderingServer.global_shader_parameter_set("wind_scale", 0.025)
 	RenderingServer.global_shader_parameter_set("wind_speed", 0.075)
 	RenderingServer.global_shader_parameter_set("wind_strength", 0.4)
-	if USE_UNLICENSED_TUTORIAL_MESHES:
-		var noise := load(NOISE_PATH)
-		if noise != null:
-			RenderingServer.global_shader_parameter_set("wind_noise", noise)
+	var noise := load(NOISE_PATH)
+	if noise != null:
+		RenderingServer.global_shader_parameter_set("wind_noise", noise)
 
 
 static func fill_world_map(

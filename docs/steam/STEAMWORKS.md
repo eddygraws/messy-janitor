@@ -62,4 +62,6 @@ Panelde yayınlanmadan `setAchievement` sessizce no-op / false döner.
 
 ## Gizlilik (P4 store)
 
-Cloud açıkken Steam sayfasında kayıt senkronu belirtilir. Kişisel veri yok; sadece ilerleme / ayar cfg.
+Metin: `docs/steam/PRIVACY.md`. Cloud açıkken Steam sayfasında kayıt senkronu belirtilir. Kişisel veri yok; sadece ilerleme / ayar cfg.
+
+Günlük yükleme adımları: `docs/steam/SHIP.md`.

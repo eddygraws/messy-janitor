@@ -22,11 +22,10 @@ const MENU_LOOP := "menu_loop"
 const MENU_STINGER := "menu_stinger"
 ## Eski tek-parça adayları (havuz boşsa / alias)
 const MAIN_CANDIDATES: Array[String] = [
-	"Lantern Drop",
-	"laterndrop",
-	"LanternDrop",
-	"lantern_drop",
-	"gameplay",
+	"mop_waltz",
+	"crate_trot",
+	"suds_night",
+	"last_call",
 ]
 const LAYER_BASENAMES: Array[String] = ["gameplay_1", "gameplay_2", "gameplay_3"]
 const EXT_CANDIDATES: Array[String] = [".ogg", ".wav", ".mp3", ".WAV", ".OGG", ".MP3"]
@@ -163,7 +162,7 @@ func _is_gameplay_track(base: String) -> bool:
 	if lower.begins_with("menu"):
 		return false
 	for skip in SKIP_PLAYLIST:
-		if base == skip:
+		if lower == skip.to_lower():
 			return false
 	return true
 

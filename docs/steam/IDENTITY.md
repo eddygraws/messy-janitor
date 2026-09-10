@@ -38,6 +38,9 @@ Değişirse tarih kayar; P1'e geçmeden imzalı sayılır.
 - 2D hat: `node_2d.tscn`, `MainScene.gd`, `levels/`
 - Editor debug overlay, F8 2D prototip
 - Godot varsayılan robot ikonu (yerine `assets/branding/icon.svg` + `icon.ico`)
+- `assets/vegetation/` (DemoForest — lisans yok)
+- `audio/music/Lantern Drop.wav`, `audio/music/Drift Circuit 97.wav`
+- `steam_appid.txt`, `docs/`
 
 ### Kapı
 

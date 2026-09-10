@@ -11,7 +11,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..", "assets", "branding")
 OUT_PNG = os.path.join(ROOT, "icon_256.png")
 OUT_ICO = os.path.join(ROOT, "icon.ico")
 SRC = 256
-SIZES = (16, 32, 48, 64, 256)
+SIZES = (16, 32, 48, 64, 128, 256)
 
 
 def png_bytes(w: int, h: int, px: list[int]) -> bytes:

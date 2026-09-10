@@ -6,10 +6,12 @@ extends Control
 signal closed
 
 const WorldClearSceneScript := preload("res://ui/world_clear_scene.gd")
+const PIXELIZE_SHADER := preload("res://shaders/canvas_pixelize.gdshader")
 
 var _root: Control
 var _viewport_host: SubViewportContainer
 var _viewport: SubViewport
+var _pixel_mat: ShaderMaterial
 var _scene: WorldClearScene
 var _cert: PanelContainer
 var _cert_inner: VBoxContainer
@@ -24,6 +26,7 @@ var _tween: Tween
 var _sfx: AudioStreamPlayer
 var _ready_close: bool = false
 var _stat_rows: Array[Label] = []
+var _debug_preview: bool = false
 
 
 func _ready() -> void:
@@ -38,31 +41,28 @@ func _ready() -> void:
 	_sfx.volume_db = -3.0
 	add_child(_sfx)
 
-	# Soft sky dim (sol sahne zaten mavi; hafif overlay)
-	var dim := ColorRect.new()
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0.08, 0.12, 0.18, 0.22)
-	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(dim)
-
 	_root = Control.new()
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 
 	_build_viewport()
+	var dim := ColorRect.new()
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.08, 0.12, 0.18, 0.16)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(dim)
 	_build_certificate()
 	_build_bottom()
+	_build_pixelize()
+	GameSettings.changed.connect(_sync_pixelize)
 
 
 func _build_viewport() -> void:
 	_viewport_host = SubViewportContainer.new()
 	_viewport_host.stretch = true
-	_viewport_host.anchor_left = 0.0
-	_viewport_host.anchor_right = 0.58
-	_viewport_host.anchor_top = 0.0
-	_viewport_host.anchor_bottom = 1.0
-	_viewport_host.offset_right = 0.0
+	_viewport_host.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_viewport_host.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_viewport_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_viewport_host)
 
@@ -70,6 +70,9 @@ func _build_viewport() -> void:
 	_viewport.transparent_bg = false
 	_viewport.handle_input_locally = false
 	_viewport.own_world_3d = true
+	_viewport.msaa_3d = Viewport.MSAA_DISABLED
+	_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	_viewport.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
 	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	_viewport.size = Vector2i(960, 720)
 	_viewport_host.add_child(_viewport)
@@ -90,7 +93,7 @@ func _build_certificate() -> void:
 	_cert.pivot_offset = Vector2(200, 220)
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.94, 0.9, 0.82, 0.98)
-	style.set_corner_radius_all(6)
+	style.set_corner_radius_all(2)
 	style.content_margin_left = 28
 	style.content_margin_right = 28
 	style.content_margin_top = 22
@@ -98,8 +101,8 @@ func _build_certificate() -> void:
 	style.border_color = Color(0.55, 0.42, 0.28, 0.75)
 	style.set_border_width_all(3)
 	style.shadow_color = Color(0, 0, 0, 0.35)
-	style.shadow_size = 12
-	style.shadow_offset = Vector2(4, 6)
+	style.shadow_size = 4
+	style.shadow_offset = Vector2(3, 4)
 	_cert.add_theme_stylebox_override("panel", style)
 	_root.add_child(_cert)
 
@@ -173,6 +176,22 @@ func _build_bottom() -> void:
 	_root.add_child(_btn)
 
 
+func _build_pixelize() -> void:
+	_pixel_mat = ShaderMaterial.new()
+	_pixel_mat.shader = PIXELIZE_SHADER
+	_sync_pixelize()
+
+
+func _sync_pixelize() -> void:
+	var ps := clampi(GameSettings.pixel_size, 1, 8)
+	if _pixel_mat != null:
+		_pixel_mat.set_shader_parameter("pixel_size", float(ps))
+	if _viewport_host == null:
+		return
+	_viewport_host.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_viewport_host.material = _pixel_mat if ps > 1 else null
+
+
 func _clear_stat_rows() -> void:
 	for c in _stat_box.get_children():
 		c.queue_free()
@@ -204,7 +223,9 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 	_ready_close = false
 	visible = true
 	move_to_front()
-	modulate = Color(1, 1, 1, 0)
+	_sync_pixelize()
+	modulate = Color.WHITE
+	_root.modulate = Color(1, 1, 1, 0)
 
 	if _viewport != null:
 		# stretch=true iken SubViewport.size elle değiştirilmez — container boyutlandırır
@@ -295,7 +316,7 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 	_tween = create_tween()
 	_tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	_cert.scale = Vector2(0.88, 0.88)
-	_tween.tween_property(self, "modulate:a", 1.0, 0.28)
+	_tween.tween_property(_root, "modulate:a", 1.0, 0.28)
 	_tween.parallel().tween_property(_cert, "scale", Vector2.ONE, 0.4)\
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_tween.tween_callback(func() -> void:
@@ -306,16 +327,33 @@ func present(world_slot: int, summary: Dictionary, compare: Dictionary) -> void:
 func _on_close() -> void:
 	if not visible or not _ready_close:
 		return
+	_hide_screen()
+
+
+func _hide_screen() -> void:
 	visible = false
 	_ready_close = false
 	if _viewport != null:
 		_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	if _scene != null:
 		_scene.set_process(false)
-	closed.emit()
+	var was_debug := _debug_preview
+	_debug_preview = false
+	if not was_debug:
+		closed.emit()
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if OS.is_debug_build() and event is InputEventKey:
+		var k := event as InputEventKey
+		if k.pressed and not k.echo and (k.keycode == KEY_F7 or k.physical_keycode == KEY_F7):
+			get_viewport().set_input_as_handled()
+			if visible and _debug_preview:
+				_ready_close = true
+				_hide_screen()
+			elif not visible:
+				_debug_show_sample()
+			return
 	if not is_visible_in_tree() or not _ready_close:
 		return
 	if event.is_action_pressed("ui_accept") or event.is_action_pressed("interact"):
@@ -325,3 +363,32 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_SPACE or event.physical_keycode == KEY_SPACE:
 			get_viewport().set_input_as_handled()
 			_on_close()
+
+
+func _debug_show_sample() -> void:
+	_debug_preview = true
+	var summary := {
+		"score": 12840,
+		"coins": 85,
+		"max_combo": 12,
+		"disposed": 24,
+		"boxes_carried": 18,
+		"mop_scrubs": 9,
+		"mistakes": 1,
+		"elapsed": 186.0,
+		"levels_cleared": 3,
+		"gold": 2,
+		"silver": 1,
+		"bronze": 0,
+		"badges": [
+			{"tier": 0, "name": "1 · Giriş · Depo", "label": "ALTIN", "badge": 3, "elapsed": 42.0},
+			{"tier": 1, "name": "1 · Koridor", "label": "GÜMÜŞ", "badge": 2, "elapsed": 61.0},
+			{"tier": 2, "name": "1 · Arka oda", "label": "ALTIN", "badge": 3, "elapsed": 83.0},
+		],
+	}
+	var compare := {
+		"world_best": 12840,
+		"prev_best": 9100,
+		"is_new_best": true,
+	}
+	present(1, summary, compare)

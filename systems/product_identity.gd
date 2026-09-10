@@ -14,6 +14,7 @@ const COPYRIGHT := "Copyright (c) 2026 Messy Janitor"
 const FILE_DESCRIPTION := "Chaotic 3D cleaning game"
 const ENGINE_CREDIT := "Godot Engine 4.6"
 const MIXAMO_CREDIT := "Mixamo"
+const GODOT_NOTICE := "This game uses Godot Engine, available under the MIT license. Copyright (c) 2014-present Godot Engine contributors. Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur."
 
 const SHORT_TR := "Kaotik 3D temizlik. Paspasla, süpür, koli taşı — süre bitmeden odayı kurtar."
 const SHORT_EN := "Chaotic 3D cleaning. Mop, sweep, haul crates — clear the room before time runs out."

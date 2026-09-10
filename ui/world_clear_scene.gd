@@ -155,7 +155,7 @@ func _build() -> void:
 
 	_pawn = Node3D.new()
 	_pawn.name = "Runner"
-	_pawn.position = Vector3(-0.35, 0.18, 0.55)
+	_pawn.position = Vector3(-1.15, 0.18, 0.45)
 	_pawn.rotation.y = deg_to_rad(22.0)
 	_island.add_child(_pawn)
 
@@ -184,9 +184,11 @@ func _build() -> void:
 	_camera.fov = 36.0
 	_camera.environment = env
 	_camera.current = false
-	_camera.position = Vector3(3.4, 4.2, 8.6)
+	# Sertifika sağı kaplar — bakış merkezini sağa al, karakter sol üçte kalsın.
+	_camera.position = Vector3(3.2, 4.1, 8.5)
 	add_child(_camera)
-	_camera.look_at(Vector3(0.0, -0.2, -0.8), Vector3.UP)
+	_camera.look_at(Vector3(0.85, 0.3, -0.2), Vector3.UP)
+	PixelLook.bind_camera(_camera)
 
 
 func _add_cloud_blob(pos: Vector3, radius: float) -> void:

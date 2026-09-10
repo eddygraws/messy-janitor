@@ -152,7 +152,7 @@ wind_direction={
 }
 wind_noise={
 "type": "sampler2D",
-"value": "res://assets/vegetation/textures/noise.tres"
+"value": "res://textures/generated/wind_noise.tres"
 }
 wind_scale={
 "type": "float",
